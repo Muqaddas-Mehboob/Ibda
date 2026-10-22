@@ -20,6 +20,9 @@ env = environ.Env(
 
 environ.Env.read_env(BASE_DIR / ".env")
 
+SUPABASE_URL = env("SUPABASE_URL", default="")
+SUPABASE_PUBLISHABLE_KEY = env("SUPABASE_PUBLISHABLE_KEY", default="")
+
 SECRET_KEY = env(
     "DJANGO_SECRET_KEY",
     default="unsafe-development-key",
