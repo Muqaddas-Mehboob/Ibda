@@ -41,7 +41,7 @@ export default function OnboardingRoute() {
       </Text>
 
       <Pressable
-        // onPress={() => router.push("/brand-setup")}
+        onPress={() => router.push("/brand-setup")}
         className="mt-7 min-h-14 w-full items-center justify-center rounded-full bg-ibda-coral"
       >
         <Text className="font-bold text-white">Set up my brand</Text>

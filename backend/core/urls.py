@@ -1,8 +1,13 @@
-from django.urls import path
+from django.urls import include, path
 
-from .views import BrandListCreateAPIView, health_check
+from .views import BrandDetailView, BrandListCreateAPIView, BrandListCreateView, health_check
 
 urlpatterns = [
     path("health/", health_check, name="health-check"),
-    path("brands/", BrandListCreateAPIView.as_view(), name="brand-list-create"),
+    path("brands/", BrandListCreateView.as_view(), name="brand-list-create"),
+    path(
+        "brands/<uuid:id>/",
+        BrandDetailView.as_view(),
+        name="brand-detail",
+    ),
 ]

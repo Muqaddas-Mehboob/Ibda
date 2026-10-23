@@ -1,58 +1,73 @@
-import json
-import os
-import uuid
-from types import SimpleNamespace
-from urllib.error import HTTPError, URLError
-from urllib.request import Request, urlopen
-
+import requests
 from django.conf import settings
 from rest_framework.authentication import BaseAuthentication
 from rest_framework.exceptions import AuthenticationFailed
 
 
+class SupabaseUser:
+    def __init__(self, user_id, email=None):
+        self.id = user_id
+        self.email = email
+        self.is_authenticated = True
+        self.is_anonymous = False
+
+
 class SupabaseAuthentication(BaseAuthentication):
     def authenticate(self, request):
-        header = request.headers.get("Authorization", "")
-        if not header:
+        authorization = request.headers.get("Authorization", "")
+        parts = authorization.split()
+
+        if not parts:
             return None
 
-        parts = header.split()
         if len(parts) != 2 or parts[0].lower() != "bearer":
-            raise AuthenticationFailed("Use a valid Bearer token.")
+            raise AuthenticationFailed("Invalid authorization header.")
 
-        supabase_url = settings.SUPABASE_URL.rstrip("/")
-        api_key = settings.SUPABASE_PUBLISHABLE_KEY
+        token = parts[1]
 
-        if not supabase_url or not api_key:
-            raise AuthenticationFailed("Supabase authentication is not configured.")
-
-        auth_request = Request(
-            f"{supabase_url}/auth/v1/user",
-            headers={
-                "Authorization": f"Bearer {parts[1]}",
-                "apikey": api_key,
-                "Accept": "application/json",
-            },
+        supabase_url = getattr(settings, "SUPABASE_URL", "").rstrip("/")
+        publishable_key = getattr(
+            settings, "SUPABASE_PUBLISHABLE_KEY", ""
         )
 
-        try:
-            with urlopen(auth_request, timeout=10) as response:
-                user_data = json.loads(response.read().decode("utf-8"))
-        except HTTPError as exc:
-            if exc.code in (400, 401, 403):
-                raise AuthenticationFailed("Invalid or expired access token.")
-            raise AuthenticationFailed("Supabase authentication is temporarily unavailable.")
-        except (URLError, TimeoutError, OSError, ValueError):
-            raise AuthenticationFailed("Could not verify your Supabase session.")
+        if not supabase_url or not publishable_key:
+            raise AuthenticationFailed(
+                "Supabase authentication is not configured."
+            )
 
         try:
-            user_id = uuid.UUID(user_data["id"])
-        except (KeyError, ValueError, TypeError):
-            raise AuthenticationFailed("Supabase returned an invalid user.")
+            response = requests.get(
+                f"{supabase_url}/auth/v1/user",
+                headers={
+                    "apikey": publishable_key,
+                    "Authorization": f"Bearer {token}",
+                },
+                timeout=10,
+            )
+        except requests.RequestException:
+            raise AuthenticationFailed(
+                "Unable to verify your session. Please try again."
+            )
 
-        user = SimpleNamespace(
-            id=user_id,
-            email=user_data.get("email"),
-            is_authenticated=True,
-        )
-        return user, parts[1]
+        if response.status_code != 200:
+            raise AuthenticationFailed(
+                f"Supabase rejected the token (HTTP {response.status_code})."
+            )
+
+        try:
+            user_data = response.json()
+        except ValueError:
+            raise AuthenticationFailed(
+                "Invalid authentication response."
+            )
+
+        user_id = user_data.get("id")
+        email = user_data.get("email")
+
+        if not user_id:
+            raise AuthenticationFailed("User ID was not returned.")
+
+        return SupabaseUser(user_id, email), token
+
+    def authenticate_header(self, request):
+        return "Bearer"
