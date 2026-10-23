@@ -41,8 +41,8 @@ export function LandingScreen() {
   const compact = width < 380;
 
   return (
-    <SafeAreaView className="flex-1 bg-ibda-background" backgroundColor="#FCF9F4">
-      <StatusBar barStyle="dark-content"/>
+    <SafeAreaView style={{ flex: 1, backgroundColor: "#FCF9F4" }}>
+      <StatusBar barStyle="dark-content" />
 
       <ScrollView
         className="w-full flex-1"

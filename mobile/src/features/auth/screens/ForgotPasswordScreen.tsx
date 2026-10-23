@@ -36,7 +36,7 @@ export function ForgotPasswordScreen() {
       className="flex-1 bg-ibda-background"
       behavior={Platform.OS === "ios" ? "padding" : undefined}
     >
-      <StatusBar barStyle="dark-content" backgroundColor="#FCF9F4" />
+      <StatusBar barStyle="dark-content" />
 
       <ScrollView
         className="flex-1"
