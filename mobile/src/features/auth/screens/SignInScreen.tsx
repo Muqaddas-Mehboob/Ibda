@@ -1,3 +1,4 @@
+import { signInWithGoogle } from "../services/google-auth.service";
 import { signIn } from "../services/auth.service";
 import { router } from "expo-router";
 import { useState } from "react";
@@ -10,6 +11,7 @@ import {
   Text,
   TextInput,
   View,
+  Alert,
 } from "react-native";
 
 export function SignInScreen() {
@@ -18,8 +20,39 @@ export function SignInScreen() {
   const [rememberMe, setRememberMe] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
-
+  const [googleLoading, setGoogleLoading] = useState(false);
   const [error, setError] = useState("");
+
+  async function handleGoogleSignIn() {
+    setError("");
+    setGoogleLoading(true);
+
+    try {
+      const authError = await signInWithGoogle();
+
+      if (authError) {
+        setError(authError);
+
+        if (Platform.OS !== "web") {
+          Alert.alert("Google sign-in failed", authError);
+        }
+      }
+      // AuthProvider/AuthGate handles navigation after a session is created.
+    } catch (err) {
+      const message =
+        err instanceof Error
+          ? err.message
+          : "Unable to sign in with Google. Please try again.";
+
+      setError(message);
+
+      if (Platform.OS !== "web") {
+        Alert.alert("Google sign-in failed", message);
+      }
+    } finally {
+      setGoogleLoading(false);
+    }
+  }
 
   async function handleSignIn() {
     setError("");
@@ -40,6 +73,12 @@ export function SignInScreen() {
       }
 
       router.replace("/onboarding");
+    } catch (err) {
+      setError(
+        err instanceof Error
+          ? err.message
+          : "Unable to sign in. Please try again."
+      );
     } finally {
       setLoading(false);
     }
@@ -92,17 +131,21 @@ export function SignInScreen() {
           presence and brand voice.
         </Text>
 
-        {/* Google button: UI only until OAuth is connected */}
+        {/* Google sign-in */}
         <Pressable
           accessibilityRole="button"
-          onPress={() =>
-            setError("Google sign-in will be available once authentication is connected.")
-          }
-          className="mt-9 min-h-[63px] flex-row items-center justify-center border border-[#EEE9E3] bg-white active:opacity-80"
+          accessibilityLabel="Continue with Google"
+          onPress={handleGoogleSignIn}
+          disabled={googleLoading || loading}
+          className={`mt-9 min-h-[63px] flex-row items-center justify-center border border-[#EEE9E3] bg-white active:opacity-80 ${googleLoading || loading ? "opacity-60" : ""
+            }`}
         >
-          <Text className="mr-3 text-[23px] font-bold text-[#4285F4]">G</Text>
+          <Text className="mr-3 text-[23px] font-bold text-[#4285F4]">
+            G
+          </Text>
+
           <Text className="text-base font-semibold text-ibda-charcoal">
-            Continue with Google
+            {googleLoading ? "Connecting to Google..." : "Continue with Google"}
           </Text>
         </Pressable>
 
@@ -174,9 +217,7 @@ export function SignInScreen() {
 
           <Pressable
             accessibilityRole="button"
-            accessibilityLabel={
-              showPassword ? "Hide password" : "Show password"
-            }
+            accessibilityLabel={showPassword ? "Hide password" : "Show password"}
             onPress={() => setShowPassword((current) => !current)}
             hitSlop={10}
           >
@@ -217,12 +258,13 @@ export function SignInScreen() {
           </Text>
         ) : null}
 
-        {/* Sign in button */}
+        {/* Email sign-in */}
         <Pressable
           accessibilityRole="button"
           onPress={handleSignIn}
-          disabled={loading}
-          className="mt-6 min-h-[64px] flex-row items-center justify-center rounded-full bg-ibda-coral shadow-lg shadow-[#F76B5B]/25 active:opacity-80"
+          disabled={loading || googleLoading}
+          className={`mt-6 min-h-[64px] flex-row items-center justify-center rounded-full bg-ibda-coral shadow-lg shadow-[#F76B5B]/25 active:opacity-80 ${loading || googleLoading ? "opacity-60" : ""
+            }`}
         >
           <Text className="text-base font-bold text-white">
             {loading ? "Signing in..." : "Sign In"}
@@ -262,7 +304,7 @@ export function SignInScreen() {
         <View className="mt-auto items-center pt-9">
           <View className="flex-row flex-wrap items-center justify-center">
             <Text className="text-sm text-ibda-brown">
-              Don't have an account?
+              Don&apos;t have an account?
             </Text>
 
             <Pressable

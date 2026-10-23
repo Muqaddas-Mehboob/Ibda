@@ -1,6 +1,8 @@
 import { router } from "expo-router";
+import { signInWithGoogle } from "../services/google-auth.service";
 import { useState } from "react";
 import {
+  Alert,
   KeyboardAvoidingView,
   Platform,
   Pressable,
@@ -21,6 +23,25 @@ export function SignUpScreen() {
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
   const [successMessage, setSuccessMessage] = useState("");
+  const [googleLoading, setGoogleLoading] = useState(false);
+
+  const handleGoogleSignUp = async () => {
+    setGoogleLoading(true);
+
+    try {
+      const error = await signInWithGoogle();
+
+      if (error) {
+        if (Platform.OS === "web") {
+          window.alert(error);
+        } else {
+          Alert.alert("Google Sign-Up Failed", error);
+        }
+      }
+    } finally {
+      setGoogleLoading(false);
+    }
+  };
 
   async function handleSignUp() {
     setError("");
@@ -103,6 +124,33 @@ export function SignUpScreen() {
           Start building a consistent social presence with your AI-powered
           creative studio.
         </Text>
+
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel="Sign up with Google"
+          onPress={handleGoogleSignUp}
+          disabled={googleLoading}
+          className={`mt-5 min-h-[60px] flex-row items-center justify-center border border-[#EEE9E3] bg-white ${googleLoading ? "opacity-60" : ""
+            }`}
+        >
+          <Text className="mr-3 text-[23px] font-bold text-[#4285F4]">
+            G
+          </Text>
+
+          <Text className="text-base font-semibold text-ibda-charcoal">
+            {googleLoading ? "Connecting to Google..." : "Continue with Google"}
+          </Text>
+        </Pressable>
+
+         
+        {/* Divider */}
+        <View className="my-6 flex-row items-center">
+          <View className="h-px flex-1 bg-ibda-border" />
+          <Text className="mx-3 text-xs font-bold tracking-wide text-ibda-muted">
+            OR CONTINUE WITH EMAIL
+          </Text>
+          <View className="h-px flex-1 bg-ibda-border" />
+        </View>
 
         <View className="mt-8">
           <Text className="mb-2 text-sm font-semibold text-ibda-charcoal">
