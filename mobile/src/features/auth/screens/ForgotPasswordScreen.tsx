@@ -10,13 +10,17 @@ import {
   TextInput,
   View,
 } from "react-native";
+import { resetPassword } from "../services/auth.service";
 
 export function ForgotPasswordScreen() {
   const [email, setEmail] = useState("");
   const [error, setError] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [successMessage, setSuccessMessage] = useState("");
 
-  function handleResetPassword() {
+  async function handleResetPassword() {
     setError("");
+    setSuccessMessage("");
 
     if (!email.trim()) {
       setError("Please enter your email address.");
@@ -28,7 +32,22 @@ export function ForgotPasswordScreen() {
       return;
     }
 
-    setError("Password reset is not connected to Supabase yet.");
+    setLoading(true);
+
+    try {
+      const result = await resetPassword(email);
+
+      if (result.error) {
+        setError(result.error);
+        return;
+      }
+
+      setSuccessMessage(
+        "If an account exists for this email, password reset instructions will be sent."
+      );
+    } finally {
+      setLoading(false);
+    }
   }
 
   return (
@@ -93,13 +112,20 @@ export function ForgotPasswordScreen() {
           </Text>
         ) : null}
 
+        {successMessage ? (
+          <Text className="mt-4 text-sm leading-5 text-ibda-green">
+            {successMessage}
+          </Text>
+        ) : null}
+
         <Pressable
           onPress={handleResetPassword}
           accessibilityRole="button"
+          disabled={loading}
           className="mt-6 min-h-14 flex-row items-center justify-center rounded-full bg-ibda-coral active:opacity-80"
         >
           <Text className="text-base font-bold text-white">
-            Send reset link
+            {loading ? "Sending..." : "Send reset link"}
           </Text>
           <Text className="ml-2 text-lg text-white">→</Text>
         </Pressable>

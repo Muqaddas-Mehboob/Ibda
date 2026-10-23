@@ -10,6 +10,7 @@ import {
   TextInput,
   View,
 } from "react-native";
+import { signUp } from "../services/auth.service";
 
 export function SignUpScreen() {
   const [name, setName] = useState("");
@@ -18,9 +19,12 @@ export function SignUpScreen() {
   const [confirmPassword, setConfirmPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [successMessage, setSuccessMessage] = useState("");
 
-  function handleSignUp() {
+  async function handleSignUp() {
     setError("");
+    setSuccessMessage("");
 
     if (!name.trim() || !email.trim() || !password || !confirmPassword) {
       setError("Please complete all fields.");
@@ -42,7 +46,22 @@ export function SignUpScreen() {
       return;
     }
 
-    setError("Account creation is not connected to Supabase yet.");
+    setLoading(true);
+
+    try {
+      const result = await signUp(name, email, password);
+
+      if (result.error) {
+        setError(result.error);
+        return;
+      }
+
+      setSuccessMessage(
+        "Account request submitted. Check your email if confirmation is required."
+      );
+    } finally {
+      setLoading(false);
+    }
   }
 
   return (
@@ -166,13 +185,23 @@ export function SignUpScreen() {
           </Text>
         ) : null}
 
+        {successMessage ? (
+          <Text accessibilityRole="alert" className="mt-4 text-sm leading-5 text-ibda-green">
+            {successMessage}
+          </Text>
+        ) : null}
+
         <Pressable
           onPress={handleSignUp}
+          disabled={loading}
           accessibilityRole="button"
-          className="mt-7 min-h-14 flex-row items-center justify-center rounded-full bg-ibda-coral active:opacity-80"
+          className={`mt-7 min-h-14 flex-row items-center justify-center rounded-full bg-ibda-coral ${loading ? "opacity-60" : "active:opacity-80"
+            }`}
         >
-          <Text className="text-base font-bold text-white">Create account</Text>
-          <Text className="ml-2 text-lg text-white">→</Text>
+          <Text className="text-base font-bold text-white">
+            {loading ? "Creating account..." : "Create account"}
+          </Text>
+          {!loading && <Text className="ml-2 text-lg text-white">→</Text>}
         </Pressable>
 
         <View className="mt-7 flex-row flex-wrap items-center justify-center">

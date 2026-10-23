@@ -1,3 +1,4 @@
+import { signIn } from "../services/auth.service";
 import { router } from "expo-router";
 import { useState } from "react";
 import {
@@ -16,10 +17,11 @@ export function SignInScreen() {
   const [password, setPassword] = useState("");
   const [rememberMe, setRememberMe] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
+  const [loading, setLoading] = useState(false);
 
   const [error, setError] = useState("");
 
-  function handleSignIn() {
+  async function handleSignIn() {
     setError("");
 
     if (!email.trim() || !password) {
@@ -27,8 +29,20 @@ export function SignInScreen() {
       return;
     }
 
-    // Supabase authentication will be connected in the auth service.
-    setError("Authentication is not connected yet.");
+    setLoading(true);
+
+    try {
+      const result = await signIn(email, password);
+
+      if (result.error) {
+        setError(result.error);
+        return;
+      }
+
+      router.replace("/onboarding");
+    } finally {
+      setLoading(false);
+    }
   }
 
   return (
@@ -132,7 +146,7 @@ export function SignInScreen() {
 
           <Pressable
             accessibilityRole="button"
-            onPress={() => router.push("/forget-password")}
+            onPress={() => router.push("/forgot-password")}
             hitSlop={8}
           >
             <Text className="text-sm font-medium text-ibda-coral">
@@ -180,9 +194,8 @@ export function SignInScreen() {
           className="mt-5 flex-row items-center self-start py-1"
         >
           <View
-            className={`mr-3 h-6 w-6 items-center justify-center rounded-md ${
-              rememberMe ? "bg-ibda-coral" : "bg-[#ECE8E3]"
-            }`}
+            className={`mr-3 h-6 w-6 items-center justify-center rounded-md ${rememberMe ? "bg-ibda-coral" : "bg-[#ECE8E3]"
+              }`}
           >
             {rememberMe && (
               <Text className="text-sm font-bold text-white">✓</Text>
@@ -208,9 +221,12 @@ export function SignInScreen() {
         <Pressable
           accessibilityRole="button"
           onPress={handleSignIn}
+          disabled={loading}
           className="mt-6 min-h-[64px] flex-row items-center justify-center rounded-full bg-ibda-coral shadow-lg shadow-[#F76B5B]/25 active:opacity-80"
         >
-          <Text className="text-base font-bold text-white">Sign In</Text>
+          <Text className="text-base font-bold text-white">
+            {loading ? "Signing in..." : "Sign In"}
+          </Text>
           <Text className="ml-2 text-xl text-white">→</Text>
         </Pressable>
 
