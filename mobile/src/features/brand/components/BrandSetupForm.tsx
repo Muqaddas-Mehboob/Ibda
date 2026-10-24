@@ -39,12 +39,18 @@ export function BrandSetupForm() {
     }
 
     if (!industry) {
-      Alert.alert("Choose an industry", "Select the industry that best fits your brand.");
+      Alert.alert(
+        "Choose an industry",
+        "Select the industry that best fits your brand."
+      );
       return;
     }
 
     if (!description.trim()) {
-      Alert.alert("Tell us about your brand", "Add a short description of your brand.");
+      Alert.alert(
+        "Tell us about your brand",
+        "Add a short description of your brand."
+      );
       return;
     }
 
@@ -58,17 +64,7 @@ export function BrandSetupForm() {
     try {
       setLoading(true);
       await createBrand(brandData);
-
-      Alert.alert(
-        "Brand created!",
-        "Your brand details have been saved successfully.",
-        [
-          {
-            text: "Continue",
-            onPress: () => router.replace("/dashboard"),
-          },
-        ]
-      );
+      router.replace("/dashboard");
     } catch (error) {
       Alert.alert(
         "Couldn't save your brand",
@@ -95,18 +91,29 @@ export function BrandSetupForm() {
       keyboardShouldPersistTaps="handled"
       showsVerticalScrollIndicator={false}
     >
-      <Pressable
-        onPress={() => router.back()}
-        className="mb-7 self-start rounded-full border border-[#E7E0D7] bg-white px-4 py-2"
-      >
-        <Text className="text-sm font-medium text-[#29251F]">
-          ← Back
-        </Text>
-      </Pressable>
+      <View className="mb-6 flex-row items-center justify-between">
+        <Pressable
+          onPress={() => router.back()}
+          accessibilityRole="button"
+          className="h-11 w-11 items-center justify-center rounded-full border border-[#EAE4DC] bg-white"
+        >
+          <Text className="text-2xl text-[#24221F]">←</Text>
+        </Pressable>
+
+        <Pressable
+          onPress={() => router.replace("/dashboard")}
+          accessibilityRole="button"
+          className="rounded-full px-4 py-3"
+        >
+          <Text className="font-semibold text-[#827970]">
+            Skip for now
+          </Text>
+        </Pressable>
+      </View>
 
       <View className="mb-8">
         <Text className="mb-3 text-sm font-semibold uppercase tracking-[3px] text-[#B66A58]">
-          LET'S GET STARTED
+          LET&apos;S GET STARTED
         </Text>
 
         <Text className="text-4xl font-bold leading-[44px] text-[#29251F]">
@@ -150,16 +157,14 @@ export function BrandSetupForm() {
                 key={item}
                 onPress={() => setIndustry(item)}
                 disabled={loading}
-                className={`rounded-full border px-4 py-3 ${
-                  selected
+                className={`rounded-full border px-4 py-3 ${selected
                     ? "border-[#FF6B5F] bg-[#FF6B5F]"
                     : "border-[#E7E0D7] bg-white"
-                }`}
+                  }`}
               >
                 <Text
-                  className={`text-sm font-medium ${
-                    selected ? "text-white" : "text-[#51483F]"
-                  }`}
+                  className={`text-sm font-medium ${selected ? "text-white" : "text-[#51483F]"
+                    }`}
                 >
                   {item}
                 </Text>
@@ -213,9 +218,8 @@ export function BrandSetupForm() {
       <Pressable
         onPress={handleSave}
         disabled={loading}
-        className={`min-h-14 flex-row items-center justify-center rounded-2xl bg-[#FF6B5F] px-5 py-4 ${
-          loading ? "opacity-70" : ""
-        }`}
+        className={`min-h-14 flex-row items-center justify-center rounded-2xl bg-[#FF6B5F] px-5 py-4 ${loading ? "opacity-70" : ""
+          }`}
       >
         {loading ? (
           <ActivityIndicator color="#FFFFFF" />

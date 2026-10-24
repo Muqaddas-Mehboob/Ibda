@@ -1,7 +1,11 @@
+import logging
 import requests
+
 from django.conf import settings
 from rest_framework.authentication import BaseAuthentication
 from rest_framework.exceptions import AuthenticationFailed
+
+logger = logging.getLogger(__name__)
 
 
 class SupabaseUser:
@@ -15,17 +19,27 @@ class SupabaseUser:
 class SupabaseAuthentication(BaseAuthentication):
     def authenticate(self, request):
         authorization = request.headers.get("Authorization", "")
+        print("AUTHORIZATION HEADER RECEIVED:", bool(authorization))
+        print("AUTHORIZATION PREFIX:", authorization.split()[0] if authorization.split() else "MISSING")
         parts = authorization.split()
 
         if not parts:
+            logger.warning(
+                "Supabase auth: Authorization header is MISSING on %s %s",
+                request.method,
+                request.path,
+            )
             return None
 
         if len(parts) != 2 or parts[0].lower() != "bearer":
-            raise AuthenticationFailed("Invalid authorization header.")
+            raise AuthenticationFailed(
+                "Invalid Authorization header format."
+            )
 
         token = parts[1]
-
-        supabase_url = getattr(settings, "SUPABASE_URL", "").rstrip("/")
+        supabase_url = getattr(
+            settings, "SUPABASE_URL", ""
+        ).rstrip("/")
         publishable_key = getattr(
             settings, "SUPABASE_PUBLISHABLE_KEY", ""
         )
@@ -45,27 +59,34 @@ class SupabaseAuthentication(BaseAuthentication):
                 timeout=10,
             )
         except requests.RequestException:
+            logger.exception("Supabase user verification request failed")
             raise AuthenticationFailed(
-                "Unable to verify your session. Please try again."
+                "Could not verify the Supabase session."
             )
 
         if response.status_code != 200:
+            logger.warning(
+                "Supabase rejected access token: HTTP %s",
+                response.status_code,
+            )
             raise AuthenticationFailed(
-                f"Supabase rejected the token (HTTP {response.status_code})."
+                f"Supabase rejected the access token (HTTP {response.status_code})."
             )
 
         try:
             user_data = response.json()
         except ValueError:
             raise AuthenticationFailed(
-                "Invalid authentication response."
+                "Invalid response from Supabase."
             )
 
         user_id = user_data.get("id")
         email = user_data.get("email")
 
         if not user_id:
-            raise AuthenticationFailed("User ID was not returned.")
+            raise AuthenticationFailed(
+                "Supabase response did not include a user ID."
+            )
 
         return SupabaseUser(user_id, email), token
 
