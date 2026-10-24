@@ -62,6 +62,12 @@ class ContentPost(TimeStampedModel):
         X = "x", "X"
         OTHER = "other", "Other"
 
+    class ContentType(models.TextChoices):
+        CAPTION = "caption", "Caption"
+        PROMOTIONAL = "promotional", "Promotional post"
+        EDUCATIONAL = "educational", "Educational post"
+        ANNOUNCEMENT = "announcement", "Announcement"
+
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     brand = models.ForeignKey(
         Brand,
@@ -71,6 +77,11 @@ class ContentPost(TimeStampedModel):
 
     title = models.CharField(max_length=200, blank=True)
     body = models.TextField()
+    content_type = models.CharField(
+        max_length=30,
+        choices=ContentType.choices,
+        default=ContentType.CAPTION,
+    )
     platform = models.CharField(
         max_length=20,
         choices=Platform.choices,

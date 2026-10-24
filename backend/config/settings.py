@@ -34,6 +34,15 @@ SUPABASE_PUBLISHABLE_KEY = env(
     default="",
 )
 
+# AI credentials are server-only and must never be exposed to the mobile app.
+AI_PROVIDER = env("AI_PROVIDER", default="openai")
+AI_API_KEY = env("AI_API_KEY", default="")
+AI_MODEL = env("AI_MODEL", default="")
+AI_BASE_URL = env(
+    "AI_BASE_URL",
+    default="https://api.openai.com/v1",
+).rstrip("/")
+
 # Django applications
 INSTALLED_APPS = [
     "django.contrib.admin",

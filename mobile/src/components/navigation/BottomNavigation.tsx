@@ -5,6 +5,7 @@ import { usePathname, useRouter } from "expo-router";
 const tabs = [
   { label: "Home", route: "/dashboard", icon: "⌂" },
   { label: "Brand", route: "/brand-memory", icon: "◇" },
+  { label: "Studio", route: "/content-studio", icon: "✦" },
   { label: "Approvals", route: "/approvals", icon: "✓" },
   { label: "Calendar", route: "/calendar", icon: "▦" },
   { label: "Analytics", route: "/analytics", icon: "↗" },
@@ -20,7 +21,9 @@ export function BottomNavigation() {
       {tabs.map((tab) => {
         const active =
           pathname === tab.route ||
-          ((tab.route === "/brand-memory" || tab.route === "/approvals") &&
+          ((tab.route === "/brand-memory" ||
+            tab.route === "/content-studio" ||
+            tab.route === "/approvals") &&
             pathname.startsWith(`${tab.route}/`));
 
         return (

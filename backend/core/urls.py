@@ -6,6 +6,10 @@ from .views import (
     ApprovalActionView,
     ApprovalDetailView,
     ApprovalListView,
+    ContentGenerateView,
+    ContentPostDetailView,
+    ContentPostListCreateView,
+    ContentPostSubmitApprovalView,
     health_check,
     BrandVoiceView
 )
@@ -33,5 +37,25 @@ urlpatterns = [
         "approvals/<uuid:approval_id>/<str:action>/",
         ApprovalActionView.as_view(),
         name="approval-action",
+    ),
+    path(
+        "content/generate/",
+        ContentGenerateView.as_view(),
+        name="content-generate",
+    ),
+    path(
+        "content/posts/",
+        ContentPostListCreateView.as_view(),
+        name="content-post-list-create",
+    ),
+    path(
+        "content/posts/<uuid:id>/",
+        ContentPostDetailView.as_view(),
+        name="content-post-detail",
+    ),
+    path(
+        "content/posts/<uuid:post_id>/submit-for-approval/",
+        ContentPostSubmitApprovalView.as_view(),
+        name="content-post-submit-for-approval",
     ),
 ]

@@ -261,10 +261,10 @@ export default function DashboardScreen() {
       return;
     }
 
-    Alert.alert(
-      "AI generation not connected yet",
-      "Your dashboard UI is ready. The AI generation API still needs to be integrated."
-    );
+    router.push({
+      pathname: "/content-studio",
+      params: { topic: prompt.trim() },
+    });
   };
 
   return (
