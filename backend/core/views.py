@@ -9,13 +9,15 @@ from rest_framework.views import APIView
 from rest_framework import status
 
 from .authentication import SupabaseAuthentication
-from .models import Approval, Brand, BrandVoice, ContentPost
+from .models import Approval, Brand, BrandVoice, ContentPost, ScheduledPost
 from .serializers import (
     ApprovalSerializer,
     BrandSerializer,
     BrandVoiceSerializer,
     ContentGenerationSerializer,
     ContentPostSerializer,
+    ScheduledPostRangeSerializer,
+    ScheduledPostSerializer,
 )
 from .services.content_generation import (
     ContentGenerationError,
@@ -326,4 +328,27 @@ class ContentPostSubmitApprovalView(APIView):
         return Response(
             ApprovalSerializer(approval).data,
             status=status.HTTP_201_CREATED,
+        )
+
+
+class ScheduledPostListView(generics.ListAPIView):
+    serializer_class = ScheduledPostSerializer
+    authentication_classes = [SupabaseAuthentication]
+    permission_classes = [IsAuthenticated]
+
+    def get_queryset(self):
+        range_serializer = ScheduledPostRangeSerializer(
+            data=self.request.query_params
+        )
+        range_serializer.is_valid(raise_exception=True)
+        values = range_serializer.validated_data
+
+        return (
+            ScheduledPost.objects.filter(
+                post__brand__owner_id=self.request.user.id,
+                scheduled_for__gte=values["start"],
+                scheduled_for__lt=values["end"],
+            )
+            .select_related("post", "post__brand")
+            .order_by("scheduled_for")
         )

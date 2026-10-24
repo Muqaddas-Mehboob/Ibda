@@ -1,4 +1,5 @@
 from types import SimpleNamespace
+from datetime import datetime, timezone as datetime_timezone
 from io import BytesIO
 from unittest.mock import patch
 from uuid import uuid4
@@ -8,7 +9,7 @@ from rest_framework import status
 from rest_framework.test import APITestCase
 from django.test import override_settings
 
-from .models import Approval, Brand, BrandVoice, ContentPost
+from .models import Approval, Brand, BrandVoice, ContentPost, ScheduledPost
 
 
 class BrandVoiceApiTests(APITestCase):
@@ -396,3 +397,68 @@ class ContentStudioApiTests(APITestCase):
         )
         self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
         self.assertFalse(Approval.objects.filter(post=post).exists())
+
+
+class ScheduledPostApiTests(APITestCase):
+    def setUp(self):
+        self.user = SimpleNamespace(id=uuid4(), is_authenticated=True)
+        self.other_user_id = uuid4()
+        self.client.force_authenticate(user=self.user)
+
+    def create_scheduled_post(self, owner_id, scheduled_for, title):
+        brand = Brand.objects.create(owner_id=owner_id, name=f"{title} brand")
+        post = ContentPost.objects.create(
+            brand=brand,
+            title=title,
+            body=f"{title} body",
+            platform=ContentPost.Platform.INSTAGRAM,
+        )
+        return ScheduledPost.objects.create(
+            post=post,
+            scheduled_for=scheduled_for,
+            platform=ContentPost.Platform.INSTAGRAM,
+        )
+
+    def test_list_filters_by_range_and_only_includes_owned_posts_in_order(self):
+        first = self.create_scheduled_post(
+            self.user.id,
+            datetime(2030, 1, 15, 0, tzinfo=datetime_timezone.utc),
+            "First",
+        )
+        second = self.create_scheduled_post(
+            self.user.id,
+            datetime(2030, 1, 20, 12, tzinfo=datetime_timezone.utc),
+            "Second",
+        )
+        self.create_scheduled_post(
+            self.user.id,
+            datetime(2030, 2, 1, 0, tzinfo=datetime_timezone.utc),
+            "Outside range",
+        )
+        self.create_scheduled_post(
+            self.other_user_id,
+            datetime(2030, 1, 17, 12, tzinfo=datetime_timezone.utc),
+            "Other user",
+        )
+
+        response = self.client.get(
+            "/api/calendar/scheduled-posts/"
+            "?start=2030-01-15T00:00:00Z&end=2030-02-01T00:00:00Z"
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(
+            [item["id"] for item in response.data],
+            [str(first.id), str(second.id)],
+        )
+        self.assertEqual(response.data[0]["post"]["title"], "First")
+        self.assertEqual(response.data[0]["post"]["brand_name"], "First brand")
+
+    def test_list_requires_valid_start_and_end_range(self):
+        response = self.client.get(
+            "/api/calendar/scheduled-posts/?start=2030-02-01T00:00:00Z"
+            "&end=2030-01-01T00:00:00Z"
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("end", response.data)

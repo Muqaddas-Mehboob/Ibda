@@ -437,7 +437,7 @@ export default function DashboardScreen() {
             <SectionTitle
               title="Content Rhythm"
               action="Week 42  ›"
-              onAction={() => showComingSoon("Content calendar")}
+              onAction={() => router.push("/calendar")}
             />
 
             <View

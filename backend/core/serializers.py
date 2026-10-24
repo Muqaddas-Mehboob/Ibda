@@ -1,5 +1,5 @@
 from rest_framework import serializers
-from .models import Approval, Brand, BrandVoice, ContentPost
+from .models import Approval, Brand, BrandVoice, ContentPost, ScheduledPost
 
 
 class BrandVoiceSerializer(serializers.ModelSerializer):
@@ -182,5 +182,43 @@ class ContentPostSerializer(serializers.ModelSerializer):
         if self.instance is None and "brand" not in attrs:
             raise serializers.ValidationError(
                 {"brand_id": "A brand is required to save content."}
+            )
+        return attrs
+
+
+class ScheduledPostContentSerializer(serializers.ModelSerializer):
+    brand_name = serializers.CharField(source="brand.name", read_only=True)
+
+    class Meta:
+        model = ContentPost
+        fields = ["id", "brand_name", "title", "body", "platform"]
+        read_only_fields = fields
+
+
+class ScheduledPostSerializer(serializers.ModelSerializer):
+    post = ScheduledPostContentSerializer(read_only=True)
+
+    class Meta:
+        model = ScheduledPost
+        fields = [
+            "id",
+            "post",
+            "platform",
+            "scheduled_for",
+            "status",
+            "created_at",
+            "updated_at",
+        ]
+        read_only_fields = fields
+
+
+class ScheduledPostRangeSerializer(serializers.Serializer):
+    start = serializers.DateTimeField()
+    end = serializers.DateTimeField()
+
+    def validate(self, attrs):
+        if attrs["end"] <= attrs["start"]:
+            raise serializers.ValidationError(
+                {"end": "End must be later than start."}
             )
         return attrs
