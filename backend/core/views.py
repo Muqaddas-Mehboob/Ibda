@@ -1,5 +1,9 @@
 from django.http import JsonResponse
+from datetime import timedelta
+
 from django.db import transaction
+from django.db.models import Count, Q
+from django.db.models.functions import TruncDate, TruncWeek
 from django.utils import timezone
 from django.shortcuts import get_object_or_404
 from rest_framework import generics
@@ -12,6 +16,8 @@ from .authentication import SupabaseAuthentication
 from .models import Approval, Brand, BrandVoice, ContentPost, ScheduledPost
 from .serializers import (
     ApprovalSerializer,
+    AnalyticsRangeSerializer,
+    AnalyticsResponseSerializer,
     BrandSerializer,
     BrandVoiceSerializer,
     ContentGenerationSerializer,
@@ -352,3 +358,107 @@ class ScheduledPostListView(generics.ListAPIView):
             .select_related("post", "post__brand")
             .order_by("scheduled_for")
         )
+
+
+class AnalyticsView(APIView):
+    authentication_classes = [SupabaseAuthentication]
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        range_serializer = AnalyticsRangeSerializer(data=request.query_params)
+        range_serializer.is_valid(raise_exception=True)
+        days = int(range_serializer.validated_data["days"])
+        end = timezone.now()
+        start = end - timedelta(days=days)
+
+        owned_posts = ContentPost.objects.filter(
+            brand__owner_id=request.user.id,
+            created_at__gte=start,
+            created_at__lt=end,
+        )
+        post_counts = owned_posts.aggregate(
+            content_posts=Count("id"),
+            approved_content=Count(
+                "id",
+                filter=Q(status=ContentPost.Status.APPROVED),
+            ),
+            rejected_content=Count(
+                "id",
+                filter=Q(status=ContentPost.Status.REJECTED),
+            ),
+        )
+        summary = {
+            **post_counts,
+            "pending_approvals": Approval.objects.filter(
+                post__brand__owner_id=request.user.id,
+                created_at__gte=start,
+                created_at__lt=end,
+                status=Approval.Status.PENDING,
+            ).count(),
+            "scheduled_posts": ScheduledPost.objects.filter(
+                post__brand__owner_id=request.user.id,
+                scheduled_for__gte=start,
+                scheduled_for__lt=end,
+            ).count(),
+        }
+
+        activity_granularity = "day" if days == 7 else "week"
+        truncation = TruncDate if activity_granularity == "day" else TruncWeek
+        activity_counts = {
+            row["bucket"].date().isoformat()
+            if hasattr(row["bucket"], "date")
+            else row["bucket"].isoformat(): row["content_posts"]
+            for row in owned_posts.annotate(
+                bucket=truncation("created_at")
+            )
+            .values("bucket")
+            .annotate(content_posts=Count("id"))
+        }
+
+        start_date = timezone.localtime(start).date()
+        end_date = timezone.localtime(end).date()
+        bucket_date = (
+            start_date
+            if activity_granularity == "day"
+            else start_date - timedelta(days=start_date.weekday())
+        )
+        activity = []
+        while bucket_date <= end_date:
+            activity.append(
+                {
+                    "date": bucket_date,
+                    "content_posts": activity_counts.get(
+                        bucket_date.isoformat(), 0
+                    ),
+                }
+            )
+            bucket_date += timedelta(
+                days=1 if activity_granularity == "day" else 7
+            )
+
+        brands = list(
+            owned_posts.values("brand_id", "brand__name")
+            .annotate(content_posts=Count("id"))
+            .order_by("-content_posts", "brand__name")[:10]
+        )
+        response_data = {
+            "range": {
+                "days": days,
+                "start": start.isoformat(),
+                "end": end.isoformat(),
+            },
+            "summary": summary,
+            "activity_granularity": activity_granularity,
+            "activity": activity,
+            "brands": [
+                {
+                    "brand_id": brand["brand_id"],
+                    "brand_name": brand["brand__name"],
+                    "content_posts": brand["content_posts"],
+                }
+                for brand in brands
+            ],
+        }
+        response_serializer = AnalyticsResponseSerializer(data=response_data)
+        response_serializer.is_valid(raise_exception=True)
+        return Response(response_serializer.data)

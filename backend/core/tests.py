@@ -1,5 +1,5 @@
 from types import SimpleNamespace
-from datetime import datetime, timezone as datetime_timezone
+from datetime import datetime, timedelta, timezone as datetime_timezone
 from io import BytesIO
 from unittest.mock import patch
 from uuid import uuid4
@@ -462,3 +462,158 @@ class ScheduledPostApiTests(APITestCase):
 
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertIn("end", response.data)
+
+
+class AnalyticsApiTests(APITestCase):
+    def setUp(self):
+        self.user = SimpleNamespace(id=uuid4(), is_authenticated=True)
+        self.other_user_id = uuid4()
+        self.client.force_authenticate(user=self.user)
+
+    def create_post(self, brand, title, status_value, created_at):
+        post = ContentPost.objects.create(
+            brand=brand,
+            title=title,
+            body=f"{title} body",
+            platform=ContentPost.Platform.INSTAGRAM,
+            status=status_value,
+        )
+        ContentPost.objects.filter(id=post.id).update(created_at=created_at)
+        return post
+
+    @patch("core.views.timezone.now")
+    def test_analytics_aggregates_owned_records_within_selected_period(self, mock_now):
+        now = datetime(2030, 3, 31, 12, tzinfo=datetime_timezone.utc)
+        mock_now.return_value = now
+        brand = Brand.objects.create(owner_id=self.user.id, name="My brand")
+        approved = self.create_post(
+            brand,
+            "Approved",
+            ContentPost.Status.APPROVED,
+            now - timedelta(days=2),
+        )
+        self.create_post(
+            brand,
+            "Rejected",
+            ContentPost.Status.REJECTED,
+            now - timedelta(days=3),
+        )
+        pending = self.create_post(
+            brand,
+            "Pending",
+            ContentPost.Status.IN_REVIEW,
+            now - timedelta(days=4),
+        )
+        start_boundary_post = self.create_post(
+            brand,
+            "At range start",
+            ContentPost.Status.DRAFT,
+            now - timedelta(days=7),
+        )
+        Approval.objects.create(post=pending, status=Approval.Status.PENDING)
+        Approval.objects.filter(post=pending).update(
+            created_at=now - timedelta(days=4)
+        )
+        old_post = self.create_post(
+            brand,
+            "Old post",
+            ContentPost.Status.APPROVED,
+            now - timedelta(days=20),
+        )
+        foreign_post = self.create_post(
+            Brand.objects.create(owner_id=self.other_user_id, name="Other"),
+            "Private post",
+            ContentPost.Status.APPROVED,
+            now - timedelta(days=1),
+        )
+        foreign_approval = Approval.objects.create(
+            post=foreign_post,
+            status=Approval.Status.PENDING,
+        )
+        Approval.objects.filter(id=foreign_approval.id).update(
+            created_at=now - timedelta(days=1)
+        )
+        ScheduledPost.objects.create(
+            post=approved,
+            scheduled_for=now - timedelta(days=1),
+            platform=ContentPost.Platform.INSTAGRAM,
+        )
+        ScheduledPost.objects.create(
+            post=start_boundary_post,
+            scheduled_for=now - timedelta(days=7),
+            platform=ContentPost.Platform.INSTAGRAM,
+        )
+        ScheduledPost.objects.create(
+            post=old_post,
+            scheduled_for=now - timedelta(days=20),
+            platform=ContentPost.Platform.INSTAGRAM,
+        )
+        ScheduledPost.objects.create(
+            post=approved,
+            scheduled_for=now,
+            platform=ContentPost.Platform.INSTAGRAM,
+        )
+        ScheduledPost.objects.create(
+            post=foreign_post,
+            scheduled_for=now - timedelta(days=1),
+            platform=ContentPost.Platform.INSTAGRAM,
+        )
+
+        response = self.client.get("/api/analytics/?days=7")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data["range"]["days"], 7)
+        self.assertEqual(
+            response.data["summary"],
+            {
+                "content_posts": 4,
+                "pending_approvals": 1,
+                "approved_content": 1,
+                "rejected_content": 1,
+                "scheduled_posts": 2,
+            },
+        )
+        self.assertEqual(response.data["activity_granularity"], "day")
+        self.assertEqual(
+            sum(item["content_posts"] for item in response.data["activity"]),
+            4,
+        )
+        self.assertEqual(
+            response.data["brands"],
+            [
+                {
+                    "brand_id": str(brand.id),
+                    "brand_name": "My brand",
+                    "content_posts": 4,
+                }
+            ],
+        )
+
+    def test_analytics_returns_zeroes_for_empty_period_and_validates_days(self):
+        response = self.client.get("/api/analytics/?days=30")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(
+            response.data["summary"],
+            {
+                "content_posts": 0,
+                "pending_approvals": 0,
+                "approved_content": 0,
+                "rejected_content": 0,
+                "scheduled_posts": 0,
+            },
+        )
+        self.assertEqual(response.data["brands"], [])
+        self.assertEqual(response.data["activity_granularity"], "week")
+        self.assertTrue(
+            all(item["content_posts"] == 0 for item in response.data["activity"])
+        )
+
+        long_range = self.client.get("/api/analytics/?days=90")
+        self.assertEqual(long_range.status_code, status.HTTP_200_OK)
+        self.assertEqual(long_range.data["range"]["days"], 90)
+        self.assertEqual(long_range.data["activity_granularity"], "week")
+
+        invalid = self.client.get("/api/analytics/?days=14")
+        self.assertEqual(invalid.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("days", invalid.data)

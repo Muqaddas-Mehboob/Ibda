@@ -6,6 +6,7 @@ from .views import (
     ApprovalActionView,
     ApprovalDetailView,
     ApprovalListView,
+    AnalyticsView,
     ContentGenerateView,
     ContentPostDetailView,
     ContentPostListCreateView,
@@ -64,4 +65,5 @@ urlpatterns = [
         ScheduledPostListView.as_view(),
         name="calendar-scheduled-post-list",
     ),
+    path("analytics/", AnalyticsView.as_view(), name="analytics"),
 ]

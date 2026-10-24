@@ -222,3 +222,43 @@ class ScheduledPostRangeSerializer(serializers.Serializer):
                 {"end": "End must be later than start."}
             )
         return attrs
+
+
+class AnalyticsRangeSerializer(serializers.Serializer):
+    days = serializers.ChoiceField(
+        choices=(7, 30, 90),
+        default=30,
+    )
+
+
+class AnalyticsSummarySerializer(serializers.Serializer):
+    content_posts = serializers.IntegerField()
+    pending_approvals = serializers.IntegerField()
+    approved_content = serializers.IntegerField()
+    rejected_content = serializers.IntegerField()
+    scheduled_posts = serializers.IntegerField()
+
+
+class AnalyticsActivitySerializer(serializers.Serializer):
+    date = serializers.DateField()
+    content_posts = serializers.IntegerField()
+
+
+class AnalyticsBrandSerializer(serializers.Serializer):
+    brand_id = serializers.UUIDField()
+    brand_name = serializers.CharField()
+    content_posts = serializers.IntegerField()
+
+
+class AnalyticsPeriodSerializer(serializers.Serializer):
+    days = serializers.IntegerField()
+    start = serializers.DateTimeField()
+    end = serializers.DateTimeField()
+
+
+class AnalyticsResponseSerializer(serializers.Serializer):
+    range = AnalyticsPeriodSerializer()
+    summary = AnalyticsSummarySerializer()
+    activity_granularity = serializers.ChoiceField(choices=("day", "week"))
+    activity = AnalyticsActivitySerializer(many=True)
+    brands = AnalyticsBrandSerializer(many=True)
