@@ -11,6 +11,10 @@ from .views import (
     ContentPostDetailView,
     ContentPostListCreateView,
     ContentPostSubmitApprovalView,
+    NotificationListView,
+    NotificationMarkAllReadView,
+    NotificationMarkReadView,
+    NotificationUnreadCountView,
     ScheduledPostListView,
     health_check,
     BrandVoiceView
@@ -66,4 +70,20 @@ urlpatterns = [
         name="calendar-scheduled-post-list",
     ),
     path("analytics/", AnalyticsView.as_view(), name="analytics"),
+    path("notifications/", NotificationListView.as_view(), name="notification-list"),
+    path(
+        "notifications/unread-count/",
+        NotificationUnreadCountView.as_view(),
+        name="notification-unread-count",
+    ),
+    path(
+        "notifications/read-all/",
+        NotificationMarkAllReadView.as_view(),
+        name="notification-mark-all-read",
+    ),
+    path(
+        "notifications/<uuid:notification_id>/read/",
+        NotificationMarkReadView.as_view(),
+        name="notification-mark-read",
+    ),
 ]

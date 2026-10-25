@@ -1,5 +1,5 @@
 import { BottomNavigation } from "../../../components/navigation/BottomNavigation";
-import { useMemo, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import {
   Alert,
   Pressable,
@@ -8,7 +8,8 @@ import {
   TextInput,
   View,
 } from "react-native";
-import { useRouter } from "expo-router";
+import { useFocusEffect, useRouter } from "expo-router";
+import { getUnreadNotificationCount } from "../../notifications/services/notification.service";
 
 const COLORS = {
   background: "#FCF9F5",
@@ -215,6 +216,31 @@ export default function DashboardScreen() {
   const [prompt, setPrompt] = useState("");
   const [activeDay, setActiveDay] = useState(new Date().getDay());
   const [approvedPosts, setApprovedPosts] = useState<string[]>(["1"]);
+  const [unreadNotificationCount, setUnreadNotificationCount] = useState(0);
+
+  useFocusEffect(
+    useCallback(() => {
+      let active = true;
+      getUnreadNotificationCount()
+        .then((count) => {
+          if (active) setUnreadNotificationCount(count);
+        })
+        .catch((error: unknown) => {
+          if (active) {
+            Alert.alert(
+              "Notifications unavailable",
+              error instanceof Error
+                ? error.message
+                : "Unable to load notification count."
+            );
+          }
+        });
+
+      return () => {
+        active = false;
+      };
+    }, [])
+  );
 
   const today = new Date();
 
@@ -295,17 +321,22 @@ export default function DashboardScreen() {
 
           <View className="flex-row items-center gap-4">
             <Pressable
-              onPress={() => showComingSoon("Notifications")}
+              onPress={() => router.push("/notifications")}
               className="relative h-11 w-10 items-center justify-center"
               accessibilityLabel="Notifications"
             >
               <Text className="text-[27px]" style={{ color: COLORS.text }}>
                 ♧
               </Text>
-              <View
-                className="absolute right-1 top-1 h-2.5 w-2.5 rounded-full"
-                style={{ backgroundColor: COLORS.coral }}
-              />
+              {unreadNotificationCount > 0 ? (
+                <View className="absolute -right-1 -top-1 min-h-5 min-w-5 items-center justify-center rounded-full bg-[#FF6B5F] px-1">
+                  <Text className="text-[10px] font-bold text-white">
+                    {unreadNotificationCount > 9
+                      ? "9+"
+                      : unreadNotificationCount}
+                  </Text>
+                </View>
+              ) : null}
             </Pressable>
 
             <Pressable

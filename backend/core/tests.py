@@ -9,7 +9,14 @@ from rest_framework import status
 from rest_framework.test import APITestCase
 from django.test import override_settings
 
-from .models import Approval, Brand, BrandVoice, ContentPost, ScheduledPost
+from .models import (
+    Approval,
+    Brand,
+    BrandVoice,
+    ContentPost,
+    Notification,
+    ScheduledPost,
+)
 
 
 class BrandVoiceApiTests(APITestCase):
@@ -141,6 +148,15 @@ class ApprovalApiTests(APITestCase):
         self.assertIsNotNone(approval.reviewed_at)
         self.assertEqual(approval.post.status, ContentPost.Status.APPROVED)
         self.assertFalse(approval.post.scheduled_posts.exists())
+        notification = Notification.objects.get(
+            recipient_user_id=self.user.id,
+            related_object_id=approval.id,
+        )
+        self.assertEqual(
+            notification.notification_type,
+            Notification.Type.APPROVAL_APPROVED,
+        )
+        self.assertEqual(notification.destination, Notification.Destination.APPROVAL)
 
     def test_reject_updates_status_and_cannot_be_repeated(self):
         approval = self.create_approval()
@@ -166,6 +182,13 @@ class ApprovalApiTests(APITestCase):
         self.assertEqual(response.status_code, status.HTTP_409_CONFLICT)
         approval.refresh_from_db()
         self.assertEqual(approval.status, Approval.Status.REJECTED)
+        self.assertEqual(
+            Notification.objects.filter(
+                recipient_user_id=self.user.id,
+                related_object_id=approval.id,
+            ).count(),
+            1,
+        )
 
     def test_action_cannot_review_another_users_approval(self):
         approval = self.create_approval(owner_id=self.other_user_id)
@@ -463,6 +486,43 @@ class ScheduledPostApiTests(APITestCase):
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertIn("end", response.data)
 
+    def test_schedule_creation_and_date_change_create_deduplicated_notifications(self):
+        scheduled_for = datetime(2030, 1, 15, 12, tzinfo=datetime_timezone.utc)
+        scheduled = self.create_scheduled_post(
+            self.user.id,
+            scheduled_for,
+            "Scheduled content",
+        )
+
+        notifications = Notification.objects.filter(
+            recipient_user_id=self.user.id,
+            related_object_id=scheduled.id,
+        )
+        self.assertEqual(notifications.count(), 1)
+        self.assertEqual(
+            notifications.first().notification_type,
+            Notification.Type.SCHEDULED_POST_CREATED,
+        )
+        self.assertEqual(
+            notifications.first().destination,
+            Notification.Destination.CALENDAR,
+        )
+
+        scheduled.scheduled_for += timedelta(days=1)
+        scheduled.save(update_fields=["scheduled_for"])
+        self.assertEqual(notifications.count(), 2)
+        self.assertEqual(
+            set(notifications.values_list("notification_type", flat=True)),
+            {
+                Notification.Type.SCHEDULED_POST_CREATED,
+                Notification.Type.SCHEDULED_POST_UPDATED,
+            },
+        )
+
+        scheduled.status = ScheduledPost.Status.PUBLISHED
+        scheduled.save(update_fields=["status"])
+        self.assertEqual(notifications.count(), 2)
+
 
 class AnalyticsApiTests(APITestCase):
     def setUp(self):
@@ -617,3 +677,84 @@ class AnalyticsApiTests(APITestCase):
         invalid = self.client.get("/api/analytics/?days=14")
         self.assertEqual(invalid.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertIn("days", invalid.data)
+
+
+class NotificationApiTests(APITestCase):
+    def setUp(self):
+        self.user = SimpleNamespace(id=uuid4(), is_authenticated=True)
+        self.other_user_id = uuid4()
+        self.client.force_authenticate(user=self.user)
+
+    def create_notification(self, recipient, event_key, read_at=None):
+        return Notification.objects.create(
+            recipient_user_id=recipient,
+            notification_type=Notification.Type.APPROVAL_APPROVED,
+            title="Content approved",
+            message="A post was approved.",
+            related_object_id=uuid4(),
+            destination=Notification.Destination.APPROVAL,
+            event_key=event_key,
+            read_at=read_at,
+        )
+
+    def test_list_and_unread_count_are_scoped_to_authenticated_user(self):
+        unread = self.create_notification(self.user.id, "current-unread")
+        read = self.create_notification(
+            self.user.id,
+            "current-read",
+            read_at=datetime.now(datetime_timezone.utc),
+        )
+        self.create_notification(self.other_user_id, "other-unread")
+
+        response = self.client.get("/api/notifications/")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data["unread_count"], 1)
+        self.assertEqual(
+            [item["id"] for item in response.data["results"]],
+            [str(read.id), str(unread.id)],
+        )
+        self.assertTrue(response.data["results"][0]["is_read"])
+        self.assertFalse(response.data["results"][1]["is_read"])
+
+        response = self.client.get("/api/notifications/unread-count/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data, {"unread_count": 1})
+
+    def test_mark_read_and_mark_all_only_update_owned_notifications(self):
+        unread = self.create_notification(self.user.id, "current-unread")
+        foreign = self.create_notification(self.other_user_id, "other-unread")
+
+        response = self.client.patch(
+            f"/api/notifications/{unread.id}/read/",
+            {},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertTrue(response.data["is_read"])
+        self.assertIsNotNone(response.data["read_at"])
+
+        response = self.client.patch(
+            f"/api/notifications/{foreign.id}/read/",
+            {},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+
+        own_unread = self.create_notification(self.user.id, "current-second")
+        response = self.client.post(
+            "/api/notifications/read-all/",
+            {},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data, {"updated_count": 1, "unread_count": 0})
+        own_unread.refresh_from_db()
+        foreign.refresh_from_db()
+        self.assertIsNotNone(own_unread.read_at)
+        self.assertIsNone(foreign.read_at)
+
+    def test_notification_endpoints_require_authentication(self):
+        self.client.force_authenticate(user=None)
+        response = self.client.get("/api/notifications/")
+        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)

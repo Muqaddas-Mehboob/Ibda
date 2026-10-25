@@ -171,3 +171,35 @@ class ScheduledPost(TimeStampedModel):
 
     def __str__(self):
         return f"{self.post_id} scheduled for {self.scheduled_for}"
+
+
+class Notification(TimeStampedModel):
+    class Type(models.TextChoices):
+        APPROVAL_APPROVED = "approval_approved", "Content approved"
+        APPROVAL_REJECTED = "approval_rejected", "Content rejected"
+        SCHEDULED_POST_CREATED = "scheduled_post_created", "Post scheduled"
+        SCHEDULED_POST_UPDATED = "scheduled_post_updated", "Schedule updated"
+
+    class Destination(models.TextChoices):
+        APPROVAL = "approval", "Approval"
+        CALENDAR = "calendar", "Calendar"
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    recipient_user_id = models.UUIDField(db_index=True)
+    notification_type = models.CharField(max_length=40, choices=Type.choices)
+    title = models.CharField(max_length=160)
+    message = models.TextField()
+    related_object_id = models.UUIDField(null=True, blank=True)
+    destination = models.CharField(
+        max_length=20,
+        choices=Destination.choices,
+        blank=True,
+    )
+    event_key = models.CharField(max_length=120, unique=True)
+    read_at = models.DateTimeField(null=True, blank=True, db_index=True)
+
+    class Meta:
+        ordering = ["-created_at"]
+
+    def __str__(self):
+        return f"{self.title} for {self.recipient_user_id}"

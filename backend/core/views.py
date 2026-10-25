@@ -13,7 +13,14 @@ from rest_framework.views import APIView
 from rest_framework import status
 
 from .authentication import SupabaseAuthentication
-from .models import Approval, Brand, BrandVoice, ContentPost, ScheduledPost
+from .models import (
+    Approval,
+    Brand,
+    BrandVoice,
+    ContentPost,
+    Notification,
+    ScheduledPost,
+)
 from .serializers import (
     ApprovalSerializer,
     AnalyticsRangeSerializer,
@@ -22,6 +29,7 @@ from .serializers import (
     BrandVoiceSerializer,
     ContentGenerationSerializer,
     ContentPostSerializer,
+    NotificationSerializer,
     ScheduledPostRangeSerializer,
     ScheduledPostSerializer,
 )
@@ -29,6 +37,7 @@ from .services.content_generation import (
     ContentGenerationError,
     generate_content,
 )
+from .services.notifications import notify_approval_decision
 
 def health_check(request):
     return JsonResponse({
@@ -193,6 +202,7 @@ class ApprovalActionView(APIView):
                 else ContentPost.Status.REJECTED
             )
             approval.post.save(update_fields=["status", "updated_at"])
+            notify_approval_decision(approval)
 
         return Response(ApprovalSerializer(approval).data)
 
@@ -462,3 +472,63 @@ class AnalyticsView(APIView):
         response_serializer = AnalyticsResponseSerializer(data=response_data)
         response_serializer.is_valid(raise_exception=True)
         return Response(response_serializer.data)
+
+
+class NotificationListView(generics.ListAPIView):
+    serializer_class = NotificationSerializer
+    authentication_classes = [SupabaseAuthentication]
+    permission_classes = [IsAuthenticated]
+
+    def get_queryset(self):
+        return Notification.objects.filter(
+            recipient_user_id=self.request.user.id
+        )
+
+    def list(self, request, *args, **kwargs):
+        notifications = self.get_queryset()
+        unread_count = notifications.filter(read_at__isnull=True).count()
+        serializer = self.get_serializer(notifications, many=True)
+        return Response(
+            {"results": serializer.data, "unread_count": unread_count}
+        )
+
+
+class NotificationUnreadCountView(APIView):
+    authentication_classes = [SupabaseAuthentication]
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        unread_count = Notification.objects.filter(
+            recipient_user_id=request.user.id,
+            read_at__isnull=True,
+        ).count()
+        return Response({"unread_count": unread_count})
+
+
+class NotificationMarkReadView(APIView):
+    authentication_classes = [SupabaseAuthentication]
+    permission_classes = [IsAuthenticated]
+
+    def patch(self, request, notification_id):
+        notification = get_object_or_404(
+            Notification,
+            id=notification_id,
+            recipient_user_id=request.user.id,
+        )
+        if notification.read_at is None:
+            notification.read_at = timezone.now()
+            notification.save(update_fields=["read_at", "updated_at"])
+        return Response(NotificationSerializer(notification).data)
+
+
+class NotificationMarkAllReadView(APIView):
+    authentication_classes = [SupabaseAuthentication]
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        now = timezone.now()
+        updated_count = Notification.objects.filter(
+            recipient_user_id=request.user.id,
+            read_at__isnull=True,
+        ).update(read_at=now, updated_at=now)
+        return Response({"updated_count": updated_count, "unread_count": 0})

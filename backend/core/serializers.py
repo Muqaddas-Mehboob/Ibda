@@ -1,5 +1,12 @@
 from rest_framework import serializers
-from .models import Approval, Brand, BrandVoice, ContentPost, ScheduledPost
+from .models import (
+    Approval,
+    Brand,
+    BrandVoice,
+    ContentPost,
+    Notification,
+    ScheduledPost,
+)
 
 
 class BrandVoiceSerializer(serializers.ModelSerializer):
@@ -262,3 +269,25 @@ class AnalyticsResponseSerializer(serializers.Serializer):
     activity_granularity = serializers.ChoiceField(choices=("day", "week"))
     activity = AnalyticsActivitySerializer(many=True)
     brands = AnalyticsBrandSerializer(many=True)
+
+
+class NotificationSerializer(serializers.ModelSerializer):
+    is_read = serializers.SerializerMethodField()
+
+    class Meta:
+        model = Notification
+        fields = [
+            "id",
+            "notification_type",
+            "title",
+            "message",
+            "related_object_id",
+            "destination",
+            "is_read",
+            "read_at",
+            "created_at",
+        ]
+        read_only_fields = fields
+
+    def get_is_read(self, notification):
+        return notification.read_at is not None
