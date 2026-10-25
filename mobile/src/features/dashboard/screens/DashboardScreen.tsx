@@ -340,7 +340,7 @@ export default function DashboardScreen() {
             </Pressable>
 
             <Pressable
-              onPress={() => showComingSoon("Your profile")}
+              onPress={() => router.push("/settings")}
               className="h-12 w-12 items-center justify-center rounded-full border-2"
               style={{
                 borderColor: "#F4B9AD",
