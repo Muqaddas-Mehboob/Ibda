@@ -448,7 +448,21 @@ export function SettingsScreen() {
         </Section>
 
         <Section title="Preferences">
-          <View className="px-4 py-4">
+          <SettingRow
+            icon="$"
+            title="Plans & billing"
+            description="View your plan and payment history"
+            onPress={() => router.push("/subscription")}
+          />
+          <View className="border-t border-[#EAE4DC]">
+          <SettingRow
+            icon="◎"
+            title="Connected accounts"
+            description="Manage social media account connections"
+            onPress={() => router.push("/social-accounts")}
+          />
+          </View>
+          <View className="border-t border-[#EAE4DC] px-4 py-4">
             <Text className="leading-5 text-[#827970]">
               Notification preferences and theme selection aren’t configurable
               yet. Notifications are currently delivered in-app.

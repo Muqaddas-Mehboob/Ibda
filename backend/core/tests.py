@@ -1,5 +1,8 @@
 from types import SimpleNamespace
 from datetime import datetime, timedelta, timezone as datetime_timezone
+import hashlib
+import hmac
+import json
 from io import BytesIO
 from unittest.mock import patch
 from uuid import uuid4
@@ -8,6 +11,7 @@ from urllib.error import HTTPError
 from rest_framework import status
 from rest_framework.test import APITestCase
 from django.test import override_settings
+from cryptography.fernet import Fernet
 
 from .models import (
     Approval,
@@ -15,7 +19,11 @@ from .models import (
     BrandVoice,
     ContentPost,
     Notification,
+    PaymentTransaction,
+    UserSubscription,
+    ProviderWebhookEvent,
     ScheduledPost,
+    SocialAccount,
 )
 
 
@@ -758,3 +766,366 @@ class NotificationApiTests(APITestCase):
         self.client.force_authenticate(user=None)
         response = self.client.get("/api/notifications/")
         self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
+
+
+class SocialAccountApiTests(APITestCase):
+    def setUp(self):
+        self.user = SimpleNamespace(id=uuid4(), is_authenticated=True)
+        self.other_user_id = uuid4()
+        self.client.force_authenticate(user=self.user)
+
+    def create_account(self, owner_id, platform_id):
+        return SocialAccount.objects.create(
+            owner_id=owner_id,
+            platform=SocialAccount.Platform.LINKEDIN,
+            platform_account_id=platform_id,
+            display_name="Ibda Page",
+            access_token_encrypted="encrypted-access-token",
+            refresh_token_encrypted="encrypted-refresh-token",
+        )
+
+    def test_account_list_reports_unconfigured_platforms_and_hides_tokens(self):
+        account = self.create_account(self.user.id, "own-page")
+        self.create_account(self.other_user_id, "private-page")
+
+        response = self.client.get("/api/social/accounts/")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(
+            {provider["platform"] for provider in response.data["providers"]},
+            {
+                SocialAccount.Platform.INSTAGRAM,
+                SocialAccount.Platform.FACEBOOK_PAGES,
+                SocialAccount.Platform.LINKEDIN,
+                SocialAccount.Platform.TIKTOK,
+            },
+        )
+        self.assertTrue(
+            all(not provider["configured"] for provider in response.data["providers"])
+        )
+        self.assertEqual(
+            [item["id"] for item in response.data["accounts"]],
+            [str(account.id)],
+        )
+        self.assertNotIn("access_token_encrypted", response.data["accounts"][0])
+        self.assertNotIn("refresh_token_encrypted", response.data["accounts"][0])
+
+    def test_connect_requires_auth_and_does_not_claim_unconfigured_success(self):
+        response = self.client.post(
+            "/api/social/accounts/instagram/connect/",
+            {},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_503_SERVICE_UNAVAILABLE)
+        self.assertFalse(response.data["configured"])
+        self.assertFalse(SocialAccount.objects.exists())
+
+        self.client.force_authenticate(user=None)
+        response = self.client.post(
+            "/api/social/accounts/instagram/connect/",
+            {},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
+
+    def test_callback_rejects_missing_or_unrecognized_oauth_state(self):
+        missing_state = self.client.get(
+            "/api/social/oauth/instagram/callback/?code=untrusted-code"
+        )
+        self.assertEqual(
+            missing_state.status_code,
+            status.HTTP_400_BAD_REQUEST,
+        )
+
+        invalid_state = self.client.get(
+            "/api/social/oauth/instagram/callback/"
+            "?state=unrecognized&code=untrusted-code"
+        )
+        self.assertEqual(invalid_state.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertNotIn("untrusted-code", str(invalid_state.data))
+        self.assertFalse(SocialAccount.objects.exists())
+
+    def test_disconnect_is_owner_scoped_and_clears_encrypted_tokens(self):
+        account = self.create_account(self.user.id, "owned-page")
+        foreign = self.create_account(self.other_user_id, "foreign-page")
+
+        response = self.client.delete(f"/api/social/accounts/{account.id}/")
+        self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
+        account.refresh_from_db()
+        self.assertEqual(account.status, SocialAccount.Status.DISCONNECTED)
+        self.assertEqual(account.access_token_encrypted, "")
+        self.assertEqual(account.refresh_token_encrypted, "")
+
+        response = self.client.delete(f"/api/social/accounts/{foreign.id}/")
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+        foreign.refresh_from_db()
+        self.assertEqual(foreign.status, SocialAccount.Status.CONNECTED)
+
+    @override_settings(SOCIAL_TOKEN_ENCRYPTION_KEY="")
+    def test_token_encryption_requires_a_server_side_key(self):
+        from core.services.social_tokens import (
+            SocialTokenEncryptionError,
+            encrypt_social_token,
+        )
+
+        with self.assertRaises(SocialTokenEncryptionError):
+            encrypt_social_token("private-token")
+
+    def test_token_encryption_round_trip(self):
+        from core.services.social_tokens import (
+            decrypt_social_token,
+            encrypt_social_token,
+        )
+
+        key = Fernet.generate_key().decode("ascii")
+        with self.settings(SOCIAL_TOKEN_ENCRYPTION_KEY=key):
+            encrypted = encrypt_social_token("private-token-value")
+            self.assertNotEqual(encrypted, "private-token-value")
+            self.assertEqual(decrypt_social_token(encrypted), "private-token-value")
+
+
+class SubscriptionApiTests(APITestCase):
+    def setUp(self):
+        self.user = SimpleNamespace(id=uuid4(), is_authenticated=True)
+        self.other_user_id = uuid4()
+        self.client.force_authenticate(user=self.user)
+
+    def create_subscription(self, owner_id=None):
+        return UserSubscription.objects.create(
+            owner_id=owner_id or self.user.id,
+            provider="test-adapter",
+            provider_subscription_id=f"sub_{uuid4()}",
+            plan_id="premium_monthly",
+            billing_interval=UserSubscription.BillingInterval.MONTHLY,
+            status=UserSubscription.Status.ACTIVE,
+        )
+
+    def test_plans_do_not_publish_prices_or_enable_unconfigured_checkout(self):
+        response = self.client.get("/api/subscription/plans/")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertFalse(response.data["provider_configured"])
+        premium = next(
+            plan for plan in response.data["plans"] if plan["id"] == "premium"
+        )
+        self.assertIsNone(premium["price_minor"])
+        self.assertEqual(premium["billing_intervals"], [])
+        self.assertFalse(premium["checkout_available"])
+
+    def test_subscription_endpoints_require_authentication(self):
+        self.client.force_authenticate(user=None)
+
+        response = self.client.get("/api/subscription/me/")
+
+        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
+
+    def test_subscription_and_history_are_scoped_to_authenticated_user(self):
+        owned = self.create_subscription()
+        foreign = self.create_subscription(self.other_user_id)
+        PaymentTransaction.objects.create(
+            subscription=owned,
+            provider="test-adapter",
+            provider_transaction_id="owned-payment",
+            status=PaymentTransaction.Status.SUCCEEDED,
+            amount_minor=1000,
+            currency="USD",
+        )
+        PaymentTransaction.objects.create(
+            subscription=foreign,
+            provider="test-adapter",
+            provider_transaction_id="foreign-payment",
+            status=PaymentTransaction.Status.SUCCEEDED,
+        )
+
+        response = self.client.get("/api/subscription/me/")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data["subscription"]["id"], str(owned.id))
+        self.assertEqual(len(response.data["transactions"]), 1)
+        self.assertEqual(
+            response.data["transactions"][0]["id"],
+            str(PaymentTransaction.objects.get(
+                provider_transaction_id="owned-payment"
+            ).id),
+        )
+
+    def test_checkout_never_marks_subscription_paid_when_unconfigured(self):
+        response = self.client.post(
+            "/api/subscription/checkout/",
+            {"plan_id": "premium_monthly"},
+            format="json",
+        )
+
+        self.assertEqual(
+            response.status_code,
+            status.HTTP_503_SERVICE_UNAVAILABLE,
+        )
+        self.assertFalse(UserSubscription.objects.exists())
+
+    def test_webhook_rejects_invalid_signature(self):
+        payload = json.dumps(
+            {
+                "event_id": "evt-invalid",
+                "event_type": "subscription.updated",
+                "subscription_id": "provider-sub",
+                "status": "active",
+            },
+            separators=(",", ":"),
+        ).encode("utf-8")
+        with self.settings(
+            PAYMENT_PROVIDER="test-adapter",
+            PAYMENT_WEBHOOK_SECRET="webhook-secret",
+        ):
+            response = self.client.generic(
+                "POST",
+                "/api/payments/webhook/",
+                payload,
+                content_type="application/json",
+                HTTP_X_IBDA_SIGNATURE="0" * 64,
+            )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertFalse(ProviderWebhookEvent.objects.exists())
+
+    def test_signed_webhook_updates_subscription_and_is_idempotent(self):
+        subscription = self.create_subscription()
+        payload = json.dumps(
+            {
+                "event_id": "evt-subscription-update",
+                "event_type": "subscription.updated",
+                "subscription_id": subscription.provider_subscription_id,
+                "status": "active",
+                "plan_id": "premium",
+                "billing_interval": "annual",
+            },
+            separators=(",", ":"),
+        ).encode("utf-8")
+        signature = hmac.new(
+            b"webhook-secret",
+            payload,
+            hashlib.sha256,
+        ).hexdigest()
+
+        with self.settings(
+            PAYMENT_PROVIDER="test-adapter",
+            PAYMENT_WEBHOOK_SECRET="webhook-secret",
+        ):
+            response = self.client.generic(
+                "POST",
+                "/api/payments/webhook/",
+                payload,
+                content_type="application/json",
+                HTTP_X_IBDA_SIGNATURE=signature,
+            )
+            duplicate = self.client.generic(
+                "POST",
+                "/api/payments/webhook/",
+                payload,
+                content_type="application/json",
+                HTTP_X_IBDA_SIGNATURE=signature,
+            )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertFalse(response.data["duplicate"])
+        self.assertEqual(duplicate.status_code, status.HTTP_200_OK)
+        self.assertTrue(duplicate.data["duplicate"])
+        subscription.refresh_from_db()
+        self.assertEqual(subscription.plan_id, "premium")
+        self.assertEqual(subscription.billing_interval, "annual")
+        self.assertEqual(ProviderWebhookEvent.objects.count(), 1)
+
+    def test_webhook_records_only_signed_transactions_once(self):
+        subscription = self.create_subscription()
+        payload = json.dumps(
+            {
+                "event_id": "evt-transaction",
+                "event_type": "transaction.updated",
+                "subscription_id": subscription.provider_subscription_id,
+                "transaction_id": "provider-payment-1",
+                "status": "refunded",
+                "amount_minor": 2450,
+                "currency": "USD",
+            },
+            separators=(",", ":"),
+        ).encode("utf-8")
+        signature = hmac.new(
+            b"webhook-secret",
+            payload,
+            hashlib.sha256,
+        ).hexdigest()
+
+        with self.settings(
+            PAYMENT_PROVIDER="test-adapter",
+            PAYMENT_WEBHOOK_SECRET="webhook-secret",
+        ):
+            response = self.client.generic(
+                "POST",
+                "/api/payments/webhook/",
+                payload,
+                content_type="application/json",
+                HTTP_X_IBDA_SIGNATURE=signature,
+            )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        payment = PaymentTransaction.objects.get(
+            provider_transaction_id="provider-payment-1"
+        )
+        self.assertEqual(payment.status, PaymentTransaction.Status.REFUNDED)
+        self.assertEqual(payment.amount_minor, 2450)
+        self.assertEqual(payment.subscription_id, subscription.id)
+
+    def test_invalid_subscription_status_is_rejected(self):
+        subscription = self.create_subscription()
+        payload = json.dumps(
+            {
+                "event_id": "evt-invalid-status",
+                "event_type": "subscription.updated",
+                "subscription_id": subscription.provider_subscription_id,
+                "status": "paid",
+            },
+            separators=(",", ":"),
+        ).encode("utf-8")
+        signature = hmac.new(
+            b"webhook-secret",
+            payload,
+            hashlib.sha256,
+        ).hexdigest()
+
+        with self.settings(
+            PAYMENT_PROVIDER="test-adapter",
+            PAYMENT_WEBHOOK_SECRET="webhook-secret",
+        ):
+            response = self.client.generic(
+                "POST",
+                "/api/payments/webhook/",
+                payload,
+                content_type="application/json",
+                HTTP_X_IBDA_SIGNATURE=signature,
+            )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertFalse(ProviderWebhookEvent.objects.exists())
+
+    def test_configured_entitlements_are_centralized_and_optional(self):
+        with self.settings(
+            SUBSCRIPTION_ENTITLEMENT_LIMITS=(
+                '{"free":{"saved_brands":1},"premium":{"saved_brands":null}}'
+            )
+        ):
+            response = self.client.get("/api/subscription/me/")
+            self.assertEqual(response.status_code, status.HTTP_200_OK)
+            self.assertEqual(response.data["entitlements"]["saved_brands"], 1)
+
+    def test_configured_saved_brand_limit_is_enforced(self):
+        Brand.objects.create(owner_id=self.user.id, name="Existing brand")
+        with self.settings(
+            SUBSCRIPTION_ENTITLEMENT_LIMITS='{"free":{"saved_brands":1}}'
+        ):
+            response = self.client.post(
+                "/api/brands/",
+                {"name": "Over limit"},
+                format="json",
+            )
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertEqual(Brand.objects.filter(owner_id=self.user.id).count(), 1)

@@ -5,7 +5,10 @@ from .models import (
     BrandVoice,
     ContentPost,
     Notification,
+    PaymentTransaction,
     ScheduledPost,
+    SocialAccount,
+    UserSubscription,
 )
 
 
@@ -291,3 +294,100 @@ class NotificationSerializer(serializers.ModelSerializer):
 
     def get_is_read(self, notification):
         return notification.read_at is not None
+
+
+class SocialAccountSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = SocialAccount
+        fields = [
+            "id",
+            "platform",
+            "platform_account_id",
+            "display_name",
+            "status",
+            "token_expires_at",
+            "created_at",
+            "updated_at",
+        ]
+        read_only_fields = fields
+
+
+class ConnectedAccountsResponseSerializer(serializers.Serializer):
+    providers = serializers.ListField(child=serializers.DictField())
+    accounts = SocialAccountSerializer(many=True)
+
+
+class UserSubscriptionSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = UserSubscription
+        fields = [
+            "id",
+            "plan_id",
+            "billing_interval",
+            "status",
+            "current_period_start",
+            "current_period_end",
+            "cancel_at_period_end",
+            "canceled_at",
+            "created_at",
+        ]
+        read_only_fields = fields
+
+
+class PaymentTransactionSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = PaymentTransaction
+        fields = [
+            "id",
+            "status",
+            "amount_minor",
+            "currency",
+            "occurred_at",
+            "created_at",
+        ]
+        read_only_fields = fields
+
+
+class CheckoutRequestSerializer(serializers.Serializer):
+    plan_id = serializers.ChoiceField(
+        choices=("premium_monthly", "premium_annual")
+    )
+
+
+class PaymentWebhookSerializer(serializers.Serializer):
+    event_id = serializers.CharField(max_length=255)
+    event_type = serializers.ChoiceField(
+        choices=("subscription.updated", "transaction.updated")
+    )
+    subscription_id = serializers.CharField(max_length=255)
+    status = serializers.CharField(max_length=20)
+    plan_id = serializers.CharField(max_length=100, required=False)
+    billing_interval = serializers.ChoiceField(
+        choices=UserSubscription.BillingInterval.choices,
+        required=False,
+    )
+    current_period_start = serializers.DateTimeField(required=False, allow_null=True)
+    current_period_end = serializers.DateTimeField(required=False, allow_null=True)
+    cancel_at_period_end = serializers.BooleanField(required=False)
+    canceled_at = serializers.DateTimeField(required=False, allow_null=True)
+    transaction_id = serializers.CharField(max_length=255, required=False)
+    amount_minor = serializers.IntegerField(min_value=0, required=False, allow_null=True)
+    currency = serializers.RegexField(r"^[A-Z]{3}$", required=False, allow_blank=True)
+    occurred_at = serializers.DateTimeField(required=False, allow_null=True)
+
+    def validate(self, attrs):
+        if attrs["event_type"] == "subscription.updated":
+            if attrs["status"] not in UserSubscription.Status.values:
+                raise serializers.ValidationError(
+                    {"status": "Unsupported subscription status."}
+                )
+        else:
+            if "transaction_id" not in attrs:
+                raise serializers.ValidationError(
+                    {"transaction_id": "This field is required for transactions."}
+                )
+            if attrs["status"] not in PaymentTransaction.Status.values:
+                raise serializers.ValidationError(
+                    {"status": "Unsupported transaction status."}
+                )
+        return attrs

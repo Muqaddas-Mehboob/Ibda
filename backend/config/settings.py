@@ -43,6 +43,30 @@ AI_BASE_URL = env(
     default="https://api.openai.com/v1",
 ).rstrip("/")
 
+# Social credentials remain server-side; OAuth adapters are enabled only when
+# implemented and configured for a provider.
+SOCIAL_TOKEN_ENCRYPTION_KEY = env(
+    "SOCIAL_TOKEN_ENCRYPTION_KEY",
+    default="",
+)
+
+# Payment provider settings are intentionally empty until a provider and
+# verified merchant configuration are selected.
+PAYMENT_PROVIDER = env("PAYMENT_PROVIDER", default="")
+PAYMENT_WEBHOOK_SECRET = env("PAYMENT_WEBHOOK_SECRET", default="")
+PAYMENT_PRODUCT_PREMIUM_MONTHLY = env(
+    "PAYMENT_PRODUCT_PREMIUM_MONTHLY",
+    default="",
+)
+PAYMENT_PRODUCT_PREMIUM_ANNUAL = env(
+    "PAYMENT_PRODUCT_PREMIUM_ANNUAL",
+    default="",
+)
+SUBSCRIPTION_ENTITLEMENT_LIMITS = env(
+    "SUBSCRIPTION_ENTITLEMENT_LIMITS",
+    default="{}",
+)
+
 # Django applications
 INSTALLED_APPS = [
     "django.contrib.admin",

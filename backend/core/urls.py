@@ -15,9 +15,17 @@ from .views import (
     NotificationMarkAllReadView,
     NotificationMarkReadView,
     NotificationUnreadCountView,
+    PaymentWebhookView,
+    SubscriptionCheckoutView,
+    SubscriptionPlansView,
+    UserSubscriptionView,
     ScheduledPostListView,
+    SocialAccountConnectView,
+    SocialAccountDisconnectView,
+    SocialAccountListView,
+    SocialOAuthCallbackView,
     health_check,
-    BrandVoiceView
+    BrandVoiceView,
 )
 
 urlpatterns = [
@@ -70,6 +78,26 @@ urlpatterns = [
         name="calendar-scheduled-post-list",
     ),
     path("analytics/", AnalyticsView.as_view(), name="analytics"),
+    path(
+        "subscription/plans/",
+        SubscriptionPlansView.as_view(),
+        name="subscription-plans",
+    ),
+    path(
+        "subscription/me/",
+        UserSubscriptionView.as_view(),
+        name="user-subscription",
+    ),
+    path(
+        "subscription/checkout/",
+        SubscriptionCheckoutView.as_view(),
+        name="subscription-checkout",
+    ),
+    path(
+        "payments/webhook/",
+        PaymentWebhookView.as_view(),
+        name="payment-webhook",
+    ),
     path("notifications/", NotificationListView.as_view(), name="notification-list"),
     path(
         "notifications/unread-count/",
@@ -85,5 +113,21 @@ urlpatterns = [
         "notifications/<uuid:notification_id>/read/",
         NotificationMarkReadView.as_view(),
         name="notification-mark-read",
+    ),
+    path("social/accounts/", SocialAccountListView.as_view(), name="social-account-list"),
+    path(
+        "social/accounts/<str:platform>/connect/",
+        SocialAccountConnectView.as_view(),
+        name="social-account-connect",
+    ),
+    path(
+        "social/accounts/<uuid:account_id>/",
+        SocialAccountDisconnectView.as_view(),
+        name="social-account-disconnect",
+    ),
+    path(
+        "social/oauth/<str:platform>/callback/",
+        SocialOAuthCallbackView.as_view(),
+        name="social-oauth-callback",
     ),
 ]
