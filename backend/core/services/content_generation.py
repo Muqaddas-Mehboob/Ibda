@@ -1,7 +1,7 @@
 import json
-from urllib.error import HTTPError, URLError
-from urllib.request import Request, urlopen
+import os
 
+import httpx
 from django.conf import settings
 
 
@@ -69,46 +69,61 @@ def generate_content(
             "temperature": 0.7,
         }
     ).encode("utf-8")
-    request = Request(
-        f"{settings.AI_BASE_URL}/chat/completions",
-        data=body,
-        headers={
-            "Authorization": f"Bearer {settings.AI_API_KEY}",
-            "Content-Type": "application/json",
-            "Accept": "application/json",
-        },
-        method="POST",
-    )
+        # Force IPv4 when enabled for local development.
+    use_ipv4 = os.getenv("AI_FORCE_IPV4", "false").lower() == "true"
 
     try:
-        with urlopen(request, timeout=30) as response:
-            result = json.loads(response.read().decode("utf-8"))
-    except HTTPError as error:
-        if error.code == 429:
+        transport = (
+            httpx.HTTPTransport(local_address="0.0.0.0")
+            if use_ipv4
+            else None
+        )
+
+        with httpx.Client(
+            transport=transport,
+            timeout=60.0,
+        ) as client:
+
+            response = client.post(
+                f"{settings.AI_BASE_URL.rstrip('/')}/chat/completions",
+                content=body,
+                headers={
+                    "Authorization": f"Bearer {settings.AI_API_KEY}",
+                    "Content-Type": "application/json",
+                    "Accept": "application/json",
+                },
+            )
+
+            response.raise_for_status()
+            result = response.json()
+
+    except httpx.HTTPStatusError as error:
+        status = error.response.status_code
+
+        if status == 429:
             raise ContentGenerationError(
-                "The AI provider is rate limiting requests. Please wait and try again.",
+                "AI request limit reached. Please try again later.",
                 status_code=503,
             ) from error
+
         raise ContentGenerationError(
-            f"The AI provider returned an error (HTTP {error.code}). Please try again.",
+            f"AI provider returned HTTP {status}.",
             status_code=502,
         ) from error
-    except TimeoutError as error:
+
+    except httpx.TimeoutException as error:
         raise ContentGenerationError(
-            "The AI provider timed out. Please try again.",
+            "AI generation timed out.",
             status_code=504,
         ) from error
-    except URLError as error:
+
+    except httpx.RequestError as error:
         raise ContentGenerationError(
-            "Unable to connect to the AI provider. Please try again.",
+            "Unable to connect to the AI provider.",
             status_code=502,
         ) from error
-    except OSError as error:
-        raise ContentGenerationError(
-            "Unable to complete the AI provider request. Please try again.",
-            status_code=502,
-        ) from error
-    except (json.JSONDecodeError, UnicodeDecodeError) as error:
+
+    except (ValueError, UnicodeDecodeError) as error:
         raise ContentGenerationError(
             "The AI provider returned an invalid response.",
             status_code=502,
