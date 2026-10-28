@@ -1,14 +1,13 @@
 import { useCallback, useState } from "react";
 import {
   ActivityIndicator,
-  Alert,
   Pressable,
   RefreshControl,
   ScrollView,
   Text,
   View,
 } from "react-native";
-import { useFocusEffect } from "expo-router";
+import { useFocusEffect, useRouter } from "expo-router";
 import { BottomNavigation } from "../../../components/navigation/BottomNavigation";
 import {
   getSubscriptionPlans,
@@ -61,6 +60,7 @@ function Section({
 }
 
 export function SubscriptionScreen() {
+  const router = useRouter();
   const [plans, setPlans] = useState<SubscriptionPlansResponse | null>(null);
   const [account, setAccount] = useState<UserSubscriptionResponse | null>(null);
   const [loading, setLoading] = useState(true);
@@ -95,14 +95,6 @@ export function SubscriptionScreen() {
       void load();
     }, [load])
   );
-
-  const unavailable = () => {
-    Alert.alert(
-      "Checkout unavailable",
-      plans?.message ??
-        "Billing has not been configured. No payment has been started."
-    );
-  };
 
   return (
     <View className="flex-1 bg-[#FCF9F4]">
@@ -219,13 +211,13 @@ export function SubscriptionScreen() {
                   </Text>
                   {plan.id === "premium" ? (
                     <Pressable
-                      onPress={unavailable}
+                      onPress={() => router.push("/subscription/monthly")}
                       accessibilityRole="button"
-                      accessibilityLabel="Upgrade unavailable"
-                      className="mt-4 min-h-11 items-center justify-center rounded-xl bg-[#F3EEE8] px-4"
+                      accessibilityLabel="View subscription plans"
+                      className="mt-4 min-h-11 items-center justify-center rounded-xl bg-[#FF6B5F] px-4"
                     >
-                      <Text className="font-bold text-[#827970]">
-                        Upgrade unavailable
+                      <Text className="font-bold text-white">
+                        Explore plans
                       </Text>
                     </Pressable>
                   ) : null}

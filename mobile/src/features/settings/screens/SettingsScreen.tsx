@@ -451,7 +451,7 @@ export function SettingsScreen() {
           <SettingRow
             icon="$"
             title="Plans & billing"
-            description="View your plan and payment history"
+            description="View your plan, billing history, and available plans"
             onPress={() => router.push("/subscription")}
           />
           <View className="border-t border-[#EAE4DC]">
