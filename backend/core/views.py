@@ -46,11 +46,13 @@ from .serializers import (
     ConnectedAccountsResponseSerializer,
     SocialAccountSerializer,
     UserSubscriptionSerializer,
+    GEOOptimizationSerializer,
 )
 from .services.content_generation import (
     ContentGenerationError,
     generate_content,
 )
+from .services.geo_analysis import analyze_geo_content
 from .services.notifications import notify_approval_decision
 from .services.subscriptions import (
     get_user_entitlements,
@@ -273,6 +275,50 @@ class ContentGenerateView(APIView):
                 "brand_id": str(brand.id),
                 "platform": values["platform"],
                 "content_type": values["content_type"],
+            },
+            status=status.HTTP_200_OK,
+        )
+class GEOOptimizeView(APIView):
+    authentication_classes = [SupabaseAuthentication]
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        serializer = GEOOptimizationSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        values = serializer.validated_data
+
+        brand = get_object_or_404(
+            Brand,
+            id=values["brand_id"],
+            owner_id=request.user.id,
+        )
+
+        try:
+            result = analyze_geo_content(
+                content=values["content"],
+                platform=values["platform"],
+                brand=brand,
+            )
+
+        except ContentGenerationError as error:
+            return Response(
+                {"detail": str(error)},
+                status=error.status_code,
+            )
+
+        improvements = [
+            issue["suggestion"]
+            for issue in result["issues"]
+            if isinstance(issue, dict)
+            and isinstance(issue.get("suggestion"), str)
+            and issue["suggestion"].strip()
+        ]
+
+        return Response(
+            {
+                "improvements": improvements,
+                "optimized_content": result["optimized_content"],
             },
             status=status.HTTP_200_OK,
         )
