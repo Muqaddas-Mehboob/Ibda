@@ -136,7 +136,24 @@ class ContentGenerationSerializer(serializers.Serializer):
     def validate_keywords(self, values):
         return [value for value in values if value]
 
+class GEOOptimizationSerializer(serializers.Serializer):
+    brand_id = serializers.UUIDField()
 
+    platform = serializers.ChoiceField(
+        choices=ContentPost.Platform.choices
+    )
+
+    content = serializers.CharField(
+        max_length=10000,
+        trim_whitespace=True,
+    )
+
+    def validate_content(self, value):
+        if not value.strip():
+            raise serializers.ValidationError(
+                "Content is required for GEO optimization."
+            )
+        return value
 class ContentPostSerializer(serializers.ModelSerializer):
     brand_id = serializers.PrimaryKeyRelatedField(
         source="brand",

@@ -1,3 +1,4 @@
+
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   ActivityIndicator,
@@ -15,11 +16,13 @@ import {
 } from "../../brand-memory/services/brandMemory.service";
 import {
   generateContent,
+  optimizeContentForGEO,
   saveContent,
   submitForApproval,
   updateContent,
   type ContentPost,
   type ContentType,
+  type GEOOptimizeResult,
   type SocialPlatform,
 } from "../services/content.service";
 
@@ -44,11 +47,16 @@ function getErrorMessage(error: unknown, fallback: string): string {
 }
 
 export function ContentStudioScreen() {
-  const { topic: initialTopic } = useLocalSearchParams<{ topic?: string }>();
+  const { topic: initialTopic } =
+    useLocalSearchParams<{ topic?: string }>();
+
   const [brands, setBrands] = useState<BrandMemoryProfile[]>([]);
   const [brandId, setBrandId] = useState("");
-  const [platform, setPlatform] = useState<SocialPlatform>("instagram");
-  const [contentType, setContentType] = useState<ContentType>("caption");
+  const [platform, setPlatform] =
+    useState<SocialPlatform>("instagram");
+  const [contentType, setContentType] =
+    useState<ContentType>("caption");
+
   const [topic, setTopic] = useState(
     typeof initialTopic === "string" ? initialTopic : ""
   );
@@ -57,12 +65,19 @@ export function ContentStudioScreen() {
   const [tone, setTone] = useState("Friendly");
   const [language, setLanguage] = useState("English");
   const [content, setContent] = useState("");
-  const [savedPost, setSavedPost] = useState<ContentPost | null>(null);
+
+  const [savedPost, setSavedPost] =
+    useState<ContentPost | null>(null);
   const [submitted, setSubmitted] = useState(false);
   const [loadingBrands, setLoadingBrands] = useState(true);
   const [generating, setGenerating] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [optimizing, setOptimizing] = useState(false);
+  const [geoResult, setGeoResult] =
+    useState<GEOOptimizeResult | null>(null);
   const [error, setError] = useState("");
+
+  const canEdit = !generating && !saving && !optimizing;
 
   const selectedBrand = useMemo(
     () => brands.find((brand) => brand.id === brandId) ?? null,
@@ -72,6 +87,7 @@ export function ContentStudioScreen() {
   const loadBrands = useCallback(async () => {
     setLoadingBrands(true);
     setError("");
+
     try {
       const results = await getMemoryBrands();
       setBrands(results);
@@ -81,7 +97,9 @@ export function ContentStudioScreen() {
           : (results[0]?.id ?? "")
       );
     } catch (loadError) {
-      setError(getErrorMessage(loadError, "Unable to load your brands."));
+      setError(
+        getErrorMessage(loadError, "Unable to load your brands.")
+      );
     } finally {
       setLoadingBrands(false);
     }
@@ -101,10 +119,13 @@ export function ContentStudioScreen() {
   }, [selectedBrand]);
 
   const handleGenerate = async () => {
+    if (generating || saving || optimizing) return;
+
     if (!brandId) {
       setError("Create or select a brand before generating content.");
       return;
     }
+
     if (!topic.trim()) {
       setError("Enter a topic or campaign before generating content.");
       return;
@@ -113,6 +134,8 @@ export function ContentStudioScreen() {
     setGenerating(true);
     setError("");
     setSubmitted(false);
+    setGeoResult(null);
+
     try {
       const result = await generateContent({
         brand_id: brandId,
@@ -127,6 +150,7 @@ export function ContentStudioScreen() {
           .filter(Boolean),
         call_to_action: callToAction.trim(),
       });
+
       setContent(result.content);
       setSavedPost(null);
     } catch (generationError) {
@@ -141,6 +165,53 @@ export function ContentStudioScreen() {
     }
   };
 
+  const handleOptimizeGEO = async () => {
+    if (optimizing || generating || saving) return;
+
+    if (!brandId || !content.trim()) {
+      setError("Generate content before optimizing for GEO.");
+      return;
+    }
+
+    setOptimizing(true);
+    setError("");
+    setGeoResult(null);
+
+    try {
+      const result = await optimizeContentForGEO({
+        brand_id: brandId,
+        platform,
+        content: content.trim(),
+      });
+
+      setGeoResult(result);
+    } catch (optimizationError) {
+      setError(
+        getErrorMessage(
+          optimizationError,
+          "Unable to optimize content for GEO."
+        )
+      );
+    } finally {
+      setOptimizing(false);
+    }
+  };
+
+  const handleApplyGEO = () => {
+    if (
+      !geoResult ||
+      !geoResult.optimized_content.trim() ||
+      !canEdit
+    ) {
+      return;
+    }
+
+    setContent(geoResult.optimized_content);
+    setGeoResult(null);
+    setError("");
+    setSubmitted(false);
+  };
+
   const saveDraft = async (): Promise<ContentPost | null> => {
     if (!brandId || !content.trim()) {
       setError("Generate or enter content before saving.");
@@ -150,6 +221,7 @@ export function ContentStudioScreen() {
     const title =
       CONTENT_TYPES.find((item) => item.value === contentType)?.label ??
       "Social post";
+
     const input = {
       title,
       body: content.trim(),
@@ -165,27 +237,34 @@ export function ContentStudioScreen() {
   };
 
   const handleSave = async () => {
-    if (saving) return;
+    if (!canEdit) return;
+
     setSaving(true);
     setError("");
     setSubmitted(false);
+
     try {
       const post = await saveDraft();
       if (post) setSavedPost(post);
     } catch (saveError) {
-      setError(getErrorMessage(saveError, "Unable to save this draft."));
+      setError(
+        getErrorMessage(saveError, "Unable to save this draft.")
+      );
     } finally {
       setSaving(false);
     }
   };
 
   const handleSubmitForApproval = async () => {
-    if (saving) return;
+    if (!canEdit) return;
+
     setSaving(true);
     setError("");
     setSubmitted(false);
+
     try {
       let post = savedPost;
+
       if (
         !post ||
         post.body !== content.trim() ||
@@ -194,7 +273,9 @@ export function ContentStudioScreen() {
       ) {
         post = await saveDraft();
       }
+
       if (!post) return;
+
       setSavedPost(post);
       await submitForApproval(post.id);
       setSubmitted(true);
@@ -213,12 +294,15 @@ export function ContentStudioScreen() {
 
   const fieldClass =
     "mt-2 rounded-2xl border border-[#EAE4DC] bg-white px-4 py-3 text-base text-[#24221F]";
-  const canEdit = !generating && !saving;
 
   return (
     <View className="flex-1 bg-[#FCF9F4]">
       <ScrollView
-        contentContainerStyle={{ padding: 24, paddingTop: 32, paddingBottom: 48 }}
+        contentContainerStyle={{
+          padding: 24,
+          paddingTop: 32,
+          paddingBottom: 48,
+        }}
         keyboardShouldPersistTaps="handled"
         keyboardDismissMode="on-drag"
         showsVerticalScrollIndicator={false}
@@ -226,24 +310,36 @@ export function ContentStudioScreen() {
         <Text className="mb-2 text-xs font-bold uppercase tracking-[3px] text-[#FF6B5F]">
           IBDA WORKSPACE
         </Text>
+
         <Text className="text-4xl font-bold text-[#24221F]">
           AI Content Studio
         </Text>
+
         <Text className="mb-7 mt-3 text-base leading-6 text-[#827970]">
-          Create on-brand social content with your saved brand details and voice.
+          Create on-brand social content with your saved brand
+          details and voice.
         </Text>
 
-        <Text className="font-semibold text-[#24221F]">Brand</Text>
+        <Text className="font-semibold text-[#24221F]">
+          Brand
+        </Text>
+
         {loadingBrands ? (
           <View className="mt-3 flex-row items-center rounded-2xl border border-[#EAE4DC] bg-white p-4">
             <ActivityIndicator color="#FF6B5F" />
-            <Text className="ml-3 text-[#827970]">Loading your brands...</Text>
+            <Text className="ml-3 text-[#827970]">
+              Loading your brands...
+            </Text>
           </View>
         ) : error && brands.length === 0 ? (
           <View className="mt-2 rounded-2xl border border-[#EAC5BE] bg-white p-4">
-            <Text accessibilityRole="alert" className="leading-5 text-[#A33D34]">
+            <Text
+              accessibilityRole="alert"
+              className="leading-5 text-[#A33D34]"
+            >
               {error}
             </Text>
+
             <Pressable
               onPress={() => void loadBrands()}
               className="mt-3 min-h-11 self-start justify-center"
@@ -258,6 +354,7 @@ export function ContentStudioScreen() {
             <Text className="leading-5 text-[#827970]">
               You need a saved brand before you can generate content.
             </Text>
+
             <Pressable
               onPress={() => void loadBrands()}
               className="mt-3 self-start"
@@ -271,11 +368,13 @@ export function ContentStudioScreen() {
           <View className="mt-3 flex-row flex-wrap gap-2">
             {brands.map((brand) => {
               const selected = brand.id === brandId;
+
               return (
                 <Pressable
                   key={brand.id}
                   onPress={() => {
                     setBrandId(brand.id);
+                    setGeoResult(null);
                     setSavedPost(null);
                     setSubmitted(false);
                   }}
@@ -290,7 +389,9 @@ export function ContentStudioScreen() {
                 >
                   <Text
                     className={`font-medium ${
-                      selected ? "text-white" : "text-[#51483F]"
+                      selected
+                        ? "text-white"
+                        : "text-[#51483F]"
                     }`}
                   >
                     {brand.name}
@@ -303,19 +404,27 @@ export function ContentStudioScreen() {
 
         {selectedBrand && (
           <Text className="mt-2 text-sm text-[#827970]">
-            Voice defaults: {selectedBrand.voice?.tone || "Friendly"} ·{" "}
+            Voice defaults:{" "}
+            {selectedBrand.voice?.tone || "Friendly"} ·{" "}
             {selectedBrand.voice?.language || "English"}
           </Text>
         )}
 
-        <Text className="mt-6 font-semibold text-[#24221F]">Platform</Text>
+        <Text className="mt-6 font-semibold text-[#24221F]">
+          Platform
+        </Text>
+
         <View className="mt-3 flex-row flex-wrap gap-2">
           {PLATFORMS.map((item) => {
             const selected = platform === item.value;
+
             return (
               <Pressable
                 key={item.value}
-                onPress={() => setPlatform(item.value)}
+                onPress={() => {
+                  setPlatform(item.value);
+                  setGeoResult(null);
+                }}
                 disabled={!canEdit}
                 accessibilityRole="button"
                 accessibilityState={{ selected }}
@@ -325,20 +434,29 @@ export function ContentStudioScreen() {
                     : "border-[#EAE4DC] bg-white"
                 }`}
               >
-                <Text className="font-medium text-[#24221F]">{item.label}</Text>
+                <Text className="font-medium text-[#24221F]">
+                  {item.label}
+                </Text>
               </Pressable>
             );
           })}
         </View>
 
-        <Text className="mt-6 font-semibold text-[#24221F]">Content type</Text>
+        <Text className="mt-6 font-semibold text-[#24221F]">
+          Content type
+        </Text>
+
         <View className="mt-3 flex-row flex-wrap gap-2">
           {CONTENT_TYPES.map((item) => {
             const selected = contentType === item.value;
+
             return (
               <Pressable
                 key={item.value}
-                onPress={() => setContentType(item.value)}
+                onPress={() => {
+                  setContentType(item.value);
+                  setGeoResult(null);
+                }}
                 disabled={!canEdit}
                 accessibilityRole="button"
                 accessibilityState={{ selected }}
@@ -348,7 +466,9 @@ export function ContentStudioScreen() {
                     : "border-[#EAE4DC] bg-white"
                 }`}
               >
-                <Text className="font-medium text-[#24221F]">{item.label}</Text>
+                <Text className="font-medium text-[#24221F]">
+                  {item.label}
+                </Text>
               </Pressable>
             );
           })}
@@ -356,8 +476,10 @@ export function ContentStudioScreen() {
 
         <View className="mt-6">
           <Text className="font-semibold text-[#24221F]">
-            Topic or campaign <Text className="text-[#FF6B5F]">*</Text>
+            Topic or campaign{" "}
+            <Text className="text-[#FF6B5F]">*</Text>
           </Text>
+
           <TextInput
             value={topic}
             onChangeText={setTopic}
@@ -371,7 +493,10 @@ export function ContentStudioScreen() {
         </View>
 
         <View className="mt-5">
-          <Text className="font-semibold text-[#24221F]">Keywords</Text>
+          <Text className="font-semibold text-[#24221F]">
+            Keywords
+          </Text>
+
           <TextInput
             value={keywords}
             onChangeText={setKeywords}
@@ -385,7 +510,10 @@ export function ContentStudioScreen() {
         </View>
 
         <View className="mt-5">
-          <Text className="font-semibold text-[#24221F]">Call to action</Text>
+          <Text className="font-semibold text-[#24221F]">
+            Call to action
+          </Text>
+
           <TextInput
             value={callToAction}
             onChangeText={setCallToAction}
@@ -399,7 +527,10 @@ export function ContentStudioScreen() {
 
         <View className="mt-5 flex-row gap-3">
           <View className="flex-1">
-            <Text className="font-semibold text-[#24221F]">Tone</Text>
+            <Text className="font-semibold text-[#24221F]">
+              Tone
+            </Text>
+
             <TextInput
               value={tone}
               onChangeText={setTone}
@@ -409,8 +540,12 @@ export function ContentStudioScreen() {
               className={fieldClass}
             />
           </View>
+
           <View className="flex-1">
-            <Text className="font-semibold text-[#24221F]">Language</Text>
+            <Text className="font-semibold text-[#24221F]">
+              Language
+            </Text>
+
             <TextInput
               value={language}
               onChangeText={setLanguage}
@@ -424,10 +559,16 @@ export function ContentStudioScreen() {
 
         <Pressable
           onPress={() => void handleGenerate()}
-          disabled={generating || saving || loadingBrands || brands.length === 0}
+          disabled={
+            generating ||
+            saving ||
+            optimizing ||
+            loadingBrands ||
+            brands.length === 0
+          }
           accessibilityRole="button"
           className={`mt-7 min-h-14 flex-row items-center justify-center rounded-2xl bg-[#FF6B5F] px-5 py-4 ${
-            generating || saving || loadingBrands || brands.length === 0
+            !canEdit || loadingBrands || brands.length === 0
               ? "opacity-70"
               : ""
           }`}
@@ -436,14 +577,19 @@ export function ContentStudioScreen() {
             <ActivityIndicator color="#FFFFFF" />
           ) : (
             <Text className="font-bold text-white">
-              {content ? "Regenerate Content" : "Generate Content"}
+              {content
+                ? "Regenerate Content"
+                : "Generate Content"}
             </Text>
           )}
         </Pressable>
 
         {!!error && (
           <View className="mt-5 rounded-2xl border border-[#EAC5BE] bg-white p-4">
-            <Text accessibilityRole="alert" className="leading-5 text-[#A33D34]">
+            <Text
+              accessibilityRole="alert"
+              className="leading-5 text-[#A33D34]"
+            >
               {error}
             </Text>
           </View>
@@ -454,15 +600,19 @@ export function ContentStudioScreen() {
             <Text className="mb-3 text-xs font-bold uppercase tracking-[2px] text-[#FF6B5F]">
               CONTENT PREVIEW
             </Text>
+
             {savedPost && (
               <Text className="mb-3 text-sm font-medium text-[#827970]">
                 Draft saved · {savedPost.status}
               </Text>
             )}
+
             <TextInput
               value={content}
               onChangeText={(value) => {
                 setContent(value);
+                setGeoResult(null);
+
                 if (submitted) {
                   setSubmitted(false);
                   setSavedPost(null);
@@ -470,13 +620,106 @@ export function ContentStudioScreen() {
               }}
               multiline
               textAlignVertical="top"
-              editable={!saving}
+              editable={canEdit}
               accessibilityLabel="Generated content preview. Editable."
               className="min-h-40 rounded-2xl border border-[#EAE4DC] bg-[#FCF9F4] px-4 py-4 text-base leading-6 text-[#24221F]"
             />
+
             <Text className="mt-2 text-xs text-[#827970]">
               Edit the text above before saving or submitting.
             </Text>
+
+            <Pressable
+              onPress={() => void handleOptimizeGEO()}
+              disabled={!canEdit || !brandId || !content.trim()}
+              accessibilityRole="button"
+              className={`mt-4 min-h-12 flex-row items-center justify-center rounded-2xl bg-[#287D54] px-4 py-3 ${
+                !canEdit || !brandId || !content.trim()
+                  ? "opacity-60"
+                  : ""
+              }`}
+            >
+              {optimizing ? (
+                <>
+                  <ActivityIndicator color="#FFFFFF" />
+                  <Text className="ml-2 font-bold text-white">
+                    Optimizing for GEO...
+                  </Text>
+                </>
+              ) : (
+                <Text className="font-bold text-white">
+                  Optimize for GEO
+                </Text>
+              )}
+            </Pressable>
+
+            {geoResult && (
+              <View className="mt-4 rounded-2xl border border-[#D5E9DB] bg-[#F1FAF3] p-4">
+                <Text className="text-lg font-bold text-[#24221F]">
+                  GEO Improvements
+                </Text>
+
+                {geoResult.improvements.length === 0 ? (
+                  <Text className="mt-2 text-sm text-[#51483F]">
+                    No major improvements were identified.
+                  </Text>
+                ) : (
+                  geoResult.improvements.map(
+                    (improvement, index) => (
+                      <Text
+                        key={index}
+                        className="mt-3 text-sm leading-6 text-[#51483F]"
+                      >
+                        {index + 1}. {improvement}
+                      </Text>
+                    )
+                  )
+                )}
+
+                {geoResult.optimized_content.trim() ? (
+                  <>
+                    <Text className="mt-6 font-bold text-[#24221F]">
+                      GEO-Refined Content
+                    </Text>
+
+                    <View className="mt-3 rounded-xl border border-[#D5E9DB] bg-white p-4">
+                      <Text
+                        selectable
+                        className="text-base leading-6 text-[#24221F]"
+                      >
+                        {geoResult.optimized_content}
+                      </Text>
+                    </View>
+
+                    <Pressable
+                      onPress={handleApplyGEO}
+                      disabled={!canEdit}
+                      accessibilityRole="button"
+                      className={`mt-4 min-h-12 items-center justify-center rounded-2xl bg-[#24221F] px-4 py-3 ${
+                        !canEdit ? "opacity-60" : ""
+                      }`}
+                    >
+                      <Text className="font-bold text-white">
+                        Apply Optimized Content
+                      </Text>
+                    </Pressable>
+                  </>
+                ) : (
+                  <View className="mt-5 rounded-xl border border-[#D5E9DB] bg-white p-4">
+                    <Text className="font-semibold text-[#24221F]">
+                      Additional Brand Details Needed
+                    </Text>
+
+                    <Text className="mt-2 text-sm leading-6 text-[#51483F]">
+                      Meaningful GEO refinement requires more verified
+                      brand information. Add details such as your
+                      location, specific products, services, or unique
+                      offerings to improve the content.
+                    </Text>
+                  </View>
+                )}
+              </View>
+            )}
 
             {!!submitted && (
               <Text className="mt-4 font-semibold text-[#287D54]">
@@ -488,24 +731,29 @@ export function ContentStudioScreen() {
               <View className="mt-4 gap-3">
                 <Pressable
                   onPress={() => void handleSave()}
-                  disabled={saving}
+                  disabled={!canEdit}
                   accessibilityRole="button"
-                  className="min-h-12 items-center justify-center rounded-2xl border border-[#EAE4DC] bg-white px-4 py-3"
+                  className={`min-h-12 items-center justify-center rounded-2xl border border-[#EAE4DC] bg-white px-4 py-3 ${
+                    !canEdit ? "opacity-60" : ""
+                  }`}
                 >
                   <Text className="font-bold text-[#24221F]">
                     {saving ? "Saving..." : "Save Draft"}
                   </Text>
                 </Pressable>
+
                 <Pressable
                   onPress={() => void handleSubmitForApproval()}
-                  disabled={saving}
+                  disabled={!canEdit}
                   accessibilityRole="button"
                   className={`min-h-12 items-center justify-center rounded-2xl bg-[#24221F] px-4 py-3 ${
-                    saving ? "opacity-70" : ""
+                    !canEdit ? "opacity-60" : ""
                   }`}
                 >
                   <Text className="font-bold text-white">
-                    {saving ? "Saving..." : "Submit for Approval"}
+                    {saving
+                      ? "Saving..."
+                      : "Submit for Approval"}
                   </Text>
                 </Pressable>
               </View>
@@ -513,6 +761,7 @@ export function ContentStudioScreen() {
           </View>
         )}
       </ScrollView>
+
       <BottomNavigation />
     </View>
   );

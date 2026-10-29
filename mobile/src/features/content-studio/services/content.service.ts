@@ -35,7 +35,16 @@ export type GeneratedContent = Pick<
 > & {
   content: string;
 };
+export type GEOOptimizeInput = {
+  brand_id: string;
+  platform: SocialPlatform;
+  content: string;
+};
 
+export type GEOOptimizeResult = {
+  improvements: string[];
+  optimized_content: string;
+};
 export type ContentPost = {
   id: string;
   brand_name: string;
@@ -133,6 +142,14 @@ export function generateContent(
     body: JSON.stringify(input),
   });
 }
+export function optimizeContentForGEO(
+  input: GEOOptimizeInput
+): Promise<GEOOptimizeResult> {
+  return request<GEOOptimizeResult>("/content/geo/analyze/", {
+    method: "POST",
+    body: JSON.stringify(input),
+  });
+}
 
 export function saveContent(input: SaveContentInput): Promise<ContentPost> {
   return request<ContentPost>("/content/posts/", {
@@ -159,3 +176,4 @@ export function submitForApproval(
     { method: "POST" }
   );
 }
+

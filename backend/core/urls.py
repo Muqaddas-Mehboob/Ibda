@@ -27,6 +27,7 @@ from .views import (
     SocialOAuthCallbackView,
     health_check,
     BrandVoiceView,
+    GEOOptimizeView,
 )
 
 urlpatterns = [
@@ -57,6 +58,11 @@ urlpatterns = [
         "content/generate/",
         ContentGenerateView.as_view(),
         name="content-generate",
+    ),
+    path(
+        "content/geo/analyze/",
+        GEOOptimizeView.as_view(),
+        name="content-geo-analyze",
     ),
     path(
         "content/posts/",
