@@ -710,7 +710,12 @@ class SubscriptionPlansView(APIView):
     permission_classes = [IsAuthenticated]
 
     def get(self, request):
-        return Response(get_plan_catalog())
+        catalog = get_plan_catalog()
+        logger.info(
+            "Subscription plans API response: status=200 checkout_available=%s",
+            catalog["checkout_available"],
+        )
+        return Response(catalog)
 
 
 class UserSubscriptionView(APIView):
@@ -768,6 +773,12 @@ class SubscriptionCheckoutView(APIView):
         plan_id = serializer.validated_data["plan_id"]
         billing_interval = serializer.validated_data["billing_interval"]
         if not get_price_id(plan_id, billing_interval):
+            logger.warning(
+                "Stripe checkout rejected: category=price_id_missing "
+                "status=503 plan=%s interval=%s",
+                plan_id,
+                billing_interval,
+            )
             return Response(
                 {
                     "detail": (
@@ -785,12 +796,25 @@ class SubscriptionCheckoutView(APIView):
                 billing_interval=billing_interval,
                 idempotency_key=idempotency_key,
             )
-        except CheckoutUnavailable:
+        except CheckoutUnavailable as error:
+            logger.warning(
+                "Stripe checkout rejected: category=%s status=503 "
+                "plan=%s interval=%s",
+                error.reason,
+                plan_id,
+                billing_interval,
+            )
             return Response(
                 {"detail": "Stripe checkout is not fully configured."},
                 status=status.HTTP_503_SERVICE_UNAVAILABLE,
             )
         except SubscriptionAlreadyExists:
+            logger.warning(
+                "Stripe checkout rejected: category=subscription_conflict "
+                "status=409 plan=%s interval=%s",
+                plan_id,
+                billing_interval,
+            )
             return Response(
                 {
                     "detail": (
@@ -800,13 +824,22 @@ class SubscriptionCheckoutView(APIView):
                 },
                 status=status.HTTP_409_CONFLICT,
             )
-        except stripe.StripeError:
-            logger.error("Stripe checkout session creation failed.")
+        except stripe.StripeError as error:
+            logger.error(
+                "Stripe checkout failed: category=stripe_api "
+                "status=502 error_type=%s",
+                type(error).__name__,
+            )
             return Response(
                 {"detail": "Unable to start checkout. Please try again later."},
                 status=status.HTTP_502_BAD_GATEWAY,
             )
 
+        logger.info(
+            "Stripe checkout created: status=200 plan=%s interval=%s",
+            plan_id,
+            billing_interval,
+        )
         return Response(
             {
                 "checkout_url": session.url,

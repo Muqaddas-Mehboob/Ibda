@@ -4,6 +4,7 @@ Django settings for config project.
 
 import environ
 from pathlib import Path
+from corsheaders.defaults import default_headers
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 
@@ -225,3 +226,4 @@ CORS_ALLOWED_ORIGINS = env.list(
         "http://127.0.0.1:8081",
     ],
 )
+CORS_ALLOW_HEADERS = (*default_headers, "idempotency-key")

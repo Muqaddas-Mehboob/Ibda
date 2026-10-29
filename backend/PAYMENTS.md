@@ -41,13 +41,20 @@ keys, webhook secrets, or credentials in the mobile app or source control.
 Configure fixed success and cancellation URLs on the backend. The success URL
 may contain Stripe's `{CHECKOUT_SESSION_ID}` placeholder. Do not accept
 redirect URLs from the app. A successful redirect is not proof of payment.
+For Expo Web, add the exact app origin (for example,
+`http://localhost:8081`) to `CORS_ALLOWED_ORIGINS`. The API also allows the
+`Idempotency-Key` request header used by checkout; do not enable all origins.
 
 ## Local Stripe CLI test
 
 1. Install and authenticate the Stripe CLI against a Stripe test account.
 2. Configure all required test-mode values above in `backend/.env`, including
    the recurring Price IDs and fixed success/cancellation URLs.
-3. Start Django from `backend` with `python manage.py runserver`.
+3. For a native app on a physical device, start Django from `backend` with
+   `python manage.py runserver 0.0.0.0:8000` and include the development
+   machine's LAN hostname or IP in `DJANGO_ALLOWED_HOSTS`. Expo native
+   development resolves a loopback `EXPO_PUBLIC_API_URL` to the Expo host;
+   production builds must use a reachable backend URL rather than loopback.
 4. In a separate terminal, forward the supported events:
 
    ```text

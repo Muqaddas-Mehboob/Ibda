@@ -1014,6 +1014,30 @@ class SubscriptionApiTests(APITestCase):
             status=UserSubscription.Status.ACTIVE,
         )
 
+    def test_checkout_cors_preflight_allows_idempotency_header_for_web_origin(
+        self,
+    ):
+        with self.settings(CORS_ALLOWED_ORIGINS=["http://localhost:8081"]):
+            response = self.client.options(
+                "/api/subscription/checkout/",
+                HTTP_ORIGIN="http://localhost:8081",
+                HTTP_ACCESS_CONTROL_REQUEST_METHOD="POST",
+                HTTP_ACCESS_CONTROL_REQUEST_HEADERS=(
+                    "authorization,content-type,idempotency-key"
+                ),
+            )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(
+            response["Access-Control-Allow-Origin"],
+            "http://localhost:8081",
+        )
+        self.assertIn(
+            "idempotency-key",
+            response["Access-Control-Allow-Headers"].lower(),
+        )
+        self.assertIn("POST", response["Access-Control-Allow-Methods"])
+
     @override_settings(
         STRIPE_SECRET_KEY="",
         STRIPE_WEBHOOK_SECRET="",
@@ -1189,6 +1213,86 @@ class SubscriptionApiTests(APITestCase):
         )
 
         self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
+
+    def test_checkout_get_requires_auth_then_rejects_method(self):
+        self.client.force_authenticate(user=None)
+        unauthenticated = self.client.get("/api/subscription/checkout/")
+        self.assertEqual(
+            unauthenticated.status_code,
+            status.HTTP_401_UNAUTHORIZED,
+        )
+
+        self.client.force_authenticate(user=self.user)
+        authenticated = self.client.get("/api/subscription/checkout/")
+        self.assertEqual(
+            authenticated.status_code,
+            status.HTTP_405_METHOD_NOT_ALLOWED,
+        )
+
+    def test_checkout_authenticates_supabase_bearer_before_creating_session(
+        self,
+    ):
+        token = "test-access-token"
+        session = SimpleNamespace(
+            id="cs_test_authenticated",
+            url="https://checkout.stripe.test/authenticated",
+        )
+        self.client.force_authenticate(user=None)
+        with self.settings(
+            SUPABASE_URL="https://supabase.example.invalid",
+            SUPABASE_PUBLISHABLE_KEY="publishable-test-key",
+            STRIPE_SECRET_KEY="sk_test_unit_test",
+            STRIPE_WEBHOOK_SECRET="whsec_unit_test",
+            STRIPE_CHECKOUT_SUCCESS_URL="ibda://subscription/success",
+            STRIPE_CHECKOUT_CANCEL_URL="ibda://subscription/cancel",
+            STRIPE_PRICE_PRO_MONTHLY="price_server_pro_monthly",
+        ):
+            with (
+                patch("core.authentication.requests.get") as verify_user,
+                patch(
+                    "core.services.payments.checkout.retrieve_price_details",
+                    return_value={
+                        "price_minor": 1250,
+                        "currency": "USD",
+                        "active": True,
+                        "recurring_interval": "month",
+                        "recurring_interval_count": 1,
+                    },
+                ),
+                patch(
+                    "core.services.payments.checkout.create_customer",
+                    return_value=SimpleNamespace(id="cus_test_authenticated"),
+                ),
+                patch(
+                    "core.services.payments.checkout.create_checkout_session",
+                    return_value=session,
+                ),
+            ):
+                verify_user.return_value.status_code = 200
+                verify_user.return_value.json.return_value = {
+                    "id": str(self.user.id),
+                    "email": "creator@example.invalid",
+                }
+                response = self.client.post(
+                    "/api/subscription/checkout/",
+                    {"plan_id": "pro", "billing_interval": "monthly"},
+                    format="json",
+                    HTTP_AUTHORIZATION=f"Bearer {token}",
+                    HTTP_IDEMPOTENCY_KEY=str(uuid4()),
+                )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data["checkout_url"], session.url)
+        self.assertEqual(response.data["session_id"], session.id)
+        verify_user.assert_called_once()
+        self.assertEqual(
+            verify_user.call_args.kwargs["headers"]["Authorization"],
+            f"Bearer {token}",
+        )
+        self.assertEqual(
+            verify_user.call_args.kwargs["headers"]["apikey"],
+            "publishable-test-key",
+        )
 
     def test_checkout_creates_pending_stripe_session_with_server_configuration(
         self,

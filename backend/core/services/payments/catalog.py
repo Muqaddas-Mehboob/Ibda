@@ -1,6 +1,10 @@
+import logging
+
 from django.conf import settings
 
 from .stripe_gateway import retrieve_price_details
+
+logger = logging.getLogger(__name__)
 
 
 PLAN_DEFINITIONS = (
@@ -141,6 +145,26 @@ def get_plan_catalog():
     if not cancel_url:
         missing_configuration.append("stripe_checkout_cancel_url")
     missing_configuration.append("plan_features")
+
+    available_price_count = sum(
+        price["checkout_available"]
+        for plan in plans
+        for price in plan["prices"].values()
+    )
+    configured_price_count = sum(
+        bool(get_price_id(plan_id, interval))
+        for plan_id, interval in PRICE_SETTINGS
+    )
+    logger.info(
+        "Stripe catalog readiness: test_secret=%s webhook_secret=%s "
+        "success_url=%s cancel_url=%s configured_prices=%d available_prices=%d",
+        stripe_configured,
+        webhook_configured,
+        success_url,
+        cancel_url,
+        configured_price_count,
+        available_price_count,
+    )
 
     return {
         "plans": plans,

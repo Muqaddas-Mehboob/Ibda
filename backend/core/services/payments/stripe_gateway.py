@@ -63,8 +63,11 @@ def retrieve_price_details(price_id):
         return cached
     try:
         price = _client().v1.prices.retrieve(price_id)
-    except stripe.StripeError:
-        logger.warning("Unable to retrieve a configured Stripe Price.")
+    except stripe.StripeError as error:
+        logger.warning(
+            "Stripe Price lookup failed: category=stripe_api error_type=%s",
+            type(error).__name__,
+        )
         cache.set(cache_key, False, timeout=30)
         return None
 

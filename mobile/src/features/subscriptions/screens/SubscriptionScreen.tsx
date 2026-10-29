@@ -7,7 +7,7 @@ import {
   Text,
   View,
 } from "react-native";
-import { useFocusEffect, useRouter } from "expo-router";
+import { useFocusEffect, useLocalSearchParams, useRouter } from "expo-router";
 import { BottomNavigation } from "../../../components/navigation/BottomNavigation";
 import {
   getSubscriptionPlans,
@@ -61,6 +61,9 @@ function Section({
 
 export function SubscriptionScreen() {
   const router = useRouter();
+  const params = useLocalSearchParams<{ checkout?: string | string[] }>();
+  const checkoutReturn =
+    typeof params.checkout === "string" ? params.checkout : null;
   const [plans, setPlans] = useState<SubscriptionPlansResponse | null>(null);
   const [account, setAccount] = useState<UserSubscriptionResponse | null>(null);
   const [loading, setLoading] = useState(true);
@@ -120,8 +123,25 @@ export function SubscriptionScreen() {
           Plans & billing
         </Text>
         <Text className="mb-6 mt-3 text-base leading-6 text-[#827970]">
-          View your plan and billing history. Payments are not enabled yet.
+          View your current plan, validated Stripe pricing, and billing history.
         </Text>
+
+        {checkoutReturn === "success" ? (
+          <View className="mb-5 rounded-2xl border border-[#EAE4DC] bg-white p-4">
+            <Text className="text-sm leading-5 text-[#51483F]">
+              You returned from checkout. Your current plan below is refreshed
+              from the backend; access changes only after Stripe confirms the
+              subscription.
+            </Text>
+          </View>
+        ) : checkoutReturn === "cancelled" ? (
+          <View className="mb-5 rounded-2xl border border-[#EAE4DC] bg-white p-4">
+            <Text className="text-sm leading-5 text-[#51483F]">
+              Checkout was canceled. Your subscription status below is
+              refreshed from the backend.
+            </Text>
+          </View>
+        ) : null}
 
         {loading ? (
           <View className="flex-row items-center gap-3 rounded-2xl border border-[#EAE4DC] bg-white p-5">
@@ -149,11 +169,18 @@ export function SubscriptionScreen() {
               <View className="p-4">
                 <View className="flex-row items-center justify-between">
                   <Text className="text-xl font-bold text-[#24221F]">
-                    {account.plan_id === "free" ? "Free" : "Premium"}
+                    {account.plan_id === "free"
+                      ? "Free"
+                      : plans.plans.find(
+                          (plan) => plan.id === account.plan_id
+                        )?.name ??
+                        (account.plan_id.startsWith("premium")
+                          ? "Pro"
+                          : account.plan_id)}
                   </Text>
                   <View className="rounded-full bg-[#F3EEE8] px-3 py-1">
                     <Text className="text-xs font-bold uppercase text-[#827970]">
-                      {account.subscription?.status ?? "active"}
+                      {account.subscription?.status ?? "free"}
                     </Text>
                   </View>
                 </View>
@@ -183,8 +210,9 @@ export function SubscriptionScreen() {
               </View>
               <View className="border-t border-[#EAE4DC] px-4 py-3">
                 <Text className="text-sm leading-5 text-[#827970]">
-                  Subscription changes are unavailable until a verified
-                  billing provider is configured.
+                  {plans.checkout_available
+                    ? "Select a configured plan and billing interval to begin Stripe test-mode checkout. Subscription access is updated only after verified Stripe events."
+                    : "Checkout is unavailable until test-mode Stripe, a valid recurring Price, and fixed return URLs are configured on the backend."}
                 </Text>
               </View>
             </Section>
@@ -200,27 +228,67 @@ export function SubscriptionScreen() {
                   <Text className="text-lg font-bold text-[#24221F]">
                     {plan.name}
                   </Text>
-                  <Text className="mt-1 text-sm text-[#827970]">
-                    {plan.id === "free"
-                      ? "No charge"
-                      : "Pricing and billing intervals are not set"}
-                  </Text>
+                  {(["monthly", "annual"] as const).map((interval) => {
+                    const price = plan.prices[interval];
+                    return (
+                      <Text
+                        key={interval}
+                        className="mt-2 text-sm text-[#827970]"
+                      >
+                        {interval === "monthly" ? "Monthly" : "Annual"}:{" "}
+                        {price.price_minor !== null && price.currency
+                          ? formatAmount(price.price_minor, price.currency)
+                          : "Price unavailable"}
+                        {price.price_minor !== null && price.currency
+                          ? interval === "monthly"
+                            ? " / month"
+                            : " / year"
+                          : ""}
+                        {!price.checkout_available
+                          ? " (checkout unavailable)"
+                          : ""}
+                      </Text>
+                    );
+                  })}
                   <Text className="mt-2 text-sm leading-5 text-[#827970]">
-                    Plan features and limits will appear once they have been
-                    defined.
+                    {plan.features_configured
+                      ? plan.features.length
+                        ? plan.features.join(" · ")
+                        : "No features are listed for this plan."
+                      : "Plan features and limits have not been configured."}
                   </Text>
-                  {plan.id === "premium" ? (
+                  <View className="mt-4 flex-row gap-2">
                     <Pressable
-                      onPress={() => router.push("/subscription/monthly")}
+                      onPress={() =>
+                        router.push({
+                          pathname: "/subscription/monthly",
+                          params: { plan: plan.id },
+                        })
+                      }
                       accessibilityRole="button"
-                      accessibilityLabel="View subscription plans"
-                      className="mt-4 min-h-11 items-center justify-center rounded-xl bg-[#FF6B5F] px-4"
+                      accessibilityLabel={`View ${plan.name} monthly pricing`}
+                      className="min-h-11 flex-1 items-center justify-center rounded-xl bg-[#FF6B5F] px-3"
                     >
-                      <Text className="font-bold text-white">
-                        Explore plans
+                      <Text className="text-center text-sm font-bold text-white">
+                        Monthly pricing
                       </Text>
                     </Pressable>
-                  ) : null}
+                    <Pressable
+                      onPress={() =>
+                        router.push({
+                          pathname: "/subscription/annual",
+                          params: { plan: plan.id },
+                        })
+                      }
+                      accessibilityRole="button"
+                      accessibilityLabel={`View ${plan.name} annual pricing`}
+                      className="min-h-11 flex-1 items-center justify-center rounded-xl border border-[#FF6B5F] bg-white px-3"
+                    >
+                      <Text className="text-center text-sm font-bold text-[#B94E45]">
+                        Annual pricing
+                      </Text>
+                    </Pressable>
+                  </View>
                 </View>
               ))}
             </Section>

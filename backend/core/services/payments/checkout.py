@@ -13,7 +13,9 @@ from .stripe_gateway import (
 
 
 class CheckoutUnavailable(Exception):
-    pass
+    def __init__(self, reason="configuration"):
+        self.reason = reason
+        super().__init__(reason)
 
 
 class SubscriptionAlreadyExists(Exception):
@@ -37,19 +39,41 @@ def start_stripe_checkout(
     expected_stripe_interval = (
         "month" if billing_interval == "monthly" else "year"
     )
-    if not (
-        settings.STRIPE_SECRET_KEY.startswith("sk_test_")
-        and settings.STRIPE_WEBHOOK_SECRET
-        and settings.STRIPE_CHECKOUT_SUCCESS_URL
-        and settings.STRIPE_CHECKOUT_CANCEL_URL
-        and price_id
-        and get_plan_for_price(price_id) == (plan_id, billing_interval)
-        and price_details
-        and price_details["active"]
-        and price_details["recurring_interval"] == expected_stripe_interval
-        and price_details["recurring_interval_count"] == 1
-    ):
-        raise CheckoutUnavailable
+    validation_failures = (
+        (
+            settings.STRIPE_SECRET_KEY.startswith("sk_test_"),
+            "stripe_test_secret",
+        ),
+        (bool(settings.STRIPE_WEBHOOK_SECRET), "webhook_secret"),
+        (bool(settings.STRIPE_CHECKOUT_SUCCESS_URL), "success_url"),
+        (bool(settings.STRIPE_CHECKOUT_CANCEL_URL), "cancel_url"),
+        (bool(price_id), "price_id"),
+        (
+            bool(price_id)
+            and get_plan_for_price(price_id) == (plan_id, billing_interval),
+            "price_mapping",
+        ),
+        (bool(price_details), "price_lookup"),
+        (bool(price_details and price_details["active"]), "price_inactive"),
+        (
+            bool(
+                price_details
+                and price_details["recurring_interval"]
+                == expected_stripe_interval
+            ),
+            "price_interval",
+        ),
+        (
+            bool(price_details and price_details["recurring_interval_count"] == 1),
+            "price_interval_count",
+        ),
+    )
+    failure = next(
+        (reason for passed, reason in validation_failures if not passed),
+        None,
+    )
+    if failure:
+        raise CheckoutUnavailable(failure)
 
     subscription = (
         UserSubscription.objects.filter(
