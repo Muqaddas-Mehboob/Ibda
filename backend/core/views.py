@@ -2,19 +2,24 @@ from django.http import JsonResponse
 from datetime import timedelta
 import hashlib
 import hmac
+import logging
+import uuid
 
 from django.conf import settings
 from django.db import transaction
 from django.db.models import Count, Q
 from django.db.models.functions import TruncDate, TruncWeek
+from django.utils.decorators import method_decorator
 from django.utils import timezone
 from django.shortcuts import get_object_or_404
+from django.views.decorators.csrf import csrf_exempt
 from rest_framework import generics
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.exceptions import PermissionDenied
 from rest_framework.response import Response
 from rest_framework.views import APIView
 from rest_framework import status
+import stripe
 
 from .authentication import SupabaseAuthentication
 from .models import (
@@ -56,6 +61,23 @@ from .services.subscriptions import (
     get_user_entitlements,
     is_within_entitlement_limit,
 )
+from .services.payments.catalog import (
+    checkout_configuration_present,
+    get_plan_catalog,
+    get_price_id,
+)
+from .services.payments.checkout import (
+    CheckoutUnavailable,
+    SubscriptionAlreadyExists,
+    start_stripe_checkout,
+)
+from .services.payments.webhooks import (
+    StripeWebhookProcessingError,
+    process_stripe_event,
+)
+
+logger = logging.getLogger(__name__)
+
 
 def health_check(request):
     return JsonResponse({
@@ -688,34 +710,7 @@ class SubscriptionPlansView(APIView):
     permission_classes = [IsAuthenticated]
 
     def get(self, request):
-        return Response(
-            {
-                "plans": [
-                    {
-                        "id": "free",
-                        "name": "Free",
-                        "price_minor": None,
-                        "currency": None,
-                        "billing_intervals": [],
-                        "checkout_available": False,
-                    },
-                    {
-                        "id": "premium",
-                        "name": "Premium",
-                        "price_minor": None,
-                        "currency": None,
-                        "billing_intervals": [],
-                        "checkout_available": False,
-                    },
-                ],
-                "provider_configured": False,
-                "message": (
-                    "Checkout is unavailable until a billing provider, "
-                    "merchant configuration, and verified mobile billing flow "
-                    "are implemented."
-                ),
-            }
-        )
+        return Response(get_plan_catalog())
 
 
 class UserSubscriptionView(APIView):
@@ -726,15 +721,6 @@ class UserSubscriptionView(APIView):
         current_subscription = (
             UserSubscription.objects.filter(
                 owner_id=request.user.id,
-                status__in=(
-                    UserSubscription.Status.PENDING,
-                    UserSubscription.Status.ACTIVE,
-                    UserSubscription.Status.PAST_DUE,
-                ),
-            )
-            .filter(
-                Q(current_period_end__isnull=True)
-                | Q(current_period_end__gt=timezone.now())
             )
             .order_by("-created_at")
             .first()
@@ -757,7 +743,7 @@ class UserSubscriptionView(APIView):
                     transactions,
                     many=True,
                 ).data,
-                "checkout_available": False,
+                "checkout_available": checkout_configuration_present(),
                 "manage_available": False,
             }
         )
@@ -770,15 +756,104 @@ class SubscriptionCheckoutView(APIView):
     def post(self, request):
         serializer = CheckoutRequestSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
+        idempotency_key = request.headers.get("Idempotency-Key", "")
+        try:
+            idempotency_key = str(uuid.UUID(idempotency_key))
+        except (ValueError, TypeError, AttributeError):
+            return Response(
+                {"detail": "A valid Idempotency-Key UUID header is required."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        plan_id = serializer.validated_data["plan_id"]
+        billing_interval = serializer.validated_data["billing_interval"]
+        if not get_price_id(plan_id, billing_interval):
+            return Response(
+                {
+                    "detail": (
+                        "Checkout is unavailable for this plan and billing "
+                        "interval because its Stripe Price ID is not configured."
+                    )
+                },
+                status=status.HTTP_503_SERVICE_UNAVAILABLE,
+            )
+        try:
+            session = start_stripe_checkout(
+                owner_id=request.user.id,
+                email=getattr(request.user, "email", None),
+                plan_id=plan_id,
+                billing_interval=billing_interval,
+                idempotency_key=idempotency_key,
+            )
+        except CheckoutUnavailable:
+            return Response(
+                {"detail": "Stripe checkout is not fully configured."},
+                status=status.HTTP_503_SERVICE_UNAVAILABLE,
+            )
+        except SubscriptionAlreadyExists:
+            return Response(
+                {
+                    "detail": (
+                        "An active or pending subscription already exists for "
+                        "this account."
+                    )
+                },
+                status=status.HTTP_409_CONFLICT,
+            )
+        except stripe.StripeError:
+            logger.error("Stripe checkout session creation failed.")
+            return Response(
+                {"detail": "Unable to start checkout. Please try again later."},
+                status=status.HTTP_502_BAD_GATEWAY,
+            )
+
         return Response(
             {
-                "detail": (
-                    "Checkout is not configured. No payment was started and "
-                    "your subscription was not changed."
-                )
-            },
-            status=status.HTTP_503_SERVICE_UNAVAILABLE,
+                "checkout_url": session.url,
+                "session_id": session.id,
+            }
         )
+
+
+@method_decorator(csrf_exempt, name="dispatch")
+class StripeWebhookView(APIView):
+    authentication_classes = []
+    permission_classes = []
+
+    def post(self, request):
+        if (
+            not settings.STRIPE_SECRET_KEY.startswith("sk_test_")
+            or not settings.STRIPE_WEBHOOK_SECRET
+        ):
+            return Response(
+                {"detail": "Stripe webhook processing is not configured."},
+                status=status.HTTP_503_SERVICE_UNAVAILABLE,
+            )
+
+        signature = request.headers.get("Stripe-Signature", "")
+        try:
+            result = process_stripe_event(request.body, signature)
+        except stripe.SignatureVerificationError:
+            return Response(
+                {"detail": "Invalid Stripe webhook signature."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        except ValueError:
+            return Response(
+                {"detail": "Malformed Stripe webhook payload."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        except StripeWebhookProcessingError as error:
+            logger.warning(
+                "Stripe webhook event could not be processed: %s",
+                error,
+            )
+            return Response(
+                {"detail": str(error)},
+                status=error.status_code,
+            )
+
+        return Response(result, status=status.HTTP_200_OK)
 
 
 class PaymentWebhookView(APIView):

@@ -283,6 +283,7 @@ class UserSubscription(TimeStampedModel):
     )
     current_period_start = models.DateTimeField(null=True, blank=True)
     current_period_end = models.DateTimeField(null=True, blank=True)
+    last_provider_event_created_at = models.DateTimeField(null=True, blank=True)
     cancel_at_period_end = models.BooleanField(default=False)
     canceled_at = models.DateTimeField(null=True, blank=True)
 

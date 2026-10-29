@@ -3,16 +3,21 @@ from datetime import datetime, timedelta, timezone as datetime_timezone
 import hashlib
 import hmac
 import json
+import time
 from io import BytesIO
 from unittest.mock import patch
 from uuid import uuid4
 from urllib.error import HTTPError
 
-from rest_framework import status
-from rest_framework.test import APITestCase
+import requests
+import stripe
 from django.test import override_settings
+from rest_framework.exceptions import AuthenticationFailed
+from rest_framework import status
+from rest_framework.test import APIRequestFactory, APITestCase
 from cryptography.fernet import Fernet
 
+from .authentication import SupabaseAuthentication
 from .models import (
     Approval,
     Brand,
@@ -25,6 +30,115 @@ from .models import (
     ScheduledPost,
     SocialAccount,
 )
+
+
+class SupabaseAuthenticationTests(APITestCase):
+    def setUp(self):
+        self.factory = APIRequestFactory()
+        self.authentication = SupabaseAuthentication()
+        self.token = "supabase-access-token"
+        self.user_id = str(uuid4())
+
+    @override_settings(
+        SUPABASE_URL="https://supabase.example.invalid",
+        SUPABASE_PUBLISHABLE_KEY="publishable-test-key",
+    )
+    @patch("core.authentication.requests.get")
+    def test_valid_token_is_forwarded_and_creates_supabase_user(
+        self, mock_get
+    ):
+        mock_get.return_value.status_code = 200
+        mock_get.return_value.json.return_value = {
+            "id": self.user_id,
+            "email": "creator@example.invalid",
+        }
+        request = self.factory.get(
+            "/api/subscription/me/",
+            HTTP_AUTHORIZATION=f"Bearer {self.token}",
+        )
+
+        user, auth_token = self.authentication.authenticate(request)
+
+        self.assertEqual(user.id, self.user_id)
+        self.assertEqual(user.email, "creator@example.invalid")
+        self.assertTrue(user.is_authenticated)
+        self.assertEqual(auth_token, self.token)
+        self.assertEqual(
+            mock_get.call_args.kwargs["headers"],
+            {
+                "apikey": "publishable-test-key",
+                "Authorization": f"Bearer {self.token}",
+            },
+        )
+        self.assertEqual(mock_get.call_args.kwargs["timeout"], 10)
+
+    @patch("core.authentication.requests.get")
+    def test_missing_bearer_token_does_not_authenticate(self, mock_get):
+        request = self.factory.get("/api/subscription/me/")
+
+        self.assertIsNone(self.authentication.authenticate(request))
+        mock_get.assert_not_called()
+
+    @patch("core.authentication.requests.get")
+    def test_malformed_bearer_header_is_rejected(self, mock_get):
+        request = self.factory.get(
+            "/api/subscription/me/",
+            HTTP_AUTHORIZATION="Basic invalid",
+        )
+
+        with self.assertRaises(AuthenticationFailed):
+            self.authentication.authenticate(request)
+        mock_get.assert_not_called()
+
+    @override_settings(
+        SUPABASE_URL="https://supabase.example.invalid",
+        SUPABASE_PUBLISHABLE_KEY="publishable-test-key",
+    )
+    @patch("core.authentication.requests.get")
+    def test_invalid_and_expired_tokens_are_rejected(self, mock_get):
+        request = self.factory.get(
+            "/api/subscription/me/",
+            HTTP_AUTHORIZATION=f"Bearer {self.token}",
+        )
+        for response_status in (401, 403):
+            with self.subTest(response_status=response_status):
+                mock_get.return_value.status_code = response_status
+                with self.assertRaises(AuthenticationFailed):
+                    self.authentication.authenticate(request)
+
+    @override_settings(
+        SUPABASE_URL="https://supabase.example.invalid",
+        SUPABASE_PUBLISHABLE_KEY="publishable-test-key",
+    )
+    @patch("core.authentication.requests.get")
+    def test_upstream_http_and_network_failures_fail_closed(self, mock_get):
+        request = self.factory.get(
+            "/api/subscription/me/",
+            HTTP_AUTHORIZATION=f"Bearer {self.token}",
+        )
+        mock_get.return_value.status_code = 503
+        with self.assertRaises(AuthenticationFailed):
+            self.authentication.authenticate(request)
+
+        mock_get.side_effect = requests.ConnectionError("unavailable")
+        with self.assertRaises(AuthenticationFailed):
+            self.authentication.authenticate(request)
+
+    @override_settings(
+        SUPABASE_URL="https://supabase.example.invalid",
+        SUPABASE_PUBLISHABLE_KEY="publishable-test-key",
+    )
+    @patch("core.authentication.requests.get")
+    def test_malformed_supabase_user_response_is_rejected(self, mock_get):
+        mock_get.return_value.status_code = 200
+        mock_get.return_value.json.return_value = {"id": "not-a-uuid"}
+        request = self.factory.get(
+            "/api/subscription/me/",
+            HTTP_AUTHORIZATION=f"Bearer {self.token}",
+        )
+
+        with self.assertRaises(AuthenticationFailed):
+            self.authentication.authenticate(request)
 
 
 class BrandVoiceApiTests(APITestCase):
@@ -900,17 +1014,80 @@ class SubscriptionApiTests(APITestCase):
             status=UserSubscription.Status.ACTIVE,
         )
 
-    def test_plans_do_not_publish_prices_or_enable_unconfigured_checkout(self):
+    @override_settings(
+        STRIPE_SECRET_KEY="",
+        STRIPE_WEBHOOK_SECRET="",
+        STRIPE_CHECKOUT_SUCCESS_URL="",
+        STRIPE_CHECKOUT_CANCEL_URL="",
+        STRIPE_PRICE_STARTER_MONTHLY="",
+        STRIPE_PRICE_STARTER_ANNUAL="",
+        STRIPE_PRICE_PRO_MONTHLY="",
+        STRIPE_PRICE_PRO_ANNUAL="",
+        STRIPE_PRICE_ENTERPRISE_MONTHLY="",
+        STRIPE_PRICE_ENTERPRISE_ANNUAL="",
+    )
+    def test_plan_catalog_lists_all_plans_and_unconfigured_intervals(self):
         response = self.client.get("/api/subscription/plans/")
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertFalse(response.data["provider_configured"])
-        premium = next(
-            plan for plan in response.data["plans"] if plan["id"] == "premium"
+        self.assertEqual(
+            [plan["id"] for plan in response.data["plans"]],
+            ["starter", "pro", "enterprise"],
         )
-        self.assertIsNone(premium["price_minor"])
-        self.assertEqual(premium["billing_intervals"], [])
-        self.assertFalse(premium["checkout_available"])
+        for plan in response.data["plans"]:
+            self.assertEqual(plan["billing_intervals"], ["monthly", "annual"])
+            self.assertFalse(plan["features_configured"])
+            self.assertEqual(plan["features"], [])
+            for interval in ("monthly", "annual"):
+                self.assertFalse(
+                    plan["prices"][interval]["checkout_available"]
+                )
+                self.assertIsNone(plan["prices"][interval]["price_minor"])
+        self.assertIn("plan_features", response.data["missing_configuration"])
+        self.assertIn(
+            "starter_monthly_stripe_price",
+            response.data["missing_configuration"],
+        )
+
+    @override_settings(
+        STRIPE_SECRET_KEY="sk_test_unit_test",
+        STRIPE_WEBHOOK_SECRET="whsec_unit_test",
+        STRIPE_CHECKOUT_SUCCESS_URL="ibda://subscription/success",
+        STRIPE_CHECKOUT_CANCEL_URL="ibda://subscription/cancel",
+        STRIPE_PRICE_STARTER_MONTHLY="price_server_starter_monthly",
+        STRIPE_PRICE_STARTER_ANNUAL="",
+        STRIPE_PRICE_PRO_MONTHLY="",
+        STRIPE_PRICE_PRO_ANNUAL="",
+        STRIPE_PRICE_ENTERPRISE_MONTHLY="",
+        STRIPE_PRICE_ENTERPRISE_ANNUAL="",
+    )
+    @patch(
+        "core.services.payments.catalog.retrieve_price_details",
+        return_value={
+            "price_minor": 1250,
+            "currency": "USD",
+            "active": True,
+            "recurring_interval": "month",
+            "recurring_interval_count": 1,
+        },
+    )
+    def test_catalog_uses_configured_stripe_price_without_exposing_price_id(
+        self,
+        retrieve_price,
+    ):
+        response = self.client.get("/api/subscription/plans/")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        starter = response.data["plans"][0]
+        self.assertEqual(
+            starter["prices"]["monthly"]["price_minor"],
+            1250,
+        )
+        self.assertEqual(starter["prices"]["monthly"]["currency"], "USD")
+        self.assertTrue(starter["prices"]["monthly"]["checkout_available"])
+        self.assertNotIn("price_id", starter["prices"]["monthly"])
+        retrieve_price.assert_called_once_with("price_server_starter_monthly")
 
     def test_subscription_endpoints_require_authentication(self):
         self.client.force_authenticate(user=None)
@@ -949,11 +1126,19 @@ class SubscriptionApiTests(APITestCase):
             ).id),
         )
 
-    def test_checkout_never_marks_subscription_paid_when_unconfigured(self):
+    @override_settings(
+        STRIPE_SECRET_KEY="",
+        STRIPE_WEBHOOK_SECRET="",
+        STRIPE_CHECKOUT_SUCCESS_URL="",
+        STRIPE_CHECKOUT_CANCEL_URL="",
+        STRIPE_PRICE_PRO_MONTHLY="",
+    )
+    def test_checkout_reports_missing_price_without_creating_subscription(self):
         response = self.client.post(
             "/api/subscription/checkout/",
-            {"plan_id": "premium_monthly"},
+            {"plan_id": "pro", "billing_interval": "monthly"},
             format="json",
+            HTTP_IDEMPOTENCY_KEY=str(uuid4()),
         )
 
         self.assertEqual(
@@ -961,6 +1146,247 @@ class SubscriptionApiTests(APITestCase):
             status.HTTP_503_SERVICE_UNAVAILABLE,
         )
         self.assertFalse(UserSubscription.objects.exists())
+
+    def test_checkout_rejects_price_with_wrong_billing_interval(self):
+        with self.settings(
+            STRIPE_SECRET_KEY="sk_test_unit_test",
+            STRIPE_WEBHOOK_SECRET="whsec_unit_test",
+            STRIPE_CHECKOUT_SUCCESS_URL="ibda://subscription/success",
+            STRIPE_CHECKOUT_CANCEL_URL="ibda://subscription/cancel",
+            STRIPE_PRICE_PRO_MONTHLY="price_server_pro_monthly",
+        ):
+            with patch(
+                "core.services.payments.checkout.retrieve_price_details",
+                return_value={
+                    "price_minor": 2500,
+                    "currency": "USD",
+                    "active": True,
+                    "recurring_interval": "year",
+                    "recurring_interval_count": 1,
+                },
+            ) as retrieve_price:
+                response = self.client.post(
+                    "/api/subscription/checkout/",
+                    {"plan_id": "pro", "billing_interval": "monthly"},
+                    format="json",
+                    HTTP_IDEMPOTENCY_KEY=str(uuid4()),
+                )
+
+        self.assertEqual(
+            response.status_code,
+            status.HTTP_503_SERVICE_UNAVAILABLE,
+        )
+        retrieve_price.assert_called_once_with("price_server_pro_monthly")
+        self.assertFalse(UserSubscription.objects.exists())
+
+    def test_checkout_requires_authenticated_user(self):
+        self.client.force_authenticate(user=None)
+        response = self.client.post(
+            "/api/subscription/checkout/",
+            {"plan_id": "pro", "billing_interval": "monthly"},
+            format="json",
+            HTTP_IDEMPOTENCY_KEY=str(uuid4()),
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
+
+    def test_checkout_creates_pending_stripe_session_with_server_configuration(
+        self,
+    ):
+        session = SimpleNamespace(
+            id="cs_test_123",
+            url="https://checkout.stripe.test/session",
+        )
+        with self.settings(
+            STRIPE_SECRET_KEY="sk_test_unit_test",
+            STRIPE_WEBHOOK_SECRET="whsec_unit_test",
+            STRIPE_CHECKOUT_SUCCESS_URL=(
+                "ibda://subscription/success?session_id={CHECKOUT_SESSION_ID}"
+            ),
+            STRIPE_CHECKOUT_CANCEL_URL="ibda://subscription/cancel",
+            STRIPE_PRICE_PRO_MONTHLY="price_server_pro_monthly",
+        ):
+            with (
+                patch(
+                    "core.services.payments.checkout.retrieve_price_details",
+                    return_value={
+                        "price_minor": 1250,
+                        "currency": "USD",
+                        "active": True,
+                        "recurring_interval": "month",
+                        "recurring_interval_count": 1,
+                    },
+                ),
+                patch(
+                    "core.services.payments.checkout.create_customer",
+                    return_value=SimpleNamespace(id="cus_test_123"),
+                ) as create_customer,
+                patch(
+                    "core.services.payments.checkout.create_checkout_session",
+                    return_value=session,
+                ) as create_session,
+            ):
+                response = self.client.post(
+                    "/api/subscription/checkout/",
+                    {
+                        "plan_id": "pro",
+                        "billing_interval": "monthly",
+                        "price_id": "price_attacker_supplied",
+                        "success_url": "https://attacker.invalid",
+                        "cancel_url": "https://attacker.invalid",
+                    },
+                    format="json",
+                    HTTP_IDEMPOTENCY_KEY=str(uuid4()),
+                )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(
+            response.data,
+            {
+                "checkout_url": session.url,
+                "session_id": session.id,
+            },
+        )
+        create_customer.assert_called_once_with(self.user.id, None)
+        self.assertEqual(
+            create_session.call_args.kwargs["price_id"],
+            "price_server_pro_monthly",
+        )
+        self.assertEqual(
+            UserSubscription.objects.get().status,
+            UserSubscription.Status.PENDING,
+        )
+        self.assertEqual(
+            UserSubscription.objects.get().plan_id,
+            "pro",
+        )
+
+    def test_checkout_stripe_errors_are_safe_and_leave_no_pending_record(self):
+        with self.settings(
+            STRIPE_SECRET_KEY="sk_test_unit_test",
+            STRIPE_WEBHOOK_SECRET="whsec_unit_test",
+            STRIPE_CHECKOUT_SUCCESS_URL="ibda://subscription/success",
+            STRIPE_CHECKOUT_CANCEL_URL="ibda://subscription/cancel",
+            STRIPE_PRICE_STARTER_ANNUAL="price_server_starter_annual",
+        ):
+            with (
+                patch(
+                    "core.services.payments.checkout.retrieve_price_details",
+                    return_value={
+                        "price_minor": 2500,
+                        "currency": "USD",
+                        "active": True,
+                        "recurring_interval": "year",
+                        "recurring_interval_count": 1,
+                    },
+                ),
+                patch(
+                    "core.services.payments.checkout.create_customer",
+                    side_effect=stripe.APIConnectionError("test connection failure"),
+                ),
+            ):
+                response = self.client.post(
+                    "/api/subscription/checkout/",
+                    {"plan_id": "starter", "billing_interval": "annual"},
+                    format="json",
+                    HTTP_IDEMPOTENCY_KEY=str(uuid4()),
+                )
+
+        self.assertEqual(response.status_code, status.HTTP_502_BAD_GATEWAY)
+        self.assertEqual(
+            response.data["detail"],
+            "Unable to start checkout. Please try again later.",
+        )
+        self.assertFalse(UserSubscription.objects.exists())
+
+    def test_checkout_retry_reuses_one_local_subscription_and_idempotency_key(
+        self,
+    ):
+        session = SimpleNamespace(
+            id="cs_test_retry",
+            url="https://checkout.stripe.test/retry",
+        )
+        idempotency_key = str(uuid4())
+        with self.settings(
+            STRIPE_SECRET_KEY="sk_test_unit_test",
+            STRIPE_WEBHOOK_SECRET="whsec_unit_test",
+            STRIPE_CHECKOUT_SUCCESS_URL="ibda://subscription/success",
+            STRIPE_CHECKOUT_CANCEL_URL="ibda://subscription/cancel",
+            STRIPE_PRICE_ENTERPRISE_ANNUAL="price_server_enterprise_annual",
+        ):
+            with (
+                patch(
+                    "core.services.payments.checkout.retrieve_price_details",
+                    return_value={
+                        "price_minor": 5000,
+                        "currency": "USD",
+                        "active": True,
+                        "recurring_interval": "year",
+                        "recurring_interval_count": 1,
+                    },
+                ),
+                patch(
+                    "core.services.payments.checkout.create_customer",
+                    return_value=SimpleNamespace(id="cus_test_retry"),
+                ) as create_customer,
+                patch(
+                    "core.services.payments.checkout.create_checkout_session",
+                    return_value=session,
+                ) as create_session,
+            ):
+                responses = [
+                    self.client.post(
+                        "/api/subscription/checkout/",
+                        {
+                            "plan_id": "enterprise",
+                            "billing_interval": "annual",
+                        },
+                        format="json",
+                        HTTP_IDEMPOTENCY_KEY=idempotency_key,
+                    )
+                    for _ in range(2)
+                ]
+
+        self.assertEqual(
+            [response.status_code for response in responses],
+            [status.HTTP_200_OK, status.HTTP_200_OK],
+        )
+        self.assertEqual(UserSubscription.objects.count(), 1)
+        self.assertEqual(
+            create_session.call_args_list[0].kwargs["idempotency_key"],
+            create_session.call_args_list[1].kwargs["idempotency_key"],
+        )
+        create_customer.assert_called_once()
+
+    def test_checkout_rejects_invalid_plan_interval_and_idempotency_key(self):
+        invalid_plan = self.client.post(
+            "/api/subscription/checkout/",
+            {"plan_id": "custom", "billing_interval": "monthly"},
+            format="json",
+            HTTP_IDEMPOTENCY_KEY=str(uuid4()),
+        )
+        invalid_interval = self.client.post(
+            "/api/subscription/checkout/",
+            {"plan_id": "pro", "billing_interval": "weekly"},
+            format="json",
+            HTTP_IDEMPOTENCY_KEY=str(uuid4()),
+        )
+        invalid_idempotency = self.client.post(
+            "/api/subscription/checkout/",
+            {"plan_id": "pro", "billing_interval": "monthly"},
+            format="json",
+            HTTP_IDEMPOTENCY_KEY="not-a-uuid",
+        )
+
+        self.assertEqual(invalid_plan.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(
+            invalid_interval.status_code,
+            status.HTTP_400_BAD_REQUEST,
+        )
+        self.assertEqual(
+            invalid_idempotency.status_code,
+            status.HTTP_400_BAD_REQUEST,
+        )
 
     def test_webhook_rejects_invalid_signature(self):
         payload = json.dumps(
@@ -1129,3 +1555,342 @@ class SubscriptionApiTests(APITestCase):
 
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
         self.assertEqual(Brand.objects.filter(owner_id=self.user.id).count(), 1)
+
+
+@override_settings(STRIPE_SECRET_KEY="sk_test_unit_test")
+class StripeWebhookApiTests(APITestCase):
+    signing_secret = "whsec_unit_test"
+
+    def post_stripe_event(self, event, *, raw_payload=None, signature=None):
+        event.setdefault("livemode", False)
+        payload = raw_payload or json.dumps(
+            event,
+            separators=(",", ":"),
+        ).encode("utf-8")
+        if signature is None:
+            signature = stripe.WebhookSignature.generate_signature_header(
+                payload.decode("utf-8"),
+                self.signing_secret,
+                timestamp=int(time.time()),
+            )
+        return self.client.generic(
+            "POST",
+            "/api/payments/stripe/webhook/",
+            payload,
+            content_type="application/json",
+            HTTP_STRIPE_SIGNATURE=signature,
+        )
+
+    def create_stripe_subscription(self, *, status_value="pending"):
+        return UserSubscription.objects.create(
+            owner_id=uuid4(),
+            provider="stripe",
+            provider_customer_id="cus_webhook_test",
+            plan_id="starter",
+            billing_interval=UserSubscription.BillingInterval.MONTHLY,
+            status=status_value,
+        )
+
+    def subscription_event(
+        self,
+        subscription,
+        *,
+        event_id="evt_subscription_created",
+        event_type="customer.subscription.created",
+        created=None,
+        status_value="active",
+        price_id="price_starter_monthly",
+    ):
+        return {
+            "id": event_id,
+            "type": event_type,
+            "created": created or int(time.time()),
+            "data": {
+                "object": {
+                    "id": "sub_webhook_test",
+                    "object": "subscription",
+                    "customer": "cus_webhook_test",
+                    "status": status_value,
+                    "metadata": {
+                        "ibda_subscription_id": str(subscription.id),
+                        "ibda_owner_id": str(subscription.owner_id),
+                    },
+                    "items": {
+                        "data": [{"price": {"id": price_id}}],
+                    },
+                    "current_period_start": 1_800_000_000,
+                    "current_period_end": 1_802_592_000,
+                    "cancel_at_period_end": False,
+                    "canceled_at": None,
+                }
+            },
+        }
+
+    @override_settings(STRIPE_WEBHOOK_SECRET="whsec_unit_test")
+    def test_stripe_webhook_rejects_bad_signatures_and_malformed_payloads(self):
+        event = {
+            "id": "evt_bad_signature",
+            "type": "future.event",
+            "created": int(time.time()),
+            "data": {"object": {}},
+        }
+        invalid_signature = self.post_stripe_event(
+            event,
+            signature="t=1,v1=invalid",
+        )
+        malformed = self.post_stripe_event(
+            {},
+            raw_payload=b"not-json",
+        )
+
+        self.assertEqual(
+            invalid_signature.status_code,
+            status.HTTP_400_BAD_REQUEST,
+        )
+        self.assertEqual(malformed.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertFalse(ProviderWebhookEvent.objects.exists())
+
+    @override_settings(STRIPE_WEBHOOK_SECRET="")
+    def test_stripe_webhook_requires_server_side_signing_secret(self):
+        response = self.client.post(
+            "/api/payments/stripe/webhook/",
+            {},
+            format="json",
+        )
+
+        self.assertEqual(
+            response.status_code,
+            status.HTTP_503_SERVICE_UNAVAILABLE,
+        )
+
+    def test_live_mode_events_are_rejected(self):
+        event = {
+            "id": "evt_live_mode",
+            "type": "future.unknown_event",
+            "created": int(time.time()),
+            "livemode": True,
+            "data": {"object": {}},
+        }
+        with self.settings(STRIPE_WEBHOOK_SECRET=self.signing_secret):
+            response = self.post_stripe_event(event)
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertFalse(ProviderWebhookEvent.objects.exists())
+
+    def test_subscription_created_event_grants_entitlement_after_verification(
+        self,
+    ):
+        subscription = self.create_stripe_subscription()
+        event = self.subscription_event(subscription)
+        with self.settings(
+            STRIPE_WEBHOOK_SECRET=self.signing_secret,
+            STRIPE_PRICE_STARTER_MONTHLY="price_starter_monthly",
+        ):
+            response = self.post_stripe_event(event)
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        subscription.refresh_from_db()
+        self.assertEqual(subscription.status, UserSubscription.Status.ACTIVE)
+        self.assertEqual(subscription.provider_subscription_id, "sub_webhook_test")
+        self.assertIsNotNone(subscription.last_provider_event_created_at)
+        self.assertEqual(ProviderWebhookEvent.objects.count(), 1)
+
+    def test_trialing_subscription_maps_to_existing_active_status(self):
+        subscription = self.create_stripe_subscription()
+        event = self.subscription_event(
+            subscription,
+            event_type="customer.subscription.updated",
+            status_value="trialing",
+        )
+        with self.settings(
+            STRIPE_WEBHOOK_SECRET=self.signing_secret,
+            STRIPE_PRICE_STARTER_MONTHLY="price_starter_monthly",
+        ):
+            response = self.post_stripe_event(event)
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        subscription.refresh_from_db()
+        self.assertEqual(subscription.status, UserSubscription.Status.ACTIVE)
+
+    def test_unpaid_subscription_does_not_grant_paid_entitlement(self):
+        subscription = self.create_stripe_subscription()
+        event = self.subscription_event(
+            subscription,
+            event_type="customer.subscription.updated",
+            status_value="unpaid",
+        )
+        with self.settings(
+            STRIPE_WEBHOOK_SECRET=self.signing_secret,
+            STRIPE_PRICE_STARTER_MONTHLY="price_starter_monthly",
+        ):
+            response = self.post_stripe_event(event)
+            self.client.force_authenticate(
+                user=SimpleNamespace(
+                    id=subscription.owner_id,
+                    is_authenticated=True,
+                )
+            )
+            account = self.client.get("/api/subscription/me/")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        subscription.refresh_from_db()
+        self.assertEqual(subscription.status, UserSubscription.Status.FAILED)
+        self.assertEqual(account.status_code, status.HTTP_200_OK)
+        self.assertEqual(account.data["plan_id"], "free")
+
+    def test_duplicate_stripe_event_is_processed_once(self):
+        subscription = self.create_stripe_subscription()
+        event = self.subscription_event(subscription)
+        with self.settings(
+            STRIPE_WEBHOOK_SECRET=self.signing_secret,
+            STRIPE_PRICE_STARTER_MONTHLY="price_starter_monthly",
+        ):
+            first = self.post_stripe_event(event)
+            duplicate = self.post_stripe_event(event)
+
+        self.assertEqual(first.status_code, status.HTTP_200_OK)
+        self.assertFalse(first.data["duplicate"])
+        self.assertEqual(duplicate.status_code, status.HTTP_200_OK)
+        self.assertTrue(duplicate.data["duplicate"])
+        self.assertEqual(ProviderWebhookEvent.objects.count(), 1)
+
+    def test_failed_stripe_event_is_not_marked_processed(self):
+        subscription = self.create_stripe_subscription()
+        event = self.subscription_event(
+            subscription,
+            price_id="price_not_configured",
+        )
+        with self.settings(
+            STRIPE_WEBHOOK_SECRET=self.signing_secret,
+            STRIPE_PRICE_STARTER_MONTHLY="price_starter_monthly",
+        ):
+            response = self.post_stripe_event(event)
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertFalse(ProviderWebhookEvent.objects.exists())
+        subscription.refresh_from_db()
+        self.assertEqual(subscription.status, UserSubscription.Status.PENDING)
+
+    def test_checkout_completed_does_not_activate_a_subscription(self):
+        subscription = self.create_stripe_subscription()
+        event = {
+            "id": "evt_checkout_completed",
+            "type": "checkout.session.completed",
+            "created": int(time.time()),
+            "data": {
+                "object": {
+                    "id": "cs_completed_test",
+                    "mode": "subscription",
+                    "payment_status": "paid",
+                    "customer": "cus_webhook_test",
+                    "subscription": "sub_webhook_test",
+                    "client_reference_id": str(subscription.id),
+                    "metadata": {
+                        "ibda_subscription_id": str(subscription.id),
+                        "ibda_owner_id": str(subscription.owner_id),
+                    },
+                }
+            },
+        }
+        with self.settings(STRIPE_WEBHOOK_SECRET=self.signing_secret):
+            response = self.post_stripe_event(event)
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        subscription.refresh_from_db()
+        self.assertEqual(subscription.status, UserSubscription.Status.PENDING)
+        self.assertEqual(subscription.provider_subscription_id, "sub_webhook_test")
+
+    def test_invoice_paid_and_failed_update_the_existing_transaction(self):
+        subscription = self.create_stripe_subscription(
+            status_value=UserSubscription.Status.ACTIVE,
+        )
+        subscription.provider_subscription_id = "sub_invoice_test"
+        subscription.save(update_fields=["provider_subscription_id", "updated_at"])
+        invoice_data = {
+            "id": "in_retryable_test",
+            "subscription": "sub_invoice_test",
+            "amount_paid": 1250,
+            "amount_due": 1250,
+            "currency": "usd",
+        }
+        with self.settings(STRIPE_WEBHOOK_SECRET=self.signing_secret):
+            failed = self.post_stripe_event(
+                {
+                    "id": "evt_invoice_failed",
+                    "type": "invoice.payment_failed",
+                    "created": int(time.time()),
+                    "data": {"object": invoice_data},
+                }
+            )
+            paid = self.post_stripe_event(
+                {
+                    "id": "evt_invoice_paid",
+                    "type": "invoice.paid",
+                    "created": int(time.time()),
+                    "data": {"object": invoice_data},
+                }
+            )
+
+        self.assertEqual(failed.status_code, status.HTTP_200_OK)
+        self.assertEqual(paid.status_code, status.HTTP_200_OK)
+        payment = PaymentTransaction.objects.get(
+            provider_transaction_id="in_retryable_test"
+        )
+        self.assertEqual(payment.status, PaymentTransaction.Status.SUCCEEDED)
+        self.assertEqual(payment.amount_minor, 1250)
+        self.assertEqual(payment.currency, "USD")
+        self.assertEqual(PaymentTransaction.objects.count(), 1)
+        subscription.refresh_from_db()
+        self.assertEqual(
+            subscription.status,
+            UserSubscription.Status.PAST_DUE,
+        )
+
+    def test_old_subscription_event_cannot_reactivate_a_canceled_subscription(
+        self,
+    ):
+        subscription = self.create_stripe_subscription(
+            status_value=UserSubscription.Status.PENDING,
+        )
+        now = int(time.time())
+        canceled = self.subscription_event(
+            subscription,
+            event_id="evt_subscription_deleted",
+            event_type="customer.subscription.deleted",
+            created=now,
+            status_value="canceled",
+        )
+        older_update = self.subscription_event(
+            subscription,
+            event_id="evt_subscription_older_update",
+            event_type="customer.subscription.updated",
+            created=now - 10,
+            status_value="active",
+        )
+        with self.settings(
+            STRIPE_WEBHOOK_SECRET=self.signing_secret,
+            STRIPE_PRICE_STARTER_MONTHLY="price_starter_monthly",
+        ):
+            deleted_response = self.post_stripe_event(canceled)
+            older_response = self.post_stripe_event(older_update)
+
+        self.assertEqual(deleted_response.status_code, status.HTTP_200_OK)
+        self.assertEqual(older_response.status_code, status.HTTP_200_OK)
+        subscription.refresh_from_db()
+        self.assertEqual(subscription.status, UserSubscription.Status.CANCELED)
+
+    def test_unknown_valid_stripe_events_are_acknowledged_and_deduplicated(self):
+        event = {
+            "id": "evt_future_type",
+            "type": "future.unknown_event",
+            "created": int(time.time()),
+            "data": {"object": {}},
+        }
+        with self.settings(STRIPE_WEBHOOK_SECRET=self.signing_secret):
+            response = self.post_stripe_event(event)
+            duplicate = self.post_stripe_event(event)
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(duplicate.status_code, status.HTTP_200_OK)
+        self.assertTrue(duplicate.data["duplicate"])
+        self.assertEqual(ProviderWebhookEvent.objects.count(), 1)

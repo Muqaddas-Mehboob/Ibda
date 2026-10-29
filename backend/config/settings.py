@@ -50,8 +50,7 @@ SOCIAL_TOKEN_ENCRYPTION_KEY = env(
     default="",
 )
 
-# Payment provider settings are intentionally empty until a provider and
-# verified merchant configuration are selected.
+# Provider-neutral payment settings remain for the generic webhook adapter.
 PAYMENT_PROVIDER = env("PAYMENT_PROVIDER", default="")
 PAYMENT_WEBHOOK_SECRET = env("PAYMENT_WEBHOOK_SECRET", default="")
 PAYMENT_PRODUCT_PREMIUM_MONTHLY = env(
@@ -61,6 +60,37 @@ PAYMENT_PRODUCT_PREMIUM_MONTHLY = env(
 PAYMENT_PRODUCT_PREMIUM_ANNUAL = env(
     "PAYMENT_PRODUCT_PREMIUM_ANNUAL",
     default="",
+)
+
+# Stripe credentials and catalog identifiers are server-only. The legacy
+# PREMIUM price settings remain fallbacks for existing Pro subscriptions.
+STRIPE_SECRET_KEY = env("STRIPE_SECRET_KEY", default="")
+STRIPE_WEBHOOK_SECRET = env("STRIPE_WEBHOOK_SECRET", default="")
+STRIPE_CHECKOUT_SUCCESS_URL = env("STRIPE_CHECKOUT_SUCCESS_URL", default="")
+STRIPE_CHECKOUT_CANCEL_URL = env("STRIPE_CHECKOUT_CANCEL_URL", default="")
+STRIPE_PRICE_STARTER_MONTHLY = env("STRIPE_PRICE_STARTER_MONTHLY", default="")
+STRIPE_PRICE_STARTER_ANNUAL = env(
+    "STRIPE_PRICE_STARTER_ANNUAL",
+    default=env("STRIPE_PRICE_STARTER_YEARLY", default=""),
+)
+STRIPE_PRICE_PRO_MONTHLY = env(
+    "STRIPE_PRICE_PRO_MONTHLY",
+    default=PAYMENT_PRODUCT_PREMIUM_MONTHLY,
+)
+STRIPE_PRICE_PRO_ANNUAL = env(
+    "STRIPE_PRICE_PRO_ANNUAL",
+    default=env(
+        "STRIPE_PRICE_PRO_YEARLY",
+        default=PAYMENT_PRODUCT_PREMIUM_ANNUAL,
+    ),
+)
+STRIPE_PRICE_ENTERPRISE_MONTHLY = env(
+    "STRIPE_PRICE_ENTERPRISE_MONTHLY",
+    default="",
+)
+STRIPE_PRICE_ENTERPRISE_ANNUAL = env(
+    "STRIPE_PRICE_ENTERPRISE_ANNUAL",
+    default=env("STRIPE_PRICE_ENTERPRISE_YEARLY", default=""),
 )
 SUBSCRIPTION_ENTITLEMENT_LIMITS = env(
     "SUBSCRIPTION_ENTITLEMENT_LIMITS",
@@ -135,7 +165,9 @@ if database_url:
         "default": dj_database_url.parse(
             database_url,
             conn_max_age=60,
-            ssl_require=True,
+            ssl_require=database_url.lower().startswith(
+                ("postgres://", "postgresql://")
+            ),
         )
     }
 else:

@@ -350,8 +350,35 @@ class PaymentTransactionSerializer(serializers.ModelSerializer):
 
 class CheckoutRequestSerializer(serializers.Serializer):
     plan_id = serializers.ChoiceField(
-        choices=("premium_monthly", "premium_annual")
+        choices=(
+            "starter",
+            "pro",
+            "enterprise",
+            "premium_monthly",
+            "premium_annual",
+        )
     )
+    billing_interval = serializers.ChoiceField(
+        choices=("monthly", "annual"),
+        required=False,
+    )
+
+    def validate(self, attrs):
+        legacy_plan = attrs["plan_id"]
+        if legacy_plan in ("premium_monthly", "premium_annual"):
+            if "billing_interval" in attrs:
+                raise serializers.ValidationError(
+                    {"billing_interval": "Do not send this with a legacy plan ID."}
+                )
+            attrs["plan_id"] = "pro"
+            attrs["billing_interval"] = (
+                "monthly" if legacy_plan.endswith("monthly") else "annual"
+            )
+        elif "billing_interval" not in attrs:
+            raise serializers.ValidationError(
+                {"billing_interval": "This field is required."}
+            )
+        return attrs
 
 
 class PaymentWebhookSerializer(serializers.Serializer):

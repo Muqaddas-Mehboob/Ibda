@@ -1,75 +1,98 @@
-# Subscription and payments foundation
+# Subscription payments
 
-The subscription API and database records are present, but no payment provider,
-merchant account, product catalog, or mobile-store billing adapter is
-configured. The app therefore displays no prices or billing intervals and
-checkout/manage actions remain unavailable. No client request can grant paid
-entitlements.
+The backend uses provider-neutral `UserSubscription`, `PaymentTransaction`,
+and `ProviderWebhookEvent` records. Stripe is implemented as a server-side
+test-mode checkout and webhook adapter. Subscription entitlements are granted
+only after a verified Stripe subscription event; opening a checkout URL or
+receiving `checkout.session.completed` does not activate a plan.
 
-## Decide the billing integration first
+## Plan catalog and configuration
 
-Ibda offers digital features in iOS and Android apps. Before adding checkout,
-choose a distribution and billing approach that complies with current Apple App
-Store and Google Play billing requirements in the intended markets. For web
-sales, choose a provider that supports the merchant's country and recurring
-billing model. Configure provider products and test-mode credentials only on
-the backend. Provider credentials, webhook secrets, and merchant keys must
-never be included in the mobile app or source control.
+The server allowlists `starter`, `pro`, and `enterprise` with `monthly` and
+`annual` billing intervals. Checkout resolves the Stripe Price ID on the
+server. It ignores client-supplied Price IDs and redirect URLs.
 
-Required backend environment settings once an adapter is implemented:
+Add these values to the backend `.env` for Stripe test mode:
 
-- `PAYMENT_PROVIDER`: identifier for the implemented provider adapter. Setting
-  this alone does not enable checkout.
-- `PAYMENT_WEBHOOK_SECRET`: server-side secret for the normalized webhook
-  adapter contract below. Use a unique, high-entropy value.
-- `PAYMENT_PRODUCT_PREMIUM_MONTHLY` and
-  `PAYMENT_PRODUCT_PREMIUM_ANNUAL`: provider product identifiers; these are
-  identifiers, not prices.
-- `SUBSCRIPTION_ENTITLEMENT_LIMITS`: JSON keyed by `free` and `premium`, with
-  integer limits or `null` for unlimited. For example:
+- `STRIPE_SECRET_KEY`
+- `STRIPE_WEBHOOK_SECRET`
+- `STRIPE_CHECKOUT_SUCCESS_URL`
+- `STRIPE_CHECKOUT_CANCEL_URL`
+- `STRIPE_PRICE_STARTER_MONTHLY`
+- `STRIPE_PRICE_STARTER_ANNUAL`
+- `STRIPE_PRICE_PRO_MONTHLY`
+- `STRIPE_PRICE_PRO_ANNUAL`
+- `STRIPE_PRICE_ENTERPRISE_MONTHLY`
+- `STRIPE_PRICE_ENTERPRISE_ANNUAL`
 
-  ```json
-  {"free":{"saved_brands":2},"premium":{"saved_brands":null}}
-  ```
+For compatibility, the annual Price ID settings also accept their legacy
+`*_YEARLY` environment-variable spelling. The Pro settings fall back to the
+existing `PAYMENT_PRODUCT_PREMIUM_MONTHLY` and
+`PAYMENT_PRODUCT_PREMIUM_ANNUAL` identifiers.
 
-No default limit is imposed. The saved-brand limit is enforced on brand
-creation when configured. Do not configure limits for features until their
-usage is measured reliably; generated-content usage is not currently tracked
-as a billable usage event.
+The plans API retrieves configured Stripe Price amounts and currencies from
+Stripe. An unset, inactive, or unavailable Price is not offered for checkout.
+The repository does not define the Starter, Pro, or Enterprise feature lists;
+the API reports those definitions as unconfigured rather than inventing them.
+Configure Stripe Products and recurring Prices in the Stripe dashboard, then
+copy each test Price ID into its matching backend setting. Do not put secret
+keys, webhook secrets, or credentials in the mobile app or source control.
 
-## Normalized webhook contract
+Configure fixed success and cancellation URLs on the backend. The success URL
+may contain Stripe's `{CHECKOUT_SESSION_ID}` placeholder. Do not accept
+redirect URLs from the app. A successful redirect is not proof of payment.
 
-`POST /api/payments/webhook/` accepts normalized events from a trusted
-server-side provider adapter. It is not a direct Stripe, Apple, Google, or
-other provider webhook implementation. That adapter must verify the actual
-provider signature and map provider product identifiers and statuses to this
-contract before sending events. The endpoint verifies
-`X-Ibda-Signature`, a lowercase hexadecimal HMAC-SHA256 of the exact raw
-request body using `PAYMENT_WEBHOOK_SECRET`, and deduplicates `event_id` by
-provider.
+## Local Stripe CLI test
 
-The JSON body has `event_id`, `event_type`, `subscription_id`, and `status`.
-`event_type` is `subscription.updated` or `transaction.updated`. Subscription
-updates may include `plan_id`, `billing_interval`, `current_period_start`,
-`current_period_end`, `cancel_at_period_end`, and `canceled_at`. Transaction
-updates must include `transaction_id` and may include `amount_minor`,
-three-letter uppercase `currency`, and `occurred_at`. These events are only
-accepted for an existing provider subscription record. The adapter must create
-that pending record through a future server-side checkout integration before
-delivering subscription events.
+1. Install and authenticate the Stripe CLI against a Stripe test account.
+2. Configure all required test-mode values above in `backend/.env`, including
+   the recurring Price IDs and fixed success/cancellation URLs.
+3. Start Django from `backend` with `python manage.py runserver`.
+4. In a separate terminal, forward the supported events:
 
-## API
+   ```text
+   stripe listen --forward-to localhost:8000/api/payments/stripe/webhook/ --events checkout.session.completed,customer.subscription.created,customer.subscription.updated,customer.subscription.deleted,invoice.paid,invoice.payment_failed
+   ```
 
-- `GET /api/subscription/plans/`: authenticated plan catalog; prices and
-  intervals are unset until a provider integration is available.
-- `GET /api/subscription/me/`: authenticated current subscription, configured
-  entitlements, and up to 100 owner-scoped transactions.
-- `POST /api/subscription/checkout/`: validates a plan identifier and returns
-  `503` while checkout is unconfigured. It never changes subscription state.
-- `POST /api/payments/webhook/`: signed normalized adapter events; not an
-  authenticated mobile endpoint.
+5. Copy the signing secret printed by `stripe listen` into the backend
+   `STRIPE_WEBHOOK_SECRET`, restart Django, then start a checkout from the app.
+   Complete it with a Stripe test card such as `4242 4242 4242 4242`, any
+   future expiry date, and any CVC. Use only Stripe test mode; this test card
+   does not charge real money.
+6. Confirm the subscription and invoice events were delivered, then check
+   `GET /api/subscription/me/` with the signed-in user's Supabase access token.
 
-The backend currently has no external checkout, provider portal/cancellation,
-provider-specific webhook verification, or Apple/Google purchase validation.
-Those require the billing provider, merchant country, store distribution
-requirements, product IDs, and credentials to be selected and configured.
+The CLI signing secret is local test configuration. Never commit it, paste it
+into the mobile project, or share it. The Stripe webhook endpoint is
+`POST /api/payments/stripe/webhook/`; it verifies Stripe's `Stripe-Signature`
+header over the exact request body. The separate
+`POST /api/payments/webhook/` endpoint retains the legacy provider-neutral
+`X-Ibda-Signature` HMAC contract and is not a Stripe webhook endpoint.
+
+## Implementation boundaries
+
+- Checkout requires a valid Supabase-authenticated user, a server-configured
+  plan Price ID, Stripe credentials, webhook signing secret, and fixed
+  redirect URLs.
+- A local pending record is created before Stripe checkout. An active
+  subscription blocks another checkout; a same-plan retry reuses its pending
+  local record.
+- The checkout API accepts a UUID `Idempotency-Key` header. Clients should
+  reuse the same key when retrying the same checkout request.
+- Stripe customer, checkout session, and webhook failures do not activate
+  entitlements. Stripe webhook deliveries are signature-verified,
+  provider/event-ID deduplicated, and processed transactionally.
+- `trialing` maps to the existing `active` status. `past_due` remains
+  non-entitled under the current entitlement service; unpaid, incomplete,
+  canceled, expired, and paused subscriptions do not receive active
+  entitlements.
+- Subscription lifecycle timestamps are compared to prevent older Stripe
+  events from overwriting newer state.
+- The Stripe adapter is isolated under `core/services/payments/`; provider
+  credentials and integration details are not part of the mobile API.
+
+Run the schema migration separately when ready:
+
+```text
+python manage.py migrate
+```

@@ -54,3 +54,15 @@ Join our community of developers creating universal apps.
 
 - [Expo on GitHub](https://github.com/expo/expo): View our open source platform and contribute.
 - [Discord community](https://chat.expo.dev): Chat with Expo users and ask questions.
+
+## Authentication session storage
+
+On iOS and Android, Supabase sessions are stored with Expo SecureStore. Existing
+native session entries are migrated from AsyncStorage the first time they are
+read; if SecureStore operations fail, authentication storage reports an error
+instead of falling back to AsyncStorage.
+
+On web, Supabase sessions use browser `localStorage`, which is not equivalent to
+native SecureStore and can be accessed by scripts running on the same origin.
+During server-side rendering there is no persistent browser storage, so session
+restoration is available only in the browser.

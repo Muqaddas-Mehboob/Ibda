@@ -16,6 +16,7 @@ from .views import (
     NotificationMarkReadView,
     NotificationUnreadCountView,
     PaymentWebhookView,
+    StripeWebhookView,
     SubscriptionCheckoutView,
     SubscriptionPlansView,
     UserSubscriptionView,
@@ -97,6 +98,11 @@ urlpatterns = [
         "payments/webhook/",
         PaymentWebhookView.as_view(),
         name="payment-webhook",
+    ),
+    path(
+        "payments/stripe/webhook/",
+        StripeWebhookView.as_view(),
+        name="stripe-payment-webhook",
     ),
     path("notifications/", NotificationListView.as_view(), name="notification-list"),
     path(

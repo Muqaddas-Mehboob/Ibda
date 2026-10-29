@@ -1,4 +1,6 @@
 import logging
+import uuid
+
 import requests
 
 from django.conf import settings
@@ -19,8 +21,6 @@ class SupabaseUser:
 class SupabaseAuthentication(BaseAuthentication):
     def authenticate(self, request):
         authorization = request.headers.get("Authorization", "")
-        print("AUTHORIZATION HEADER RECEIVED:", bool(authorization))
-        print("AUTHORIZATION PREFIX:", authorization.split()[0] if authorization.split() else "MISSING")
         parts = authorization.split()
 
         if not parts:
@@ -64,14 +64,18 @@ class SupabaseAuthentication(BaseAuthentication):
                 "Could not verify the Supabase session."
             )
 
-        if response.status_code != 200:
+        if response.status_code in (401, 403):
             logger.warning(
                 "Supabase rejected access token: HTTP %s",
                 response.status_code,
             )
-            raise AuthenticationFailed(
-                f"Supabase rejected the access token (HTTP {response.status_code})."
+            raise AuthenticationFailed("Invalid or expired Supabase access token.")
+        if response.status_code != 200:
+            logger.error(
+                "Supabase user verification returned HTTP %s",
+                response.status_code,
             )
+            raise AuthenticationFailed("Could not verify the Supabase session.")
 
         try:
             user_data = response.json()
@@ -79,6 +83,9 @@ class SupabaseAuthentication(BaseAuthentication):
             raise AuthenticationFailed(
                 "Invalid response from Supabase."
             )
+
+        if not isinstance(user_data, dict):
+            raise AuthenticationFailed("Invalid response from Supabase.")
 
         user_id = user_data.get("id")
         email = user_data.get("email")
@@ -88,7 +95,14 @@ class SupabaseAuthentication(BaseAuthentication):
                 "Supabase response did not include a user ID."
             )
 
-        return SupabaseUser(user_id, email), token
+        try:
+            normalized_user_id = str(uuid.UUID(user_id))
+        except (TypeError, ValueError, AttributeError):
+            raise AuthenticationFailed(
+                "Supabase response included an invalid user ID."
+            )
+
+        return SupabaseUser(normalized_user_id, email), token
 
     def authenticate_header(self, request):
         return "Bearer"
