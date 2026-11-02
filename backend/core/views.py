@@ -44,6 +44,8 @@ from .serializers import (
     ContentPostSerializer,
     NotificationSerializer,
     CheckoutRequestSerializer,
+    CheckoutSessionVerificationSerializer,
+    SubscriptionPlansRequestSerializer,
     PaymentTransactionSerializer,
     PaymentWebhookSerializer,
     ScheduledPostRangeSerializer,
@@ -72,6 +74,10 @@ from .services.payments.checkout import (
     CheckoutUnavailable,
     SubscriptionAlreadyExists,
     start_stripe_checkout,
+)
+from .services.payments.verification import (
+    CheckoutSessionNotFound,
+    verify_checkout_session,
 )
 from .services.payments.webhooks import (
     StripeWebhookProcessingError,
@@ -756,7 +762,11 @@ class SubscriptionPlansView(APIView):
     permission_classes = [IsAuthenticated]
 
     def get(self, request):
-        catalog = get_plan_catalog()
+        serializer = SubscriptionPlansRequestSerializer(
+            data={"platform": request.query_params.get("platform", "web")}
+        )
+        serializer.is_valid(raise_exception=True)
+        catalog = get_plan_catalog(serializer.validated_data["platform"])
         logger.info(
             "Subscription plans API response: status=200 checkout_available=%s",
             catalog["checkout_available"],
@@ -841,6 +851,7 @@ class SubscriptionCheckoutView(APIView):
                 plan_id=plan_id,
                 billing_interval=billing_interval,
                 idempotency_key=idempotency_key,
+                platform=serializer.validated_data["platform"],
             )
         except CheckoutUnavailable as error:
             logger.warning(
@@ -892,6 +903,50 @@ class SubscriptionCheckoutView(APIView):
                 "session_id": session.id,
             }
         )
+
+
+class CheckoutSessionVerificationView(APIView):
+    authentication_classes = [SupabaseAuthentication]
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        if not settings.STRIPE_SECRET_KEY.startswith("sk_test_"):
+            return Response(
+                {"detail": "Stripe session verification is not configured."},
+                status=status.HTTP_503_SERVICE_UNAVAILABLE,
+            )
+
+        serializer = CheckoutSessionVerificationSerializer(
+            data={"session_id": request.query_params.get("session_id", "")}
+        )
+        serializer.is_valid(raise_exception=True)
+        try:
+            result = verify_checkout_session(
+                owner_id=request.user.id,
+                session_id=serializer.validated_data["session_id"],
+            )
+        except CheckoutSessionNotFound:
+            return Response(
+                {"detail": "Checkout session could not be verified."},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+        except stripe.InvalidRequestError:
+            return Response(
+                {"detail": "Checkout session could not be verified."},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+        except stripe.StripeError as error:
+            logger.error(
+                "Stripe checkout verification failed: category=stripe_api "
+                "error_type=%s",
+                type(error).__name__,
+            )
+            return Response(
+                {"detail": "Unable to verify checkout right now."},
+                status=status.HTTP_502_BAD_GATEWAY,
+            )
+
+        return Response(result, status=status.HTTP_200_OK)
 
 
 @method_decorator(csrf_exempt, name="dispatch")

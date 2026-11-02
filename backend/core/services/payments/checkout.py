@@ -1,10 +1,15 @@
 import stripe
 from django.conf import settings
 from django.db import IntegrityError, transaction
+from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 from core.models import UserSubscription
 
-from .catalog import get_plan_for_price, get_price_id
+from .catalog import (
+    get_checkout_redirect_urls,
+    get_plan_for_price,
+    get_price_id,
+)
 from .stripe_gateway import (
     create_checkout_session,
     create_customer,
@@ -29,7 +34,15 @@ def start_stripe_checkout(
     plan_id,
     billing_interval,
     idempotency_key,
+    platform="web",
 ):
+    redirect_urls = get_checkout_redirect_urls(platform)
+    if redirect_urls is None:
+        raise CheckoutUnavailable("return_urls")
+    success_url, cancel_url = redirect_urls
+    success_url = _checkout_return_url(success_url, checkout="success")
+    cancel_url = _checkout_return_url(cancel_url, checkout="cancelled")
+
     price_id = get_price_id(plan_id, billing_interval)
     price_details = (
         retrieve_price_details(price_id)
@@ -45,8 +58,6 @@ def start_stripe_checkout(
             "stripe_test_secret",
         ),
         (bool(settings.STRIPE_WEBHOOK_SECRET), "webhook_secret"),
-        (bool(settings.STRIPE_CHECKOUT_SUCCESS_URL), "success_url"),
-        (bool(settings.STRIPE_CHECKOUT_CANCEL_URL), "cancel_url"),
         (bool(price_id), "price_id"),
         (
             bool(price_id)
@@ -152,6 +163,8 @@ def start_stripe_checkout(
             local_subscription_id=subscription.id,
             owner_id=owner_id,
             idempotency_key=f"ibda-checkout-{owner_id}-{idempotency_key}",
+            success_url=success_url,
+            cancel_url=cancel_url,
         )
     except stripe.StripeError:
         if created_subscription:
@@ -170,3 +183,16 @@ def start_stripe_checkout(
         raise CheckoutUnavailable
 
     return session
+
+
+def _checkout_return_url(url, *, checkout):
+    parts = urlsplit(url)
+    query = dict(parse_qsl(parts.query, keep_blank_values=True))
+    query["checkout"] = checkout
+    if checkout == "success":
+        query["session_id"] = "{CHECKOUT_SESSION_ID}"
+    else:
+        query.pop("session_id", None)
+    return urlunsplit(
+        parts._replace(query=urlencode(query, safe="{}"))
+    )

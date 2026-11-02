@@ -71,6 +71,7 @@ export type SubscriptionPlansResponse = {
 
 export type UserSubscription = {
   id: string;
+  provider: string;
   plan_id: string;
   billing_interval: "monthly" | "annual" | "none";
   status: "pending" | "active" | "past_due" | "canceled" | "expired" | "failed";
@@ -83,6 +84,10 @@ export type UserSubscription = {
 
 export type PaymentTransaction = {
   id: string;
+  subscription_id: string;
+  plan_id: string;
+  billing_interval: "monthly" | "annual" | "none";
+  subscription_status: UserSubscription["status"];
   status: "pending" | "succeeded" | "failed" | "refunded";
   amount_minor: number | null;
   currency: string;
@@ -102,6 +107,23 @@ export type UserSubscriptionResponse = {
 export type SubscriptionCheckoutResponse = {
   checkout_url: string;
   session_id: string;
+};
+
+export type CheckoutSessionVerification = {
+  status: "pending" | "success" | "failed";
+  plan_id: PlanId;
+  billing_interval: BillingInterval;
+  payment_status:
+    | "pending"
+    | "succeeded"
+    | "failed"
+    | "no_payment_required";
+  subscription_status: UserSubscription["status"];
+  amount_minor: number | null;
+  currency: string;
+  paid_at: string | null;
+  current_period_end: string | null;
+  cancel_at_period_end: boolean;
 };
 
 export class SubscriptionApiError extends Error {
@@ -272,8 +294,10 @@ async function request<T>(
   return data as T;
 }
 
-export function getSubscriptionPlans(): Promise<SubscriptionPlansResponse> {
-  return request("/subscription/plans/");
+export function getSubscriptionPlans(
+  platform: "web" | "mobile" = "web"
+): Promise<SubscriptionPlansResponse> {
+  return request(`/subscription/plans/?platform=${platform}`);
 }
 
 export function getUserSubscription(): Promise<UserSubscriptionResponse> {
@@ -282,7 +306,8 @@ export function getUserSubscription(): Promise<UserSubscriptionResponse> {
 
 export function startSubscriptionCheckout(
   planId: PlanId,
-  billingInterval: BillingInterval
+  billingInterval: BillingInterval,
+  platform: "web" | "mobile"
 ): Promise<SubscriptionCheckoutResponse> {
   return request("/subscription/checkout/", {
     method: "POST",
@@ -292,6 +317,18 @@ export function startSubscriptionCheckout(
     body: JSON.stringify({
       plan_id: planId,
       billing_interval: billingInterval,
+      platform,
     }),
   });
+}
+
+export function verifyCheckoutSession(
+  sessionId: string
+): Promise<CheckoutSessionVerification> {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 20000);
+  return request<CheckoutSessionVerification>(
+    `/subscription/checkout/verify/?session_id=${encodeURIComponent(sessionId)}`,
+    { signal: controller.signal }
+  ).finally(() => clearTimeout(timeout));
 }

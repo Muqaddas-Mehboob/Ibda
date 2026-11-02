@@ -18,6 +18,7 @@ from .views import (
     PaymentWebhookView,
     StripeWebhookView,
     SubscriptionCheckoutView,
+    CheckoutSessionVerificationView,
     SubscriptionPlansView,
     UserSubscriptionView,
     ScheduledPostListView,
@@ -99,6 +100,11 @@ urlpatterns = [
         "subscription/checkout/",
         SubscriptionCheckoutView.as_view(),
         name="subscription-checkout",
+    ),
+    path(
+        "subscription/checkout/verify/",
+        CheckoutSessionVerificationView.as_view(),
+        name="subscription-checkout-verify",
     ),
     path(
         "payments/webhook/",

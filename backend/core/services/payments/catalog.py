@@ -1,4 +1,5 @@
 import logging
+from urllib.parse import urlsplit
 
 from django.conf import settings
 
@@ -45,19 +46,80 @@ def checkout_configuration_present():
     return bool(
         getattr(settings, "STRIPE_SECRET_KEY", "").startswith("sk_test_")
         and getattr(settings, "STRIPE_WEBHOOK_SECRET", "")
-        and getattr(settings, "STRIPE_CHECKOUT_SUCCESS_URL", "")
-        and getattr(settings, "STRIPE_CHECKOUT_CANCEL_URL", "")
-        and any(get_price_id(plan_id, interval) for plan_id, interval in PRICE_SETTINGS)
+        and any(
+            get_checkout_redirect_urls(platform) is not None
+            for platform in ("web", "mobile")
+        )
+        and any(
+            get_price_id(plan_id, interval)
+            for plan_id, interval in PRICE_SETTINGS
+        )
     )
 
 
-def get_plan_catalog():
+def get_checkout_redirect_urls(platform):
+    if platform == "web":
+        success_url = (
+            getattr(settings, "STRIPE_CHECKOUT_SUCCESS_URL_WEB", "")
+            or getattr(settings, "STRIPE_CHECKOUT_SUCCESS_URL", "")
+        )
+        cancel_url = (
+            getattr(settings, "STRIPE_CHECKOUT_CANCEL_URL_WEB", "")
+            or getattr(settings, "STRIPE_CHECKOUT_CANCEL_URL", "")
+        )
+        if not (
+            _is_web_return_url(success_url, "/subscription/success")
+            and _is_web_return_url(cancel_url, "/subscription/cancel")
+        ):
+            return None
+    elif platform == "mobile":
+        success_url = getattr(settings, "STRIPE_CHECKOUT_SUCCESS_URL_MOBILE", "")
+        cancel_url = getattr(settings, "STRIPE_CHECKOUT_CANCEL_URL_MOBILE", "")
+        if not (
+            _is_mobile_return_url(success_url)
+            and _is_mobile_return_url(cancel_url)
+        ):
+            return None
+    else:
+        return None
+
+    return (success_url, cancel_url) if success_url and cancel_url else None
+
+
+def _is_web_return_url(url, expected_path):
+    if not url:
+        return False
+    parts = urlsplit(url)
+    allowed_schemes = {"https"}
+    if settings.DEBUG:
+        allowed_schemes.add("http")
+    return bool(
+        parts.scheme in allowed_schemes
+        and parts.netloc
+        and not parts.username
+        and not parts.password
+        and parts.path.rstrip("/") == expected_path
+    )
+
+
+def _is_mobile_return_url(url):
+    if not url:
+        return False
+    parts = urlsplit(url)
+    route_path = (
+        f"/{parts.netloc}{parts.path}".rstrip("/")
+        if parts.netloc
+        else parts.path.rstrip("/")
+    )
+    return bool(parts.scheme == "ibda" and route_path == "/subscription/success")
+
+
+def get_plan_catalog(platform="web"):
     stripe_configured = getattr(
         settings, "STRIPE_SECRET_KEY", ""
     ).startswith("sk_test_")
     webhook_configured = bool(getattr(settings, "STRIPE_WEBHOOK_SECRET", ""))
-    success_url = bool(getattr(settings, "STRIPE_CHECKOUT_SUCCESS_URL", ""))
-    cancel_url = bool(getattr(settings, "STRIPE_CHECKOUT_CANCEL_URL", ""))
+    redirect_urls_configured = get_checkout_redirect_urls(platform) is not None
     plans = []
     missing_configuration = []
 
@@ -90,8 +152,7 @@ def get_plan_catalog():
                 stripe_configured
                 and webhook_configured
                 and price_configured
-                and success_url
-                and cancel_url
+                and redirect_urls_configured
             )
             prices[billing_interval] = {
                 "price_minor": (
@@ -140,10 +201,8 @@ def get_plan_catalog():
         missing_configuration.append("stripe_test_secret_key")
     if not webhook_configured:
         missing_configuration.append("stripe_webhook_secret")
-    if not success_url:
-        missing_configuration.append("stripe_checkout_success_url")
-    if not cancel_url:
-        missing_configuration.append("stripe_checkout_cancel_url")
+    if not redirect_urls_configured:
+        missing_configuration.append("stripe_checkout_return_urls")
     missing_configuration.append("plan_features")
 
     available_price_count = sum(
@@ -157,11 +216,11 @@ def get_plan_catalog():
     )
     logger.info(
         "Stripe catalog readiness: test_secret=%s webhook_secret=%s "
-        "success_url=%s cancel_url=%s configured_prices=%d available_prices=%d",
+        "platform=%s return_urls=%s configured_prices=%d available_prices=%d",
         stripe_configured,
         webhook_configured,
-        success_url,
-        cancel_url,
+        platform,
+        redirect_urls_configured,
         configured_price_count,
         available_price_count,
     )

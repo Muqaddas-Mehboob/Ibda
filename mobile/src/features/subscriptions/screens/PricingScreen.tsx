@@ -8,7 +8,6 @@ import {
   useWindowDimensions,
   Platform,
 } from "react-native";
-import Constants from "expo-constants";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import * as Linking from "expo-linking";
 import * as WebBrowser from "expo-web-browser";
@@ -84,24 +83,10 @@ function getUnavailableMessage(
   if (missing.includes("stripe_webhook_secret")) {
     return "Stripe webhook verification is not configured on the backend.";
   }
-  if (missing.includes("stripe_checkout_success_url")) {
-    return "The backend success return URL is not configured.";
-  }
-  if (missing.includes("stripe_checkout_cancel_url")) {
-    return "The backend cancellation return URL is not configured.";
+  if (missing.includes("stripe_checkout_return_urls")) {
+    return "The web or mobile checkout return URLs are not configured on the backend.";
   }
   return "Checkout is temporarily unavailable for this plan and interval.";
-}
-
-function getCheckoutReturnUrl() {
-  const configuredScheme = Constants.expoConfig?.scheme;
-  const scheme = Array.isArray(configuredScheme)
-    ? configuredScheme[0]
-    : configuredScheme;
-  if (!scheme) {
-    throw new Error("The app return-link scheme is not configured.");
-  }
-  return `${scheme}://subscription`;
 }
 
 export function PricingScreen({ interval }: { interval: BillingInterval }) {
@@ -127,7 +112,7 @@ export function PricingScreen({ interval }: { interval: BillingInterval }) {
   useEffect(() => {
     let active = true;
 
-    getSubscriptionPlans()
+    getSubscriptionPlans(Platform.OS === "web" ? "web" : "mobile")
       .then((response) => {
         if (active) {
           setCatalog(response);
@@ -156,7 +141,7 @@ export function PricingScreen({ interval }: { interval: BillingInterval }) {
   const retryLoadingCatalog = () => {
     setLoadingCatalog(true);
     setCatalogError("");
-    getSubscriptionPlans()
+    getSubscriptionPlans(Platform.OS === "web" ? "web" : "mobile")
       .then(setCatalog)
       .catch((error: unknown) => {
         setCatalogError(
@@ -209,7 +194,8 @@ export function PricingScreen({ interval }: { interval: BillingInterval }) {
     try {
       const checkout = await startSubscriptionCheckout(
         selectedPlan.id,
-        interval
+        interval,
+        Platform.OS === "web" ? "web" : "mobile"
       );
       let checkoutUrl: URL;
       try {
@@ -230,9 +216,10 @@ export function PricingScreen({ interval }: { interval: BillingInterval }) {
       }
 
       openingBrowser = true;
+      const returnUrl = Linking.createURL("/subscription/success");
       const result = await WebBrowser.openAuthSessionAsync(
         checkoutUrl.toString(),
-        getCheckoutReturnUrl()
+        returnUrl
       );
       if (result.type !== "success") {
         setCheckoutError(
@@ -242,16 +229,25 @@ export function PricingScreen({ interval }: { interval: BillingInterval }) {
         return;
       }
 
-      const checkoutResult = Linking.parse(result.url).queryParams?.checkout;
+      const returnParams = Linking.parse(result.url).queryParams ?? {};
+      const checkoutResult = returnParams.checkout;
       const returnStatus =
         checkoutResult === "success" || checkoutResult === "cancelled"
           ? checkoutResult
           : undefined;
-      router.replace(
-        returnStatus
-          ? { pathname: "/subscription", params: { checkout: returnStatus } }
-          : "/subscription"
-      );
+      if (returnStatus === "cancelled") {
+        router.replace("/subscription/cancel");
+      } else if (
+        returnStatus === "success" &&
+        typeof returnParams.session_id === "string"
+      ) {
+        router.replace({
+          pathname: "/subscription/success",
+          params: { session_id: returnParams.session_id },
+        });
+      } else {
+        router.replace("/subscription");
+      }
     } catch (error) {
       const needsSignIn = error instanceof SubscriptionSessionError;
       const category =

@@ -2,6 +2,7 @@ import { useCallback, useState } from "react";
 import {
   ActivityIndicator,
   Pressable,
+  Platform,
   RefreshControl,
   ScrollView,
   Text,
@@ -76,7 +77,7 @@ export function SubscriptionScreen() {
     setError("");
     try {
       const [planResponse, subscriptionResponse] = await Promise.all([
-        getSubscriptionPlans(),
+        getSubscriptionPlans(Platform.OS === "web" ? "web" : "mobile"),
         getUserSubscription(),
       ]);
       setPlans(planResponse);
@@ -92,6 +93,13 @@ export function SubscriptionScreen() {
       setRefreshing(false);
     }
   }, []);
+  const currentPayment = account?.subscription
+    ? account.transactions.find(
+        (item) =>
+          item.subscription_id === account.subscription?.id &&
+          item.status === "succeeded"
+      )
+    : undefined;
 
   useFocusEffect(
     useCallback(() => {
@@ -169,14 +177,14 @@ export function SubscriptionScreen() {
               <View className="p-4">
                 <View className="flex-row items-center justify-between">
                   <Text className="text-xl font-bold text-[#24221F]">
-                    {account.plan_id === "free"
+                    {!account.subscription && account.plan_id === "free"
                       ? "Free"
                       : plans.plans.find(
-                          (plan) => plan.id === account.plan_id
+                          (plan) => plan.id === account.subscription?.plan_id
                         )?.name ??
-                        (account.plan_id.startsWith("premium")
+                        (account.subscription?.plan_id.startsWith("premium")
                           ? "Pro"
-                          : account.plan_id)}
+                          : account.subscription?.plan_id ?? "Free")}
                   </Text>
                   <View className="rounded-full bg-[#F3EEE8] px-3 py-1">
                     <Text className="text-xs font-bold uppercase text-[#827970]">
@@ -193,13 +201,57 @@ export function SubscriptionScreen() {
                         : account.subscription.billing_interval}
                     </Text>
                     <Text className="mt-1 text-sm text-[#827970]">
-                      Current period ends:{" "}
-                      {formatDate(account.subscription.current_period_end)}
+                      {account.subscription.cancel_at_period_end
+                        ? "Subscription ends: "
+                        : account.subscription.status === "canceled"
+                          ? "Canceled on: "
+                          : account.subscription.status === "active"
+                            ? "Next renewal: "
+                            : "Current period ends: "}
+                      {formatDate(
+                        account.subscription.cancel_at_period_end
+                          ? account.subscription.current_period_end
+                          : account.subscription.status === "canceled"
+                            ? account.subscription.canceled_at
+                            : account.subscription.current_period_end
+                      )}
                     </Text>
                     {account.subscription.cancel_at_period_end ? (
                       <Text className="mt-2 text-sm font-semibold text-[#B04438]">
                         Scheduled to cancel at the end of this period
                       </Text>
+                    ) : account.subscription.provider === "stripe" &&
+                      account.subscription.status === "active" ? (
+                      <Text className="mt-2 text-sm font-semibold text-[#27824A]">
+                        Stripe renewal is active
+                      </Text>
+                    ) : null}
+                    {currentPayment ? (
+                      <View className="mt-4 rounded-xl bg-[#F8F5F0] p-3">
+                        <Text className="text-xs font-bold uppercase tracking-[1px] text-[#827970]">
+                          Latest confirmed payment
+                        </Text>
+                        <View className="mt-2 flex-row items-center justify-between gap-3">
+                          <Text className="text-sm capitalize text-[#51483F]">
+                            {currentPayment.status}
+                          </Text>
+                          {currentPayment.amount_minor !== null &&
+                          currentPayment.currency ? (
+                            <Text className="font-semibold text-[#24221F]">
+                              {formatAmount(
+                                currentPayment.amount_minor,
+                                currentPayment.currency
+                              )}
+                            </Text>
+                          ) : null}
+                        </View>
+                        <Text className="mt-1 text-sm text-[#827970]">
+                          {formatDate(
+                            currentPayment.occurred_at ??
+                              currentPayment.created_at
+                          )}
+                        </Text>
+                      </View>
                     ) : null}
                   </>
                 ) : (
@@ -302,8 +354,13 @@ export function SubscriptionScreen() {
                       index ? "border-t border-[#EAE4DC]" : ""
                     }`}
                   >
-                    <View className="flex-row items-center justify-between gap-3">
-                      <Text className="font-semibold capitalize text-[#24221F]">
+                    <Text className="font-semibold capitalize text-[#24221F]">
+                      {plans.plans.find((plan) => plan.id === item.plan_id)
+                        ?.name ?? item.plan_id}{" "}
+                      · {item.billing_interval}
+                    </Text>
+                    <View className="mt-2 flex-row items-center justify-between gap-3">
+                      <Text className="text-sm font-semibold capitalize text-[#51483F]">
                         {item.status}
                       </Text>
                       {item.amount_minor !== null && item.currency ? (

@@ -16,8 +16,10 @@ Add these values to the backend `.env` for Stripe test mode:
 
 - `STRIPE_SECRET_KEY`
 - `STRIPE_WEBHOOK_SECRET`
-- `STRIPE_CHECKOUT_SUCCESS_URL`
-- `STRIPE_CHECKOUT_CANCEL_URL`
+- `STRIPE_CHECKOUT_SUCCESS_URL_WEB`
+- `STRIPE_CHECKOUT_CANCEL_URL_WEB`
+- `STRIPE_CHECKOUT_SUCCESS_URL_MOBILE`
+- `STRIPE_CHECKOUT_CANCEL_URL_MOBILE`
 - `STRIPE_PRICE_STARTER_MONTHLY`
 - `STRIPE_PRICE_STARTER_ANNUAL`
 - `STRIPE_PRICE_PRO_MONTHLY`
@@ -38,9 +40,29 @@ Configure Stripe Products and recurring Prices in the Stripe dashboard, then
 copy each test Price ID into its matching backend setting. Do not put secret
 keys, webhook secrets, or credentials in the mobile app or source control.
 
-Configure fixed success and cancellation URLs on the backend. The success URL
-may contain Stripe's `{CHECKOUT_SESSION_ID}` placeholder. Do not accept
-redirect URLs from the app. A successful redirect is not proof of payment.
+Configure fixed web and mobile return URLs on the backend. For web, use the
+deployed app origin and the Expo Router routes `/subscription/success` and
+`/subscription/cancel` (for example,
+`https://<your-web-host>/subscription/success`). For mobile, the Expo
+configuration declares the `ibda` scheme; use
+`ibda://subscription/success` for success and the success route for the
+auth-session callback on cancellation (`ibda://subscription/success`). The
+backend adds `checkout=success` or `checkout=cancelled` and adds
+`session_id={CHECKOUT_SESSION_ID}` to success URLs. It preserves Stripe's
+placeholder literally. Verify these URLs against the routes and scheme in
+`mobile/app.json` before deploying. `STRIPE_CHECKOUT_SUCCESS_URL` and
+`STRIPE_CHECKOUT_CANCEL_URL` remain web-only fallbacks when they point to the documented web routes; mobile
+checkout requires the mobile-specific values.
+
+The app sends only its platform (`web` or `mobile`) when starting checkout.
+The backend selects a fixed configured URL; client-supplied redirect URLs are
+never accepted. A successful redirect is not proof of payment. The authenticated
+`GET /api/subscription/checkout/verify/?session_id=...` endpoint retrieves the
+session with the server-side Stripe key and checks its owner, local
+subscription, customer, plan, and billing interval. It reports success only
+when payment and webhook-backed subscription records confirm it. If Stripe
+webhooks are delayed, the app polls for a limited time and allows a retry.
+
 For Expo Web, add the exact app origin (for example,
 `http://localhost:8081`) to `CORS_ALLOWED_ORIGINS`. The API also allows the
 `Idempotency-Key` request header used by checkout; do not enable all origins.
@@ -58,7 +80,7 @@ For Expo Web, add the exact app origin (for example,
 4. In a separate terminal, forward the supported events:
 
    ```text
-   stripe listen --forward-to localhost:8000/api/payments/stripe/webhook/ --events checkout.session.completed,customer.subscription.created,customer.subscription.updated,customer.subscription.deleted,invoice.paid,invoice.payment_failed
+   stripe listen --forward-to localhost:8000/api/payments/stripe/webhook/ --events checkout.session.completed,checkout.session.async_payment_succeeded,checkout.session.async_payment_failed,customer.subscription.created,customer.subscription.updated,customer.subscription.deleted,invoice.paid,invoice.payment_failed
    ```
 
 5. Copy the signing secret printed by `stripe listen` into the backend
@@ -89,6 +111,10 @@ header over the exact request body. The separate
 - Stripe customer, checkout session, and webhook failures do not activate
   entitlements. Stripe webhook deliveries are signature-verified,
   provider/event-ID deduplicated, and processed transactionally.
+- `checkout.session.completed` and asynchronous checkout events associate the
+  Stripe session with the local pending subscription, but never activate it.
+  Verified subscription and invoice events remain the source of truth; unpaid
+  or delayed payment sessions remain pending until Stripe confirms payment.
 - `trialing` maps to the existing `active` status. `past_due` remains
   non-entitled under the current entitlement service; unpaid, incomplete,
   canceled, expired, and paused subscriptions do not receive active

@@ -34,6 +34,8 @@ def create_checkout_session(
     local_subscription_id,
     owner_id,
     idempotency_key,
+    success_url,
+    cancel_url,
 ):
     metadata = {
         "ibda_owner_id": str(owner_id),
@@ -47,13 +49,17 @@ def create_checkout_session(
             "customer": customer_id,
             "client_reference_id": str(local_subscription_id),
             "line_items": [{"price": price_id, "quantity": 1}],
-            "success_url": settings.STRIPE_CHECKOUT_SUCCESS_URL,
-            "cancel_url": settings.STRIPE_CHECKOUT_CANCEL_URL,
+            "success_url": success_url,
+            "cancel_url": cancel_url,
             "metadata": metadata,
             "subscription_data": {"metadata": metadata},
         },
         options={"idempotency_key": idempotency_key},
     )
+
+
+def retrieve_checkout_session(session_id):
+    return _client().v1.checkout.sessions.retrieve(session_id)
 
 
 def retrieve_price_details(price_id):

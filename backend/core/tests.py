@@ -11,7 +11,7 @@ from urllib.error import HTTPError
 
 import requests
 import stripe
-from django.test import override_settings
+from django.test import SimpleTestCase, override_settings
 from rest_framework.exceptions import AuthenticationFailed
 from rest_framework import status
 from rest_framework.test import APIRequestFactory, APITestCase
@@ -30,6 +30,165 @@ from .models import (
     ScheduledPost,
     SocialAccount,
 )
+from .services.payments.catalog import (
+    checkout_configuration_present,
+    get_checkout_redirect_urls,
+)
+
+
+class CheckoutRedirectConfigurationTests(SimpleTestCase):
+    @override_settings(
+        DEBUG=False,
+        STRIPE_CHECKOUT_SUCCESS_URL_WEB=(
+            "https://ibda.example/subscription/success"
+        ),
+        STRIPE_CHECKOUT_CANCEL_URL_WEB=(
+            "https://ibda.example/subscription/cancel"
+        ),
+        STRIPE_CHECKOUT_SUCCESS_URL_MOBILE="ibda://subscription/success",
+        STRIPE_CHECKOUT_CANCEL_URL_MOBILE="ibda://subscription/success",
+    )
+    def test_valid_web_and_mobile_return_routes_are_accepted(self):
+        self.assertEqual(
+            get_checkout_redirect_urls("web"),
+            (
+                "https://ibda.example/subscription/success",
+                "https://ibda.example/subscription/cancel",
+            ),
+        )
+        self.assertEqual(
+            get_checkout_redirect_urls("mobile"),
+            (
+                "ibda://subscription/success",
+                "ibda://subscription/success",
+            ),
+        )
+
+    @override_settings(
+        DEBUG=True,
+        STRIPE_CHECKOUT_SUCCESS_URL_WEB=(
+            "http://localhost:8081/subscription/success"
+        ),
+        STRIPE_CHECKOUT_CANCEL_URL_WEB=(
+            "http://localhost:8081/subscription/cancel"
+        ),
+    )
+    def test_local_http_urls_are_accepted_only_for_debug(self):
+        self.assertIsNotNone(get_checkout_redirect_urls("web"))
+        with override_settings(DEBUG=False):
+            self.assertIsNone(get_checkout_redirect_urls("web"))
+
+    def test_web_return_rejects_missing_or_invalid_values(self):
+        invalid_urls = (
+            ("", "https://ibda.example/subscription/cancel"),
+            ("https://ibda.example/subscription/success", ""),
+            ("/subscription/success", "https://ibda.example/subscription/cancel"),
+            ("javascript:alert(1)", "https://ibda.example/subscription/cancel"),
+            (
+                "https://ibda.example/wrong-route",
+                "https://ibda.example/subscription/cancel",
+            ),
+            (
+                "https://user:password@ibda.example/subscription/success",
+                "https://ibda.example/subscription/cancel",
+            ),
+        )
+        for success_url, cancel_url in invalid_urls:
+            with self.subTest(success_url=success_url, cancel_url=cancel_url):
+                with override_settings(
+                    DEBUG=False,
+                    STRIPE_CHECKOUT_SUCCESS_URL_WEB=success_url,
+                    STRIPE_CHECKOUT_CANCEL_URL_WEB=cancel_url,
+                ):
+                    self.assertIsNone(get_checkout_redirect_urls("web"))
+
+    def test_mobile_return_rejects_missing_or_non_expo_route_values(self):
+        invalid_urls = (
+            ("", "ibda://subscription/success"),
+            ("ibda://subscription/success", ""),
+            ("https://ibda.example/subscription/success",
+             "ibda://subscription/success"),
+            ("ibda://subscription", "ibda://subscription/success"),
+            ("ibda://subscription/success", "ibda://subscription/cancel"),
+        )
+        for success_url, cancel_url in invalid_urls:
+            with self.subTest(success_url=success_url, cancel_url=cancel_url):
+                with override_settings(
+                    STRIPE_CHECKOUT_SUCCESS_URL_MOBILE=success_url,
+                    STRIPE_CHECKOUT_CANCEL_URL_MOBILE=cancel_url,
+                ):
+                    self.assertIsNone(get_checkout_redirect_urls("mobile"))
+
+    @override_settings(
+        STRIPE_SECRET_KEY="sk_test_unit_test",
+        STRIPE_WEBHOOK_SECRET="whsec_unit_test",
+        STRIPE_CHECKOUT_SUCCESS_URL_WEB=(
+            "https://ibda.example/subscription/success"
+        ),
+        STRIPE_CHECKOUT_CANCEL_URL_WEB=(
+            "https://ibda.example/subscription/cancel"
+        ),
+        STRIPE_CHECKOUT_SUCCESS_URL_MOBILE="",
+        STRIPE_CHECKOUT_CANCEL_URL_MOBILE="",
+        STRIPE_PRICE_STARTER_MONTHLY="price_server_starter_monthly",
+    )
+    def test_readiness_accepts_any_complete_platform_pair_with_test_key_and_price(
+        self,
+    ):
+        self.assertTrue(checkout_configuration_present())
+
+    @override_settings(
+        STRIPE_SECRET_KEY="sk_live_unit_test",
+        STRIPE_WEBHOOK_SECRET="whsec_unit_test",
+        STRIPE_CHECKOUT_SUCCESS_URL_WEB=(
+            "https://ibda.example/subscription/success"
+        ),
+        STRIPE_CHECKOUT_CANCEL_URL_WEB=(
+            "https://ibda.example/subscription/cancel"
+        ),
+        STRIPE_PRICE_STARTER_MONTHLY="price_server_starter_monthly",
+    )
+    def test_readiness_rejects_live_mode_key(self):
+        self.assertFalse(checkout_configuration_present())
+
+    @override_settings(
+        STRIPE_SECRET_KEY="sk_test_unit_test",
+        STRIPE_WEBHOOK_SECRET="whsec_unit_test",
+        STRIPE_CHECKOUT_SUCCESS_URL_WEB=(
+            "https://ibda.example/subscription/success"
+        ),
+        STRIPE_CHECKOUT_CANCEL_URL_WEB=(
+            "https://ibda.example/subscription/cancel"
+        ),
+        STRIPE_PRICE_STARTER_MONTHLY="price_server_starter_monthly",
+    )
+    def test_readiness_rejects_missing_webhook_secret(self):
+        with override_settings(STRIPE_WEBHOOK_SECRET=""):
+            self.assertFalse(checkout_configuration_present())
+
+    @override_settings(
+        STRIPE_SECRET_KEY="sk_test_unit_test",
+        STRIPE_WEBHOOK_SECRET="whsec_unit_test",
+        STRIPE_CHECKOUT_SUCCESS_URL_WEB=(
+            "https://ibda.example/subscription/success"
+        ),
+        STRIPE_CHECKOUT_CANCEL_URL_WEB=(
+            "https://ibda.example/subscription/cancel"
+        ),
+    )
+    def test_readiness_rejects_missing_price_ids(self):
+        with override_settings(
+            STRIPE_PRICE_STARTER_MONTHLY="",
+            STRIPE_PRICE_STARTER_ANNUAL="",
+            STRIPE_PRICE_PRO_MONTHLY="",
+            STRIPE_PRICE_PRO_ANNUAL="",
+            STRIPE_PRICE_ENTERPRISE_MONTHLY="",
+            STRIPE_PRICE_ENTERPRISE_ANNUAL="",
+        ):
+            self.assertFalse(checkout_configuration_present())
+
+    def test_unknown_platform_is_rejected(self):
+        self.assertIsNone(get_checkout_redirect_urls("other"))
 
 
 class SupabaseAuthenticationTests(APITestCase):
@@ -1014,6 +1173,36 @@ class SubscriptionApiTests(APITestCase):
             status=UserSubscription.Status.ACTIVE,
         )
 
+    def create_stripe_subscription(self, owner_id=None, status_value="pending"):
+        return UserSubscription.objects.create(
+            owner_id=owner_id or self.user.id,
+            provider="stripe",
+            provider_customer_id="cus_checkout_test",
+            plan_id="pro",
+            billing_interval=UserSubscription.BillingInterval.ANNUAL,
+            status=status_value,
+        )
+
+    def checkout_session(self, local_subscription, **overrides):
+        values = {
+            "mode": "subscription",
+            "status": "complete",
+            "payment_status": "paid",
+            "client_reference_id": str(local_subscription.id),
+            "customer": local_subscription.provider_customer_id,
+            "subscription": local_subscription.provider_subscription_id,
+            "amount_total": 24000,
+            "currency": "usd",
+            "metadata": {
+                "ibda_owner_id": str(local_subscription.owner_id),
+                "ibda_subscription_id": str(local_subscription.id),
+                "plan_id": local_subscription.plan_id,
+                "billing_interval": local_subscription.billing_interval,
+            },
+        }
+        values.update(overrides)
+        return SimpleNamespace(**values)
+
     def test_checkout_cors_preflight_allows_idempotency_header_for_web_origin(
         self,
     ):
@@ -1077,8 +1266,8 @@ class SubscriptionApiTests(APITestCase):
     @override_settings(
         STRIPE_SECRET_KEY="sk_test_unit_test",
         STRIPE_WEBHOOK_SECRET="whsec_unit_test",
-        STRIPE_CHECKOUT_SUCCESS_URL="ibda://subscription/success",
-        STRIPE_CHECKOUT_CANCEL_URL="ibda://subscription/cancel",
+        STRIPE_CHECKOUT_SUCCESS_URL_WEB="https://ibda.example/subscription/success",
+        STRIPE_CHECKOUT_CANCEL_URL_WEB="https://ibda.example/subscription/cancel",
         STRIPE_PRICE_STARTER_MONTHLY="price_server_starter_monthly",
         STRIPE_PRICE_STARTER_ANNUAL="",
         STRIPE_PRICE_PRO_MONTHLY="",
@@ -1150,6 +1339,204 @@ class SubscriptionApiTests(APITestCase):
             ).id),
         )
 
+    def test_billing_api_returns_actual_subscription_plan_interval_and_payment(self):
+        subscription = self.create_stripe_subscription(
+            status_value=UserSubscription.Status.ACTIVE,
+        )
+        PaymentTransaction.objects.create(
+            subscription=subscription,
+            provider="stripe",
+            provider_transaction_id="in_billing_api",
+            status=PaymentTransaction.Status.SUCCEEDED,
+            amount_minor=24000,
+            currency="USD",
+        )
+
+        response = self.client.get("/api/subscription/me/")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data["subscription"]["plan_id"], "pro")
+        self.assertEqual(response.data["subscription"]["billing_interval"], "annual")
+        self.assertEqual(response.data["transactions"][0]["plan_id"], "pro")
+        self.assertEqual(response.data["transactions"][0]["billing_interval"], "annual")
+        self.assertEqual(response.data["transactions"][0]["amount_minor"], 24000)
+        self.assertEqual(response.data["transactions"][0]["status"], "succeeded")
+
+    @override_settings(STRIPE_SECRET_KEY="sk_test_unit_test")
+    def test_checkout_session_verification_returns_confirmed_payment(self):
+        subscription = self.create_stripe_subscription(
+            status_value=UserSubscription.Status.ACTIVE,
+        )
+        subscription.provider_subscription_id = "sub_checkout_test"
+        subscription.save(update_fields=["provider_subscription_id", "updated_at"])
+        PaymentTransaction.objects.create(
+            subscription=subscription,
+            provider="stripe",
+            provider_transaction_id="in_checkout_test",
+            status=PaymentTransaction.Status.SUCCEEDED,
+            amount_minor=24000,
+            currency="USD",
+        )
+        session = self.checkout_session(subscription)
+        self.client.force_authenticate(user=None)
+        with self.settings(
+            SUPABASE_URL="https://supabase.example.invalid",
+            SUPABASE_PUBLISHABLE_KEY="publishable-test-key",
+        ):
+            with (
+                patch("core.authentication.requests.get") as verify_user,
+                patch(
+                    "core.services.payments.verification.retrieve_checkout_session",
+                    return_value=session,
+                ) as retrieve_session,
+            ):
+                verify_user.return_value.status_code = 200
+                verify_user.return_value.json.return_value = {
+                    "id": str(self.user.id),
+                    "email": "creator@example.invalid",
+                }
+                response = self.client.get(
+                    "/api/subscription/checkout/verify/",
+                    {"session_id": "cs_test_checkout"},
+                    HTTP_AUTHORIZATION="Bearer valid-test-access-token",
+                )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data["status"], "success")
+        self.assertEqual(response.data["plan_id"], "pro")
+        self.assertEqual(response.data["billing_interval"], "annual")
+        self.assertEqual(response.data["amount_minor"], 24000)
+        self.assertEqual(response.data["currency"], "USD")
+        self.assertEqual(response.data["payment_status"], "succeeded")
+        self.assertNotIn("provider_customer_id", response.data)
+        self.assertNotIn("stripe_secret_key", response.data)
+        retrieve_session.assert_called_once_with("cs_test_checkout")
+        verify_user.assert_called_once()
+
+    @override_settings(STRIPE_SECRET_KEY="sk_test_unit_test")
+    def test_checkout_session_verification_rejects_another_users_session(self):
+        foreign = self.create_stripe_subscription(
+            owner_id=self.other_user_id,
+            status_value=UserSubscription.Status.ACTIVE,
+        )
+        session = self.checkout_session(foreign)
+        with patch(
+            "core.services.payments.verification.retrieve_checkout_session",
+            return_value=session,
+        ):
+            response = self.client.get(
+                "/api/subscription/checkout/verify/",
+                {"session_id": "cs_test_foreign"},
+            )
+
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+
+    @override_settings(STRIPE_SECRET_KEY="sk_test_unit_test")
+    def test_unpaid_checkout_session_remains_pending_until_webhook_records_payment(
+        self,
+    ):
+        subscription = self.create_stripe_subscription()
+        session = self.checkout_session(
+            subscription,
+            status="complete",
+            payment_status="unpaid",
+            subscription=None,
+        )
+        with patch(
+            "core.services.payments.verification.retrieve_checkout_session",
+            return_value=session,
+        ):
+            response = self.client.get(
+                "/api/subscription/checkout/verify/",
+                {"session_id": "cs_test_delayed"},
+            )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data["status"], "pending")
+        self.assertEqual(response.data["payment_status"], "pending")
+        self.assertIsNone(response.data["amount_minor"])
+
+    @override_settings(STRIPE_SECRET_KEY="sk_test_unit_test")
+    def test_verification_stays_pending_until_webhook_records_successful_invoice(
+        self,
+    ):
+        subscription = self.create_stripe_subscription()
+        subscription.provider_subscription_id = "sub_delayed_checkout"
+        subscription.save(update_fields=["provider_subscription_id", "updated_at"])
+        session = self.checkout_session(subscription)
+        with patch(
+            "core.services.payments.verification.retrieve_checkout_session",
+            return_value=session,
+        ):
+            pending = self.client.get(
+                "/api/subscription/checkout/verify/",
+                {"session_id": "cs_test_delayed"},
+            )
+
+        self.assertEqual(pending.status_code, status.HTTP_200_OK)
+        self.assertEqual(pending.data["status"], "pending")
+
+        subscription.status = UserSubscription.Status.ACTIVE
+        subscription.save(update_fields=["status", "updated_at"])
+        PaymentTransaction.objects.create(
+            subscription=subscription,
+            provider="stripe",
+            provider_transaction_id="in_delayed_checkout",
+            status=PaymentTransaction.Status.SUCCEEDED,
+            amount_minor=24000,
+            currency="USD",
+        )
+        with patch(
+            "core.services.payments.verification.retrieve_checkout_session",
+            return_value=session,
+        ):
+            confirmed = self.client.get(
+                "/api/subscription/checkout/verify/",
+                {"session_id": "cs_test_delayed"},
+            )
+
+        self.assertEqual(confirmed.status_code, status.HTTP_200_OK)
+        self.assertEqual(confirmed.data["status"], "success")
+        self.assertEqual(confirmed.data["payment_status"], "succeeded")
+
+    @override_settings(STRIPE_SECRET_KEY="sk_test_unit_test")
+    def test_verification_reports_an_async_payment_failure(self):
+        subscription = self.create_stripe_subscription()
+        PaymentTransaction.objects.create(
+            subscription=subscription,
+            provider="stripe",
+            provider_transaction_id="cs_failed_checkout",
+            status=PaymentTransaction.Status.FAILED,
+            amount_minor=24000,
+            currency="USD",
+        )
+        session = self.checkout_session(
+            subscription,
+            payment_status="unpaid",
+            subscription=None,
+        )
+        with patch(
+            "core.services.payments.verification.retrieve_checkout_session",
+            return_value=session,
+        ):
+            response = self.client.get(
+                "/api/subscription/checkout/verify/",
+                {"session_id": "cs_failed_checkout"},
+            )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data["status"], "failed")
+        self.assertEqual(response.data["payment_status"], "failed")
+
+    def test_checkout_session_verification_requires_authentication(self):
+        self.client.force_authenticate(user=None)
+        response = self.client.get(
+            "/api/subscription/checkout/verify/",
+            {"session_id": "cs_test_checkout"},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
+
     @override_settings(
         STRIPE_SECRET_KEY="",
         STRIPE_WEBHOOK_SECRET="",
@@ -1175,8 +1562,8 @@ class SubscriptionApiTests(APITestCase):
         with self.settings(
             STRIPE_SECRET_KEY="sk_test_unit_test",
             STRIPE_WEBHOOK_SECRET="whsec_unit_test",
-            STRIPE_CHECKOUT_SUCCESS_URL="ibda://subscription/success",
-            STRIPE_CHECKOUT_CANCEL_URL="ibda://subscription/cancel",
+            STRIPE_CHECKOUT_SUCCESS_URL_WEB="https://ibda.example/subscription/success",
+            STRIPE_CHECKOUT_CANCEL_URL_WEB="https://ibda.example/subscription/cancel",
             STRIPE_PRICE_PRO_MONTHLY="price_server_pro_monthly",
         ):
             with patch(
@@ -1243,8 +1630,8 @@ class SubscriptionApiTests(APITestCase):
             SUPABASE_PUBLISHABLE_KEY="publishable-test-key",
             STRIPE_SECRET_KEY="sk_test_unit_test",
             STRIPE_WEBHOOK_SECRET="whsec_unit_test",
-            STRIPE_CHECKOUT_SUCCESS_URL="ibda://subscription/success",
-            STRIPE_CHECKOUT_CANCEL_URL="ibda://subscription/cancel",
+            STRIPE_CHECKOUT_SUCCESS_URL_WEB="https://ibda.example/subscription/success",
+            STRIPE_CHECKOUT_CANCEL_URL_WEB="https://ibda.example/subscription/cancel",
             STRIPE_PRICE_PRO_MONTHLY="price_server_pro_monthly",
         ):
             with (
@@ -1304,10 +1691,12 @@ class SubscriptionApiTests(APITestCase):
         with self.settings(
             STRIPE_SECRET_KEY="sk_test_unit_test",
             STRIPE_WEBHOOK_SECRET="whsec_unit_test",
-            STRIPE_CHECKOUT_SUCCESS_URL=(
-                "ibda://subscription/success?session_id={CHECKOUT_SESSION_ID}"
+            STRIPE_CHECKOUT_SUCCESS_URL_WEB=(
+                "https://ibda.example/subscription/success"
             ),
-            STRIPE_CHECKOUT_CANCEL_URL="ibda://subscription/cancel",
+            STRIPE_CHECKOUT_CANCEL_URL_WEB=(
+                "https://ibda.example/subscription/cancel"
+            ),
             STRIPE_PRICE_PRO_MONTHLY="price_server_pro_monthly",
         ):
             with (
@@ -1357,6 +1746,15 @@ class SubscriptionApiTests(APITestCase):
             "price_server_pro_monthly",
         )
         self.assertEqual(
+            create_session.call_args.kwargs["success_url"],
+            "https://ibda.example/subscription/success?"
+            "checkout=success&session_id={CHECKOUT_SESSION_ID}",
+        )
+        self.assertEqual(
+            create_session.call_args.kwargs["cancel_url"],
+            "https://ibda.example/subscription/cancel?checkout=cancelled",
+        )
+        self.assertEqual(
             UserSubscription.objects.get().status,
             UserSubscription.Status.PENDING,
         )
@@ -1365,12 +1763,66 @@ class SubscriptionApiTests(APITestCase):
             "pro",
         )
 
+    def test_mobile_checkout_uses_configured_expo_return_url(self):
+        session = SimpleNamespace(
+            id="cs_test_mobile",
+            url="https://checkout.stripe.test/mobile",
+        )
+        with self.settings(
+            STRIPE_SECRET_KEY="sk_test_unit_test",
+            STRIPE_WEBHOOK_SECRET="whsec_unit_test",
+            STRIPE_CHECKOUT_SUCCESS_URL_MOBILE="ibda://subscription/success",
+            STRIPE_CHECKOUT_CANCEL_URL_MOBILE="ibda://subscription/success",
+            STRIPE_PRICE_PRO_MONTHLY="price_server_pro_monthly",
+        ):
+            with (
+                patch(
+                    "core.services.payments.checkout.retrieve_price_details",
+                    return_value={
+                        "price_minor": 1250,
+                        "currency": "USD",
+                        "active": True,
+                        "recurring_interval": "month",
+                        "recurring_interval_count": 1,
+                    },
+                ),
+                patch(
+                    "core.services.payments.checkout.create_customer",
+                    return_value=SimpleNamespace(id="cus_test_mobile"),
+                ),
+                patch(
+                    "core.services.payments.checkout.create_checkout_session",
+                    return_value=session,
+                ) as create_session,
+            ):
+                response = self.client.post(
+                    "/api/subscription/checkout/",
+                    {
+                        "plan_id": "pro",
+                        "billing_interval": "monthly",
+                        "platform": "mobile",
+                    },
+                    format="json",
+                    HTTP_IDEMPOTENCY_KEY=str(uuid4()),
+                )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(
+            create_session.call_args.kwargs["success_url"],
+            "ibda://subscription/success?"
+            "checkout=success&session_id={CHECKOUT_SESSION_ID}",
+        )
+        self.assertEqual(
+            create_session.call_args.kwargs["cancel_url"],
+            "ibda://subscription/success?checkout=cancelled",
+        )
+
     def test_checkout_stripe_errors_are_safe_and_leave_no_pending_record(self):
         with self.settings(
             STRIPE_SECRET_KEY="sk_test_unit_test",
             STRIPE_WEBHOOK_SECRET="whsec_unit_test",
-            STRIPE_CHECKOUT_SUCCESS_URL="ibda://subscription/success",
-            STRIPE_CHECKOUT_CANCEL_URL="ibda://subscription/cancel",
+            STRIPE_CHECKOUT_SUCCESS_URL_WEB="https://ibda.example/subscription/success",
+            STRIPE_CHECKOUT_CANCEL_URL_WEB="https://ibda.example/subscription/cancel",
             STRIPE_PRICE_STARTER_ANNUAL="price_server_starter_annual",
         ):
             with (
@@ -1414,8 +1866,8 @@ class SubscriptionApiTests(APITestCase):
         with self.settings(
             STRIPE_SECRET_KEY="sk_test_unit_test",
             STRIPE_WEBHOOK_SECRET="whsec_unit_test",
-            STRIPE_CHECKOUT_SUCCESS_URL="ibda://subscription/success",
-            STRIPE_CHECKOUT_CANCEL_URL="ibda://subscription/cancel",
+            STRIPE_CHECKOUT_SUCCESS_URL_WEB="https://ibda.example/subscription/success",
+            STRIPE_CHECKOUT_CANCEL_URL_WEB="https://ibda.example/subscription/cancel",
             STRIPE_PRICE_ENTERPRISE_ANNUAL="price_server_enterprise_annual",
         ):
             with (
@@ -1903,6 +2355,77 @@ class StripeWebhookApiTests(APITestCase):
         subscription.refresh_from_db()
         self.assertEqual(subscription.status, UserSubscription.Status.PENDING)
         self.assertEqual(subscription.provider_subscription_id, "sub_webhook_test")
+
+    def test_unpaid_checkout_completion_does_not_activate_or_record_payment(self):
+        subscription = self.create_stripe_subscription()
+        event = {
+            "id": "evt_checkout_unpaid",
+            "type": "checkout.session.completed",
+            "created": int(time.time()),
+            "data": {
+                "object": {
+                    "id": "cs_checkout_unpaid",
+                    "mode": "subscription",
+                    "status": "complete",
+                    "payment_status": "unpaid",
+                    "customer": "cus_webhook_test",
+                    "subscription": "sub_checkout_unpaid",
+                    "client_reference_id": str(subscription.id),
+                    "metadata": {
+                        "ibda_subscription_id": str(subscription.id),
+                        "ibda_owner_id": str(subscription.owner_id),
+                    },
+                }
+            },
+        }
+        with self.settings(STRIPE_WEBHOOK_SECRET=self.signing_secret):
+            response = self.post_stripe_event(event)
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        subscription.refresh_from_db()
+        self.assertEqual(subscription.status, UserSubscription.Status.PENDING)
+        self.assertEqual(
+            subscription.provider_subscription_id,
+            "sub_checkout_unpaid",
+        )
+        self.assertFalse(PaymentTransaction.objects.exists())
+
+    def test_async_checkout_failure_records_failed_payment_without_activation(self):
+        subscription = self.create_stripe_subscription()
+        event = {
+            "id": "evt_checkout_async_failed",
+            "type": "checkout.session.async_payment_failed",
+            "created": int(time.time()),
+            "data": {
+                "object": {
+                    "id": "cs_checkout_async_failed",
+                    "mode": "subscription",
+                    "status": "complete",
+                    "payment_status": "unpaid",
+                    "customer": "cus_webhook_test",
+                    "subscription": "sub_checkout_async_failed",
+                    "client_reference_id": str(subscription.id),
+                    "amount_total": 24000,
+                    "currency": "usd",
+                    "metadata": {
+                        "ibda_subscription_id": str(subscription.id),
+                        "ibda_owner_id": str(subscription.owner_id),
+                    },
+                }
+            },
+        }
+        with self.settings(STRIPE_WEBHOOK_SECRET=self.signing_secret):
+            response = self.post_stripe_event(event)
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        subscription.refresh_from_db()
+        self.assertEqual(subscription.status, UserSubscription.Status.PENDING)
+        payment = PaymentTransaction.objects.get(
+            provider_transaction_id="cs_checkout_async_failed"
+        )
+        self.assertEqual(payment.status, PaymentTransaction.Status.FAILED)
+        self.assertEqual(payment.amount_minor, 24000)
+        self.assertEqual(payment.currency, "USD")
 
     def test_invoice_paid_and_failed_update_the_existing_transaction(self):
         subscription = self.create_stripe_subscription(

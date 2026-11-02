@@ -339,6 +339,7 @@ class UserSubscriptionSerializer(serializers.ModelSerializer):
         model = UserSubscription
         fields = [
             "id",
+            "provider",
             "plan_id",
             "billing_interval",
             "status",
@@ -352,10 +353,25 @@ class UserSubscriptionSerializer(serializers.ModelSerializer):
 
 
 class PaymentTransactionSerializer(serializers.ModelSerializer):
+    subscription_id = serializers.UUIDField(read_only=True)
+    plan_id = serializers.CharField(source="subscription.plan_id", read_only=True)
+    billing_interval = serializers.CharField(
+        source="subscription.billing_interval",
+        read_only=True,
+    )
+    subscription_status = serializers.CharField(
+        source="subscription.status",
+        read_only=True,
+    )
+
     class Meta:
         model = PaymentTransaction
         fields = [
             "id",
+            "subscription_id",
+            "plan_id",
+            "billing_interval",
+            "subscription_status",
             "status",
             "amount_minor",
             "currency",
@@ -379,6 +395,10 @@ class CheckoutRequestSerializer(serializers.Serializer):
         choices=("monthly", "annual"),
         required=False,
     )
+    platform = serializers.ChoiceField(
+        choices=("web", "mobile"),
+        default="web",
+    )
 
     def validate(self, attrs):
         legacy_plan = attrs["plan_id"]
@@ -396,6 +416,17 @@ class CheckoutRequestSerializer(serializers.Serializer):
                 {"billing_interval": "This field is required."}
             )
         return attrs
+
+
+class CheckoutSessionVerificationSerializer(serializers.Serializer):
+    session_id = serializers.CharField(max_length=255)
+
+
+class SubscriptionPlansRequestSerializer(serializers.Serializer):
+    platform = serializers.ChoiceField(
+        choices=("web", "mobile"),
+        default="web",
+    )
 
 
 class PaymentWebhookSerializer(serializers.Serializer):

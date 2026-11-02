@@ -1,7 +1,8 @@
 import json
 import os
+from urllib.error import HTTPError, URLError
+from urllib.request import Request, urlopen
 
-import httpx
 from django.conf import settings
 
 
@@ -53,56 +54,39 @@ def generate_content(
         f"Writing guidelines: {voice_context.writing_guidelines if voice_context else 'None specified'}\n"
         f"Example content for style reference: {voice_context.example_content if voice_context else 'None provided'}"
     )
-    body = json.dumps(
-        {
-            "model": settings.AI_MODEL,
-            "messages": [
-                {
-                    "role": "system",
-                    "content": (
-                        "You are Ibda, a careful social media copywriter. "
-                        "Follow the supplied brand voice and use the requested language."
-                    ),
-                },
-                {"role": "user", "content": prompt},
-            ],
-            "temperature": 0.7,
-        }
-    ).encode("utf-8")
-        # Force IPv4 when enabled for local development.
-    use_ipv4 = os.getenv("AI_FORCE_IPV4", "false").lower() == "true"
+    payload = {
+        "model": settings.AI_MODEL,
+        "messages": [
+            {
+                "role": "system",
+                "content": (
+                    "You are Ibda, a careful social media copywriter. "
+                    "Follow the supplied brand voice and use the requested language."
+                ),
+            },
+            {"role": "user", "content": prompt},
+        ],
+        "temperature": 0.7,
+    }
+    request = Request(
+        f"{settings.AI_BASE_URL.rstrip('/')}/chat/completions",
+        data=json.dumps(payload).encode("utf-8"),
+        headers={
+            "Authorization": f"Bearer {settings.AI_API_KEY}",
+            "Content-Type": "application/json",
+            "Accept": "application/json",
+        },
+        method="POST",
+    )
 
     try:
-        transport = (
-            httpx.HTTPTransport(local_address="0.0.0.0")
-            if use_ipv4
-            else None
-        )
-
-        with httpx.Client(
-            transport=transport,
-            timeout=60.0,
-        ) as client:
-
-            response = client.post(
-                f"{settings.AI_BASE_URL.rstrip('/')}/chat/completions",
-                content=body,
-                headers={
-                    "Authorization": f"Bearer {settings.AI_API_KEY}",
-                    "Content-Type": "application/json",
-                    "Accept": "application/json",
-                },
-            )
-
-            response.raise_for_status()
-            result = response.json()
-
-    except httpx.HTTPStatusError as error:
-        status = error.response.status_code
-
+        response = urlopen(request, timeout=60)
+        result = json.loads(response.read().decode("utf-8"))
+    except HTTPError as error:
+        status = error.code
         if status == 429:
             raise ContentGenerationError(
-                "AI request limit reached. Please try again later.",
+                "AI provider is rate limiting requests. Please try again later.",
                 status_code=503,
             ) from error
 
@@ -110,19 +94,16 @@ def generate_content(
             f"AI provider returned HTTP {status}.",
             status_code=502,
         ) from error
-
-    except httpx.TimeoutException as error:
+    except TimeoutError as error:
         raise ContentGenerationError(
             "AI generation timed out.",
             status_code=504,
         ) from error
-
-    except httpx.RequestError as error:
+    except URLError as error:
         raise ContentGenerationError(
             "Unable to connect to the AI provider.",
             status_code=502,
         ) from error
-
     except (ValueError, UnicodeDecodeError) as error:
         raise ContentGenerationError(
             "The AI provider returned an invalid response.",

@@ -13,6 +13,8 @@ from .stripe_gateway import construct_webhook_event
 STRIPE_PROVIDER = "stripe"
 HANDLED_EVENTS = {
     "checkout.session.completed",
+    "checkout.session.async_payment_succeeded",
+    "checkout.session.async_payment_failed",
     "customer.subscription.created",
     "customer.subscription.updated",
     "customer.subscription.deleted",
@@ -235,18 +237,33 @@ def _sync_subscription(event_type, event, data):
         subscription.save()
 
 
-def _checkout_completed(data):
+def _checkout_completed(event_type, event, data):
+    if _value(data, "mode") != "subscription":
+        raise StripeWebhookProcessingError(
+            "Stripe checkout session is not a subscription."
+        )
+
     metadata = _metadata(data)
-    local_reference = metadata.get("ibda_subscription_id") or _value(
-        data, "client_reference_id"
-    )
-    if not local_reference:
-        return
+    local_reference = metadata.get("ibda_subscription_id")
+    client_reference = _value(data, "client_reference_id")
+    if not local_reference or str(local_reference) != str(client_reference):
+        raise StripeWebhookProcessingError(
+            "Stripe checkout references do not match."
+        )
+    if not metadata.get("ibda_owner_id"):
+        raise StripeWebhookProcessingError(
+            "Stripe checkout owner metadata is missing."
+        )
+
     local_metadata = {
         "ibda_subscription_id": local_reference,
         "ibda_owner_id": metadata.get("ibda_owner_id"),
     }
     customer_id = _identifier(_value(data, "customer"))
+    if not customer_id:
+        raise StripeWebhookProcessingError(
+            "Stripe checkout customer is missing."
+        )
     subscription = _local_subscription_from_metadata(
         local_metadata,
         customer_id,
@@ -256,6 +273,23 @@ def _checkout_completed(data):
         _set_provider_subscription_id(subscription, provider_subscription_id)
     if customer_id:
         subscription.provider_customer_id = customer_id
+    if event_type == "checkout.session.async_payment_failed":
+        session_id = _identifier(data)
+        if not session_id:
+            raise StripeWebhookProcessingError(
+                "Stripe checkout session ID is missing."
+            )
+        PaymentTransaction.objects.update_or_create(
+            provider=STRIPE_PROVIDER,
+            provider_transaction_id=session_id,
+            defaults={
+                "subscription": subscription,
+                "status": PaymentTransaction.Status.FAILED,
+                "amount_minor": _value(data, "amount_total"),
+                "currency": (_value(data, "currency") or "").upper(),
+                "occurred_at": _event_time(event),
+            },
+        )
     if subscription.status != UserSubscription.Status.PENDING:
         return
     subscription.save(
@@ -376,8 +410,8 @@ def process_stripe_event(payload, signature):
             if not created:
                 return {"received": True, "duplicate": True}
 
-            if event_type == "checkout.session.completed":
-                _checkout_completed(data)
+            if event_type.startswith("checkout.session."):
+                _checkout_completed(event_type, event, data)
             elif event_type.startswith("customer.subscription."):
                 _sync_subscription(event_type, event, data)
             elif event_type in ("invoice.paid", "invoice.payment_failed"):
