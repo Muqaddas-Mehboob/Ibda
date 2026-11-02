@@ -34,6 +34,10 @@ SUPABASE_PUBLISHABLE_KEY = env(
     "SUPABASE_PUBLISHABLE_KEY",
     default="",
 )
+SUPABASE_SERVICE_ROLE_KEY = env(
+    "SUPABASE_SERVICE_ROLE_KEY",
+    default="",
+)
 
 # AI credentials are server-only and must never be exposed to the mobile app.
 AI_PROVIDER = env("AI_PROVIDER", default="openai")

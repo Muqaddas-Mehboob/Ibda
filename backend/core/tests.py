@@ -1861,6 +1861,7 @@ class SubscriptionApiTests(APITestCase):
         session = SimpleNamespace(
             id="cs_test_retry",
             url="https://checkout.stripe.test/retry",
+            expires_at=int(time.time()) + 3600,
         )
         idempotency_key = str(uuid4())
         with self.settings(
@@ -1889,6 +1890,22 @@ class SubscriptionApiTests(APITestCase):
                     "core.services.payments.checkout.create_checkout_session",
                     return_value=session,
                 ) as create_session,
+                patch(
+                    "core.services.payments.checkout.retrieve_checkout_session",
+                    side_effect=lambda _session_id: SimpleNamespace(
+                        id=session.id,
+                        status="open",
+                        expires_at=int(time.time()) + 3600,
+                        url=session.url,
+                        customer="cus_test_retry",
+                        metadata={
+                            "ibda_owner_id": str(self.user.id),
+                            "ibda_subscription_id": str(
+                                UserSubscription.objects.get().id
+                            ),
+                        },
+                    ),
+                ) as retrieve_session,
             ):
                 responses = [
                     self.client.post(
@@ -1908,11 +1925,13 @@ class SubscriptionApiTests(APITestCase):
             [status.HTTP_200_OK, status.HTTP_200_OK],
         )
         self.assertEqual(UserSubscription.objects.count(), 1)
+        create_session.assert_called_once()
         self.assertEqual(
-            create_session.call_args_list[0].kwargs["idempotency_key"],
-            create_session.call_args_list[1].kwargs["idempotency_key"],
+            create_session.call_args.kwargs["idempotency_key"],
+            f"ibda-checkout-{self.user.id}-{idempotency_key}",
         )
         create_customer.assert_called_once()
+        retrieve_session.assert_called_once_with(session.id)
 
     def test_checkout_rejects_invalid_plan_interval_and_idempotency_key(self):
         invalid_plan = self.client.post(
@@ -2097,6 +2116,453 @@ class SubscriptionApiTests(APITestCase):
             response = self.client.get("/api/subscription/me/")
             self.assertEqual(response.status_code, status.HTTP_200_OK)
             self.assertEqual(response.data["entitlements"]["saved_brands"], 1)
+
+    def test_active_stripe_subscription_returns_structured_checkout_conflict(self):
+        subscription = UserSubscription.objects.create(
+            owner_id=self.user.id,
+            provider="stripe",
+            provider_customer_id="cus_checkout_test",
+            provider_subscription_id="sub_existing_active",
+            plan_id="starter",
+            billing_interval="monthly",
+            status=UserSubscription.Status.ACTIVE,
+        )
+        remote = SimpleNamespace(
+            status="active",
+            customer="cus_checkout_test",
+        )
+        with self.settings(
+            STRIPE_SECRET_KEY="sk_test_unit_test",
+            STRIPE_WEBHOOK_SECRET="whsec_unit_test",
+            STRIPE_CHECKOUT_SUCCESS_URL_WEB="https://ibda.example/subscription/success",
+            STRIPE_CHECKOUT_CANCEL_URL_WEB="https://ibda.example/subscription/cancel",
+            STRIPE_PRICE_STARTER_ANNUAL="price_server_starter_annual",
+        ):
+            with (
+                patch(
+                    "core.services.payments.checkout.retrieve_price_details",
+                    return_value={
+                        "price_minor": 12500,
+                        "currency": "USD",
+                        "active": True,
+                        "recurring_interval": "year",
+                        "recurring_interval_count": 1,
+                    },
+                ),
+                patch(
+                    "core.services.payments.checkout.retrieve_subscription",
+                    return_value=remote,
+                ) as retrieve_subscription,
+                patch(
+                    "core.services.payments.checkout.create_checkout_session"
+                ) as create_session,
+            ):
+                response = self.client.post(
+                    "/api/subscription/checkout/",
+                    {"plan_id": "starter", "billing_interval": "annual"},
+                    format="json",
+                    HTTP_IDEMPOTENCY_KEY=str(uuid4()),
+                )
+
+        self.assertEqual(response.status_code, status.HTTP_409_CONFLICT)
+        self.assertEqual(response.data["code"], "subscription_conflict")
+        self.assertEqual(response.data["reason"], "active_subscription")
+        self.assertEqual(response.data["current_subscription"]["id"], str(subscription.id))
+        self.assertIn("Manage or switch", response.data["detail"])
+        self.assertEqual(UserSubscription.objects.filter(owner_id=self.user.id).count(), 1)
+        retrieve_subscription.assert_called_once_with("sub_existing_active")
+        create_session.assert_not_called()
+
+    def test_expired_checkout_session_can_be_retried_without_duplicate_row(self):
+        subscription = UserSubscription.objects.create(
+            owner_id=self.user.id,
+            provider="stripe",
+            provider_customer_id="cus_checkout_test",
+            plan_id="starter",
+            billing_interval="annual",
+            status=UserSubscription.Status.PENDING,
+            checkout_session_id="cs_expired",
+        )
+        expired_session = SimpleNamespace(
+            status="expired",
+            customer="cus_checkout_test",
+            metadata={
+                "ibda_owner_id": str(self.user.id),
+                "ibda_subscription_id": str(subscription.id),
+            },
+        )
+        replacement = SimpleNamespace(
+            id="cs_replacement",
+            url="https://checkout.stripe.test/replacement",
+            expires_at=int(time.time()) + 3600,
+        )
+        with self.settings(
+            STRIPE_SECRET_KEY="sk_test_unit_test",
+            STRIPE_WEBHOOK_SECRET="whsec_unit_test",
+            STRIPE_CHECKOUT_SUCCESS_URL_WEB="https://ibda.example/subscription/success",
+            STRIPE_CHECKOUT_CANCEL_URL_WEB="https://ibda.example/subscription/cancel",
+            STRIPE_PRICE_STARTER_ANNUAL="price_server_starter_annual",
+        ):
+            with (
+                patch(
+                    "core.services.payments.checkout.retrieve_price_details",
+                    return_value={
+                        "price_minor": 12500,
+                        "currency": "USD",
+                        "active": True,
+                        "recurring_interval": "year",
+                        "recurring_interval_count": 1,
+                    },
+                ),
+                patch(
+                    "core.services.payments.checkout.retrieve_checkout_session",
+                    return_value=expired_session,
+                ),
+                patch(
+                    "core.services.payments.checkout.create_checkout_session",
+                    return_value=replacement,
+                ) as create_session,
+            ):
+                response = self.client.post(
+                    "/api/subscription/checkout/",
+                    {"plan_id": "starter", "billing_interval": "annual"},
+                    format="json",
+                    HTTP_IDEMPOTENCY_KEY=str(uuid4()),
+                )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data["session_id"], "cs_replacement")
+        self.assertEqual(UserSubscription.objects.filter(owner_id=self.user.id).count(), 1)
+        subscription.refresh_from_db()
+        self.assertEqual(subscription.checkout_session_id, "cs_replacement")
+        create_session.assert_called_once()
+
+    def test_open_checkout_session_is_reused_on_duplicate_request(self):
+        subscription = UserSubscription.objects.create(
+            owner_id=self.user.id,
+            provider="stripe",
+            provider_customer_id="cus_checkout_test",
+            plan_id="starter",
+            billing_interval="annual",
+            status=UserSubscription.Status.PENDING,
+            checkout_session_id="cs_open",
+        )
+        open_session = SimpleNamespace(
+            id="cs_open",
+            url="https://checkout.stripe.test/open",
+            status="open",
+            expires_at=int(time.time()) + 3600,
+            customer="cus_checkout_test",
+            metadata={
+                "ibda_owner_id": str(self.user.id),
+                "ibda_subscription_id": str(subscription.id),
+            },
+        )
+        with self.settings(
+            STRIPE_SECRET_KEY="sk_test_unit_test",
+            STRIPE_WEBHOOK_SECRET="whsec_unit_test",
+            STRIPE_CHECKOUT_SUCCESS_URL_WEB="https://ibda.example/subscription/success",
+            STRIPE_CHECKOUT_CANCEL_URL_WEB="https://ibda.example/subscription/cancel",
+            STRIPE_PRICE_STARTER_ANNUAL="price_server_starter_annual",
+        ):
+            with (
+                patch(
+                    "core.services.payments.checkout.retrieve_price_details",
+                    return_value={
+                        "price_minor": 12500,
+                        "currency": "USD",
+                        "active": True,
+                        "recurring_interval": "year",
+                        "recurring_interval_count": 1,
+                    },
+                ),
+                patch(
+                    "core.services.payments.checkout.retrieve_checkout_session",
+                    return_value=open_session,
+                ),
+                patch(
+                    "core.services.payments.checkout.create_checkout_session"
+                ) as create_session,
+            ):
+                response = self.client.post(
+                    "/api/subscription/checkout/",
+                    {"plan_id": "starter", "billing_interval": "annual"},
+                    format="json",
+                    HTTP_IDEMPOTENCY_KEY=str(uuid4()),
+                )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data["session_id"], "cs_open")
+        self.assertEqual(response.data["checkout_url"], open_session.url)
+        self.assertEqual(UserSubscription.objects.filter(owner_id=self.user.id).count(), 1)
+        create_session.assert_not_called()
+
+    @override_settings(STRIPE_SECRET_KEY="sk_test_unit_test")
+    def test_cancel_endpoint_schedules_cancellation_and_preserves_active_period(self):
+        subscription = UserSubscription.objects.create(
+            owner_id=self.user.id,
+            provider="stripe",
+            provider_customer_id="cus_checkout_test",
+            provider_subscription_id="sub_cancel_test",
+            plan_id="pro",
+            billing_interval="annual",
+            status=UserSubscription.Status.ACTIVE,
+        )
+        period_end = int(time.time()) + 86400
+        remote_before = SimpleNamespace(
+            status="active",
+            customer="cus_checkout_test",
+            cancel_at_period_end=False,
+        )
+        remote_after = SimpleNamespace(
+            status="active",
+            customer="cus_checkout_test",
+            cancel_at_period_end=True,
+            current_period_end=period_end,
+            canceled_at=None,
+        )
+        with (
+            patch(
+                "core.views.retrieve_subscription",
+                return_value=remote_before,
+            ),
+            patch(
+                "core.views.update_stripe_subscription",
+                return_value=remote_after,
+            ) as update_subscription,
+        ):
+            response = self.client.post(
+                "/api/subscription/cancel/",
+                {"cancel_at_period_end": True},
+                format="json",
+            )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertTrue(response.data["cancel_at_period_end"])
+        subscription.refresh_from_db()
+        self.assertEqual(subscription.status, UserSubscription.Status.ACTIVE)
+        self.assertTrue(subscription.cancel_at_period_end)
+        self.assertEqual(
+            response.data["effective_at"],
+            subscription.current_period_end,
+        )
+        update_subscription.assert_called_once_with(
+            "sub_cancel_test",
+            {"cancel_at_period_end": True},
+        )
+
+    @override_settings(STRIPE_SECRET_KEY="sk_test_unit_test")
+    def test_cancel_endpoint_supports_immediate_cancellation(self):
+        subscription = UserSubscription.objects.create(
+            owner_id=self.user.id,
+            provider="stripe",
+            provider_customer_id="cus_checkout_test",
+            provider_subscription_id="sub_cancel_now",
+            plan_id="pro",
+            billing_interval="annual",
+            status=UserSubscription.Status.ACTIVE,
+        )
+        remote_before = SimpleNamespace(
+            status="active",
+            customer="cus_checkout_test",
+            cancel_at_period_end=False,
+        )
+        remote_after = SimpleNamespace(
+            status="canceled",
+            customer="cus_checkout_test",
+            cancel_at_period_end=False,
+            canceled_at=int(time.time()),
+        )
+        with (
+            patch("core.views.retrieve_subscription", return_value=remote_before),
+            patch(
+                "core.views.cancel_stripe_subscription",
+                return_value=remote_after,
+            ) as cancel_remote,
+        ):
+            response = self.client.post(
+                "/api/subscription/cancel/",
+                {"cancel_at_period_end": False},
+                format="json",
+            )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        subscription.refresh_from_db()
+        self.assertEqual(subscription.status, UserSubscription.Status.CANCELED)
+        self.assertFalse(subscription.cancel_at_period_end)
+        self.assertIsNotNone(subscription.canceled_at)
+        cancel_remote.assert_called_once_with("sub_cancel_now")
+
+    @override_settings(
+        STRIPE_SECRET_KEY="sk_test_unit_test",
+        STRIPE_PRICE_STARTER_MONTHLY="price_starter_monthly",
+        STRIPE_PRICE_PRO_MONTHLY="price_pro_monthly",
+    )
+    def test_plan_switch_updates_existing_stripe_item_for_upgrade_or_downgrade(self):
+        subscription = UserSubscription.objects.create(
+            owner_id=self.user.id,
+            provider="stripe",
+            provider_customer_id="cus_checkout_test",
+            provider_subscription_id="sub_switch_test",
+            plan_id="starter",
+            billing_interval="monthly",
+            status=UserSubscription.Status.ACTIVE,
+        )
+        remote = SimpleNamespace(
+            status="active",
+            customer="cus_checkout_test",
+            cancel_at_period_end=False,
+            metadata={
+                "ibda_owner_id": str(self.user.id),
+                "ibda_subscription_id": str(subscription.id),
+            },
+            items=SimpleNamespace(
+                data=[
+                    SimpleNamespace(
+                        id="si_existing",
+                        price=SimpleNamespace(id="price_starter_monthly"),
+                    )
+                ]
+            ),
+        )
+        updated = SimpleNamespace(
+            status="active",
+            current_period_end=int(time.time()) + 86400,
+        )
+        with (
+            patch("core.views.retrieve_price_details", return_value={
+                "price_minor": 2500,
+                "currency": "USD",
+                "active": True,
+                "recurring_interval": "month",
+                "recurring_interval_count": 1,
+            }),
+            patch("core.views.retrieve_subscription", return_value=remote),
+            patch(
+                "core.views.update_stripe_subscription",
+                return_value=updated,
+            ) as update_subscription,
+        ):
+            response = self.client.post(
+                "/api/subscription/plan-switch/",
+                {"plan_id": "pro", "billing_interval": "monthly"},
+                format="json",
+            )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data["plan_id"], "pro")
+        self.assertEqual(response.data["billing_interval"], "monthly")
+        self.assertIn("prorated", response.data["proration_disclosure"])
+        self.assertEqual(
+            update_subscription.call_args.args[1]["items"],
+            [{"id": "si_existing", "price": "price_pro_monthly"}],
+        )
+        subscription.refresh_from_db()
+        self.assertEqual(subscription.plan_id, "pro")
+
+    @override_settings(
+        STRIPE_SECRET_KEY="sk_test_unit_test",
+        STRIPE_PRICE_STARTER_MONTHLY="price_starter_monthly",
+        STRIPE_PRICE_PRO_MONTHLY="price_pro_monthly",
+    )
+    def test_plan_switch_supports_downgrade(self):
+        subscription = UserSubscription.objects.create(
+            owner_id=self.user.id,
+            provider="stripe",
+            provider_customer_id="cus_checkout_test",
+            provider_subscription_id="sub_downgrade_test",
+            plan_id="pro",
+            billing_interval="monthly",
+            status=UserSubscription.Status.ACTIVE,
+        )
+        remote = SimpleNamespace(
+            status="active",
+            customer="cus_checkout_test",
+            cancel_at_period_end=False,
+            metadata={
+                "ibda_owner_id": str(self.user.id),
+                "ibda_subscription_id": str(subscription.id),
+            },
+            items=SimpleNamespace(
+                data=[
+                    SimpleNamespace(
+                        id="si_pro",
+                        price=SimpleNamespace(id="price_pro_monthly"),
+                    )
+                ]
+            ),
+        )
+        with (
+            patch("core.views.retrieve_price_details", return_value={
+                "price_minor": 1250,
+                "currency": "USD",
+                "active": True,
+                "recurring_interval": "month",
+                "recurring_interval_count": 1,
+            }),
+            patch("core.views.retrieve_subscription", return_value=remote),
+            patch(
+                "core.views.update_stripe_subscription",
+                return_value=SimpleNamespace(status="active"),
+            ) as update_subscription,
+        ):
+            response = self.client.post(
+                "/api/subscription/plan-switch/",
+                {"plan_id": "starter", "billing_interval": "monthly"},
+                format="json",
+            )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data["plan_id"], "starter")
+        self.assertEqual(
+            update_subscription.call_args.args[1]["items"],
+            [{"id": "si_pro", "price": "price_starter_monthly"}],
+        )
+        subscription.refresh_from_db()
+        self.assertEqual(subscription.plan_id, "starter")
+
+    def test_subscription_management_endpoints_do_not_modify_another_users_plan(self):
+        foreign = UserSubscription.objects.create(
+            owner_id=self.other_user_id,
+            provider="stripe",
+            provider_customer_id="cus_foreign",
+            provider_subscription_id="sub_foreign",
+            plan_id="starter",
+            billing_interval="monthly",
+            status=UserSubscription.Status.ACTIVE,
+        )
+        with self.settings(
+            STRIPE_SECRET_KEY="sk_test_unit_test",
+            STRIPE_PRICE_PRO_MONTHLY="price_pro_monthly",
+        ):
+            with (
+                patch("core.views.retrieve_price_details", return_value={
+                    "price_minor": 2500,
+                    "currency": "USD",
+                    "active": True,
+                    "recurring_interval": "month",
+                    "recurring_interval_count": 1,
+                }),
+                patch("core.views.retrieve_subscription") as retrieve_subscription,
+                patch("core.views.update_stripe_subscription") as update_subscription,
+            ):
+                cancel_response = self.client.post(
+                    "/api/subscription/cancel/",
+                    {"cancel_at_period_end": True},
+                    format="json",
+                )
+                switch_response = self.client.post(
+                    "/api/subscription/plan-switch/",
+                    {"plan_id": "pro", "billing_interval": "monthly"},
+                    format="json",
+                )
+
+        self.assertEqual(cancel_response.status_code, status.HTTP_404_NOT_FOUND)
+        self.assertEqual(switch_response.status_code, status.HTTP_404_NOT_FOUND)
+        retrieve_subscription.assert_not_called()
+        update_subscription.assert_not_called()
+        foreign.refresh_from_db()
+        self.assertEqual(foreign.plan_id, "starter")
 
     def test_configured_saved_brand_limit_is_enforced(self):
         Brand.objects.create(owner_id=self.user.id, name="Existing brand")

@@ -62,6 +62,18 @@ def retrieve_checkout_session(session_id):
     return _client().v1.checkout.sessions.retrieve(session_id)
 
 
+def retrieve_subscription(subscription_id):
+    return _client().v1.subscriptions.retrieve(subscription_id)
+
+
+def update_subscription(subscription_id, params):
+    return _client().v1.subscriptions.update(subscription_id, params)
+
+
+def cancel_subscription(subscription_id):
+    return _client().v1.subscriptions.cancel(subscription_id)
+
+
 def retrieve_price_details(price_id):
     cache_key = f"stripe-price-catalog:{price_id}"
     cached = cache.get(cache_key, None)

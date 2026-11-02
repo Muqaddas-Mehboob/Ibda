@@ -12,6 +12,7 @@ import {
 import { useRouter } from "expo-router";
 import { BottomNavigation } from "../../../components/navigation/BottomNavigation";
 import { supabase } from "../../../lib/supabase";
+import { deleteAccount, signOut as signOutUser } from "../../auth/services/auth.service";
 
 const SUPPORT_EMAIL = process.env.EXPO_PUBLIC_SUPPORT_EMAIL?.trim();
 const PRIVACY_POLICY_URL = process.env.EXPO_PUBLIC_PRIVACY_POLICY_URL?.trim();
@@ -267,15 +268,18 @@ export function SettingsScreen() {
     if (signingOut) return;
     setSigningOut(true);
     try {
-      const { error } = await supabase.auth.signOut();
-      if (error) throw error;
+      const result = await signOutUser("global");
+      if (result.error) {
+        throw new Error(result.error);
+      }
       router.replace("/sign-in");
     } catch (error) {
-      setSigningOut(false);
       Alert.alert(
         "Couldn’t sign out",
         error instanceof Error ? error.message : "Please try again."
       );
+    } finally {
+      setSigningOut(false);
     }
   };
 
@@ -293,24 +297,26 @@ export function SettingsScreen() {
   const confirmDeleteAccount = () => {
     Alert.alert(
       "Delete your account?",
-      "Account deletion permanently removes access to your account and associated data. Continue only if you want to request permanent deletion.",
+      "This permanently removes your Ibda account and related data after the backend confirms deletion. Continue only if you want to permanently delete your account.",
       [
         { text: "Close", style: "cancel" },
         {
-          text: "Continue",
+          text: "Delete account",
           style: "destructive",
-          onPress: () => {
-            Alert.alert(
-              "Account deletion unavailable",
-              "Secure account deletion is not configured in this app. No account data has been deleted. Deletion requires a protected backend endpoint with a server-side Supabase service-role credential.",
-              [
-                { text: "Close", style: "cancel" },
-                {
-                  text: "Contact support",
-                  onPress: () => void contactSupport(),
-                },
-              ]
-            );
+          onPress: async () => {
+            try {
+              const result = await deleteAccount();
+              if (result.error) {
+                Alert.alert("Couldn’t delete account", result.error);
+                return;
+              }
+              router.replace("/sign-in");
+            } catch (error) {
+              Alert.alert(
+                "Couldn’t delete account",
+                error instanceof Error ? error.message : "Please try again."
+              );
+            }
           },
         },
       ]

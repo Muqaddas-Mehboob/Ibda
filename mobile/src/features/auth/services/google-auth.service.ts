@@ -5,15 +5,30 @@ import { supabase } from "../../../lib/supabase";
 
 WebBrowser.maybeCompleteAuthSession();
 
+function getRedirectUrl(): string {
+  if (Platform.OS === "web") {
+    if (typeof window !== "undefined" && window.location?.origin) {
+      return `${window.location.origin}/auth/callback`;
+    }
+    return "http://localhost:8081/auth/callback";
+  }
+
+  return Linking.createURL("/auth/callback");
+}
+
 export async function signInWithGoogle(): Promise<string | null> {
   try {
-    const redirectTo = Linking.createURL("/");
+    const redirectTo = getRedirectUrl();
 
     const { data, error } = await supabase.auth.signInWithOAuth({
       provider: "google",
       options: {
         redirectTo,
         skipBrowserRedirect: Platform.OS !== "web",
+        queryParams: {
+          access_type: "offline",
+          prompt: "consent",
+        },
       },
     });
 
@@ -46,7 +61,20 @@ export async function signInWithGoogle(): Promise<string | null> {
       const { error: exchangeError } =
         await supabase.auth.exchangeCodeForSession(params.code);
 
-      return exchangeError?.message ?? null;
+      if (exchangeError) {
+        return exchangeError.message;
+      }
+
+      const {
+        data: { session },
+        error: sessionError,
+      } = await supabase.auth.getSession();
+
+      if (sessionError) {
+        return sessionError.message;
+      }
+
+      return session ? null : "Google sign-in did not persist a session.";
     }
 
     return "No authentication code was returned. Please try again.";

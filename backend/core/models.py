@@ -269,6 +269,8 @@ class UserSubscription(TimeStampedModel):
         null=True,
         blank=True,
     )
+    checkout_session_id = models.CharField(max_length=255, blank=True)
+    checkout_session_expires_at = models.DateTimeField(null=True, blank=True)
     plan_id = models.CharField(max_length=100, default="free")
     billing_interval = models.CharField(
         max_length=10,

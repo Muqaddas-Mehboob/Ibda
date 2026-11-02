@@ -14,11 +14,13 @@ import * as WebBrowser from "expo-web-browser";
 import type { BillingInterval } from "../data/planCatalog";
 import {
   getSubscriptionPlans,
+  getUserSubscription,
   startSubscriptionCheckout,
   SubscriptionApiError,
   SubscriptionFetchError,
   SubscriptionSessionError,
   type SubscriptionPlansResponse,
+  type UserSubscriptionResponse,
 } from "../services/subscription.service";
 
 function formatPrice(amountMinor: number, currency: string) {
@@ -93,6 +95,7 @@ export function PricingScreen({ interval }: { interval: BillingInterval }) {
   const router = useRouter();
   const params = useLocalSearchParams<{ plan?: string | string[] }>();
   const [catalog, setCatalog] = useState<SubscriptionPlansResponse | null>(null);
+  const [account, setAccount] = useState<UserSubscriptionResponse | null>(null);
   const [loadingCatalog, setLoadingCatalog] = useState(true);
   const [catalogError, setCatalogError] = useState("");
   const [checkoutError, setCheckoutError] = useState("");
@@ -104,6 +107,14 @@ export function PricingScreen({ interval }: { interval: BillingInterval }) {
     (plan) => plan.id === selectedPlanId
   );
   const selectedPrice = selectedPlan?.prices[interval];
+  const pendingSubscription = account?.subscription?.status === "pending";
+  const canCheckoutSelected = Boolean(
+    account &&
+      (account.checkout_eligible ||
+        (pendingSubscription &&
+          account.subscription?.plan_id === selectedPlan?.id &&
+          account.subscription?.billing_interval === interval))
+  );
   const { width: viewportWidth } = useWindowDimensions();
   const columns = viewportWidth >= 980 ? 3 : viewportWidth >= 680 ? 2 : 1;
   const cardWidth =
@@ -112,10 +123,14 @@ export function PricingScreen({ interval }: { interval: BillingInterval }) {
   useEffect(() => {
     let active = true;
 
-    getSubscriptionPlans(Platform.OS === "web" ? "web" : "mobile")
-      .then((response) => {
+    Promise.all([
+      getSubscriptionPlans(Platform.OS === "web" ? "web" : "mobile"),
+      getUserSubscription(),
+    ])
+      .then(([response, subscription]) => {
         if (active) {
           setCatalog(response);
+          setAccount(subscription);
         }
       })
       .catch((error: unknown) => {
@@ -141,8 +156,14 @@ export function PricingScreen({ interval }: { interval: BillingInterval }) {
   const retryLoadingCatalog = () => {
     setLoadingCatalog(true);
     setCatalogError("");
-    getSubscriptionPlans(Platform.OS === "web" ? "web" : "mobile")
-      .then(setCatalog)
+    Promise.all([
+      getSubscriptionPlans(Platform.OS === "web" ? "web" : "mobile"),
+      getUserSubscription(),
+    ])
+      .then(([response, subscription]) => {
+        setCatalog(response);
+        setAccount(subscription);
+      })
       .catch((error: unknown) => {
         setCatalogError(
           error instanceof Error
@@ -166,6 +187,21 @@ export function PricingScreen({ interval }: { interval: BillingInterval }) {
   };
 
   const selectPlan = (planId: string) => {
+    const pendingSubscription = account?.subscription?.status === "pending";
+    if (
+      account &&
+      !account.checkout_eligible &&
+      !(
+        pendingSubscription &&
+        account.subscription?.plan_id === planId &&
+        account.subscription?.billing_interval === interval
+      )
+    ) {
+      setCheckoutError(
+        "You already have a subscription. Manage it from Billing instead of starting another checkout."
+      );
+      return;
+    }
     setCheckoutError("");
     setCheckoutNeedsSignIn(false);
     router.setParams({ plan: planId });
@@ -176,10 +212,17 @@ export function PricingScreen({ interval }: { interval: BillingInterval }) {
   };
 
   const continueToCheckout = async () => {
+    const pendingSubscription = account?.subscription?.status === "pending";
+    const canCheckout =
+      account?.checkout_eligible ||
+      (pendingSubscription &&
+        account.subscription?.plan_id === selectedPlan?.id &&
+        account.subscription?.billing_interval === interval);
     if (
       checkoutInFlight.current ||
       !selectedPlan ||
-      !selectedPrice?.checkout_available
+      !selectedPrice?.checkout_available ||
+      !canCheckout
     ) {
       return;
     }
@@ -256,7 +299,7 @@ export function PricingScreen({ interval }: { interval: BillingInterval }) {
           : error instanceof SubscriptionFetchError
             ? error.category
             : error instanceof SubscriptionApiError
-          ? `api_${error.status}`
+            ? `api_${error.status}${error.code ? `_${error.code}` : ""}`
           : openingBrowser
             ? "browser_open"
             : failureCategory;
@@ -363,6 +406,24 @@ export function PricingScreen({ interval }: { interval: BillingInterval }) {
             </View>
           ) : null}
 
+          {account?.subscription &&
+          ["active", "past_due", "canceled"].includes(account.subscription.status) ? (
+            <View className="mb-5 rounded-2xl border border-[#EAE4DC] bg-[#F3EEE8] p-4">
+              <Text className="text-sm leading-5 text-[#51483F]">
+                You already have a {account.subscription.status.replace("_", " ")}{" "}
+                subscription. Review or change it in Billing; a new Checkout
+                Session will not be created.
+              </Text>
+              <Pressable
+                onPress={() => router.push("/subscription")}
+                accessibilityRole="button"
+                className="mt-3 min-h-11 items-center justify-center rounded-xl bg-[#FF6B5F] px-4"
+              >
+                <Text className="font-bold text-white">Manage subscription</Text>
+              </Pressable>
+            </View>
+          ) : null}
+
           {catalogError ? (
             <View className="mb-5 rounded-2xl border border-[#F0C5BE] bg-white p-4">
               <Text accessibilityRole="alert" className="text-sm leading-5 text-[#A33D34]">
@@ -462,12 +523,36 @@ export function PricingScreen({ interval }: { interval: BillingInterval }) {
 
                   <Pressable
                     onPress={() => selectPlan(plan.id)}
-                    disabled={selected}
+                    disabled={
+                      selected ||
+                      Boolean(
+                        account &&
+                          !account.checkout_eligible &&
+                          !(
+                            account.subscription?.status === "pending" &&
+                            account.subscription.plan_id === plan.id &&
+                            account.subscription.billing_interval === interval
+                          )
+                      )
+                    }
                     accessibilityRole="button"
                     accessibilityLabel={
                       selected ? `${plan.name} selected` : `Select ${plan.name}`
                     }
-                    accessibilityState={{ selected, disabled: selected }}
+                    accessibilityState={{
+                      selected,
+                      disabled:
+                        selected ||
+                        Boolean(
+                          account &&
+                            !account.checkout_eligible &&
+                            !(
+                              account.subscription?.status === "pending" &&
+                              account.subscription.plan_id === plan.id &&
+                              account.subscription.billing_interval === interval
+                            )
+                        ),
+                    }}
                     className={`mt-5 min-h-12 items-center justify-center rounded-xl px-4 ${
                       selected ? "bg-[#F3EEE8]" : "bg-[#FF6B5F]"
                     }`}
@@ -485,7 +570,7 @@ export function PricingScreen({ interval }: { interval: BillingInterval }) {
             })}
           </View>
 
-          {selectedPlan ? (
+          {selectedPlan && canCheckoutSelected ? (
             <View className="mb-5">
               <Pressable
                 onPress={() => void continueToCheckout()}

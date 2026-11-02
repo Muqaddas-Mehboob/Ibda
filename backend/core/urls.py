@@ -16,8 +16,11 @@ from .views import (
     NotificationMarkReadView,
     NotificationUnreadCountView,
     PaymentWebhookView,
+    UserDeleteAccountView,
     StripeWebhookView,
     SubscriptionCheckoutView,
+    SubscriptionCancelView,
+    SubscriptionPlanSwitchView,
     CheckoutSessionVerificationView,
     SubscriptionPlansView,
     UserSubscriptionView,
@@ -107,6 +110,16 @@ urlpatterns = [
         name="subscription-checkout-verify",
     ),
     path(
+        "subscription/cancel/",
+        SubscriptionCancelView.as_view(),
+        name="subscription-cancel",
+    ),
+    path(
+        "subscription/plan-switch/",
+        SubscriptionPlanSwitchView.as_view(),
+        name="subscription-plan-switch",
+    ),
+    path(
         "payments/webhook/",
         PaymentWebhookView.as_view(),
         name="payment-webhook",
@@ -131,6 +144,21 @@ urlpatterns = [
         "notifications/<uuid:notification_id>/read/",
         NotificationMarkReadView.as_view(),
         name="notification-mark-read",
+    ),
+    path(
+        "me/delete-account/",
+        UserDeleteAccountView.as_view(),
+        name="user-delete-account",
+    ),
+    path(
+        "profile/delete-account/",
+        UserDeleteAccountView.as_view(),
+        name="profile-delete-account",
+    ),
+    path(
+        "account/delete/",
+        UserDeleteAccountView.as_view(),
+        name="account-delete",
     ),
     path("social/accounts/", SocialAccountListView.as_view(), name="social-account-list"),
     path(

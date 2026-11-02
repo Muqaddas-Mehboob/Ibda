@@ -22,7 +22,7 @@ export function AuthGate({ children }: { children: ReactNode }) {
     if (loading) return;
 
     if (!session && !isPublicRoute) {
-      router.replace("/");
+      router.replace("/sign-in");
       return;
     }
 

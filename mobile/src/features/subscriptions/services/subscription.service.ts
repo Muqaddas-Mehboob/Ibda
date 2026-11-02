@@ -101,6 +101,7 @@ export type UserSubscriptionResponse = {
   entitlements: Record<string, number | null>;
   transactions: PaymentTransaction[];
   checkout_available: boolean;
+  checkout_eligible: boolean;
   manage_available: boolean;
 };
 
@@ -129,7 +130,9 @@ export type CheckoutSessionVerification = {
 export class SubscriptionApiError extends Error {
   constructor(
     message: string,
-    readonly status: number
+    readonly status: number,
+    readonly code?: string,
+    readonly reason?: string
   ) {
     super(message);
     this.name = "SubscriptionApiError";
@@ -288,7 +291,9 @@ async function request<T>(
       (data ? JSON.stringify(data) : response.statusText);
     throw new SubscriptionApiError(
       `API error ${response.status}: ${detail || "Request failed."}`,
-      response.status
+      response.status,
+      typeof data?.code === "string" ? data.code : undefined,
+      typeof data?.reason === "string" ? data.reason : undefined
     );
   }
   return data as T;
@@ -331,4 +336,47 @@ export function verifyCheckoutSession(
     `/subscription/checkout/verify/?session_id=${encodeURIComponent(sessionId)}`,
     { signal: controller.signal }
   ).finally(() => clearTimeout(timeout));
+}
+
+export type SubscriptionCancellationResponse = {
+  id: string;
+  status: UserSubscription["status"];
+  cancel_at_period_end: boolean;
+  canceled_at: string | null;
+  current_period_end: string | null;
+  effective_at: string | null;
+  message: string;
+};
+
+export type SubscriptionPlanSwitchResponse = {
+  id: string;
+  plan_id: PlanId;
+  billing_interval: BillingInterval;
+  amount_minor: number | null;
+  currency: string | null;
+  current_period_end: string | null;
+  proration_disclosure: string;
+  status: UserSubscription["status"];
+};
+
+export function cancelSubscription(
+  cancelAtPeriodEnd = true
+): Promise<SubscriptionCancellationResponse> {
+  return request("/subscription/cancel/", {
+    method: "POST",
+    body: JSON.stringify({ cancel_at_period_end: cancelAtPeriodEnd }),
+  });
+}
+
+export function switchSubscriptionPlan(
+  planId: PlanId,
+  billingInterval: BillingInterval
+): Promise<SubscriptionPlanSwitchResponse> {
+  return request("/subscription/plan-switch/", {
+    method: "POST",
+    body: JSON.stringify({
+      plan_id: planId,
+      billing_interval: billingInterval,
+    }),
+  });
 }

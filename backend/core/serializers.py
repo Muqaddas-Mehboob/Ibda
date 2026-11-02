@@ -422,6 +422,15 @@ class CheckoutSessionVerificationSerializer(serializers.Serializer):
     session_id = serializers.CharField(max_length=255)
 
 
+class SubscriptionCancelRequestSerializer(serializers.Serializer):
+    cancel_at_period_end = serializers.BooleanField(default=True)
+
+
+class SubscriptionPlanSwitchRequestSerializer(serializers.Serializer):
+    plan_id = serializers.ChoiceField(choices=("starter", "pro", "enterprise"))
+    billing_interval = serializers.ChoiceField(choices=("monthly", "annual"))
+
+
 class SubscriptionPlansRequestSerializer(serializers.Serializer):
     platform = serializers.ChoiceField(
         choices=("web", "mobile"),

@@ -1,9 +1,11 @@
 from django.http import JsonResponse
-from datetime import timedelta
+from datetime import datetime, timedelta
 import hashlib
 import hmac
 import logging
 import uuid
+
+import requests
 
 from django.conf import settings
 from django.db import transaction
@@ -45,6 +47,8 @@ from .serializers import (
     NotificationSerializer,
     CheckoutRequestSerializer,
     CheckoutSessionVerificationSerializer,
+    SubscriptionCancelRequestSerializer,
+    SubscriptionPlanSwitchRequestSerializer,
     SubscriptionPlansRequestSerializer,
     PaymentTransactionSerializer,
     PaymentWebhookSerializer,
@@ -67,6 +71,7 @@ from .services.subscriptions import (
 )
 from .services.payments.catalog import (
     checkout_configuration_present,
+    get_plan_for_price,
     get_plan_catalog,
     get_price_id,
 )
@@ -83,8 +88,43 @@ from .services.payments.webhooks import (
     StripeWebhookProcessingError,
     process_stripe_event,
 )
+from .services.payments.stripe_gateway import (
+    cancel_subscription as cancel_stripe_subscription,
+    retrieve_price_details,
+    retrieve_subscription,
+    update_subscription as update_stripe_subscription,
+)
 
 logger = logging.getLogger(__name__)
+
+
+def _stripe_value(value, key, default=None):
+    if isinstance(value, dict):
+        return value.get(key, default)
+    return getattr(value, key, default)
+
+
+def _stripe_identifier(value):
+    return value if isinstance(value, str) else _stripe_value(value, "id")
+
+
+def _stripe_datetime(value):
+    if isinstance(value, (int, float)) and not isinstance(value, bool):
+        return datetime.fromtimestamp(
+            value,
+            tz=timezone.get_current_timezone(),
+        )
+    return None
+
+
+def _stripe_period_end(subscription):
+    period_end = _stripe_value(subscription, "current_period_end")
+    if period_end:
+        return _stripe_datetime(period_end)
+    items = _stripe_value(_stripe_value(subscription, "items", {}), "data", [])
+    if items:
+        return _stripe_datetime(_stripe_value(items[0], "current_period_end"))
+    return None
 
 
 def health_check(request):
@@ -779,17 +819,34 @@ class UserSubscriptionView(APIView):
     permission_classes = [IsAuthenticated]
 
     def get(self, request):
+        owned_subscriptions = UserSubscription.objects.filter(
+            owner_id=request.user.id,
+        )
         current_subscription = (
-            UserSubscription.objects.filter(
-                owner_id=request.user.id,
-            )
-            .order_by("-created_at")
-            .first()
+            owned_subscriptions.filter(
+                status__in=(
+                    UserSubscription.Status.PENDING,
+                    UserSubscription.Status.ACTIVE,
+                    UserSubscription.Status.PAST_DUE,
+                )
+            ).first()
+            or owned_subscriptions.first()
         )
         transactions = PaymentTransaction.objects.filter(
             subscription__owner_id=request.user.id
         ).select_related("subscription")[:100]
         entitlement = get_user_entitlements(request.user.id)
+        manage_available = bool(
+            getattr(settings, "STRIPE_SECRET_KEY", "").startswith("sk_test_")
+            and current_subscription
+            and current_subscription.provider == "stripe"
+            and current_subscription.provider_subscription_id
+            and current_subscription.status
+            in (
+                UserSubscription.Status.ACTIVE,
+                UserSubscription.Status.PAST_DUE,
+            )
+        )
 
         return Response(
             {
@@ -805,7 +862,429 @@ class UserSubscriptionView(APIView):
                     many=True,
                 ).data,
                 "checkout_available": checkout_configuration_present(),
-                "manage_available": False,
+                "checkout_eligible": not bool(
+                    current_subscription
+                    and current_subscription.status
+                    in (
+                        UserSubscription.Status.PENDING,
+                        UserSubscription.Status.ACTIVE,
+                        UserSubscription.Status.PAST_DUE,
+                    )
+                ),
+                "manage_available": manage_available,
+            }
+        )
+
+
+class UserDeleteAccountView(APIView):
+    authentication_classes = [SupabaseAuthentication]
+    permission_classes = [IsAuthenticated]
+
+    def _cancel_stripe_subscription(self, subscription):
+        if (
+            subscription.provider != "stripe"
+            or not subscription.provider_subscription_id
+        ):
+            return
+
+        if not settings.STRIPE_SECRET_KEY.startswith("sk_test_"):
+            return
+
+        try:
+            stripe.Subscription.cancel(subscription.provider_subscription_id)
+        except stripe.InvalidRequestError:
+            logger.warning(
+                "Stripe cancellation ignored for missing subscription: %s",
+                subscription.provider_subscription_id,
+            )
+        except stripe.StripeError:
+            logger.exception(
+                "Stripe cancelation failed for user account deletion: owner=%s subscription=%s",
+                subscription.owner_id,
+                subscription.provider_subscription_id,
+            )
+
+    def post(self, request):
+        user_id = request.user.id
+        subscriptions = list(
+            UserSubscription.objects.filter(owner_id=user_id)
+            .order_by("-created_at")
+        )
+        for subscription in subscriptions:
+            if (
+                subscription.provider == "stripe"
+                and subscription.status
+                in (
+                    UserSubscription.Status.ACTIVE,
+                    UserSubscription.Status.PENDING,
+                    UserSubscription.Status.PAST_DUE,
+                )
+            ):
+                self._cancel_stripe_subscription(subscription)
+
+        supabase_url = getattr(settings, "SUPABASE_URL", "").rstrip("/")
+        service_role_key = getattr(settings, "SUPABASE_SERVICE_ROLE_KEY", "").strip()
+        if not supabase_url or not service_role_key:
+            return Response(
+                {
+                    "detail": "Secure account deletion is not configured on the backend.",
+                },
+                status=status.HTTP_503_SERVICE_UNAVAILABLE,
+            )
+
+        try:
+            response = requests.delete(
+                f"{supabase_url}/auth/v1/admin/users/{user_id}",
+                headers={
+                    "apikey": service_role_key,
+                    "Authorization": f"Bearer {service_role_key}",
+                },
+                timeout=10,
+            )
+        except requests.RequestException:
+            logger.exception(
+                "Supabase user deletion failed for owner=%s",
+                user_id,
+            )
+            return Response(
+                {"detail": "Could not delete the authenticated account."},
+                status=status.HTTP_502_BAD_GATEWAY,
+            )
+
+        if response.status_code not in (200, 202, 204):
+            logger.error(
+                "Supabase admin deletion rejected for owner=%s status=%s body=%s",
+                user_id,
+                response.status_code,
+                response.text[:500],
+            )
+            return Response(
+                {"detail": "Could not delete the authenticated account."},
+                status=status.HTTP_502_BAD_GATEWAY,
+            )
+
+        with transaction.atomic():
+            Notification.objects.filter(recipient_user_id=user_id).delete()
+            Approval.objects.filter(post__brand__owner_id=user_id).delete()
+            ScheduledPost.objects.filter(post__brand__owner_id=user_id).delete()
+            ContentPost.objects.filter(brand__owner_id=user_id).delete()
+            Brand.objects.filter(owner_id=user_id).delete()
+            SocialAccount.objects.filter(owner_id=user_id).delete()
+            PaymentTransaction.objects.filter(subscription__owner_id=user_id).delete()
+            UserSubscription.objects.filter(owner_id=user_id).delete()
+
+        return Response({"deleted": True, "user_id": str(user_id)})
+
+
+class SubscriptionCancelView(APIView):
+    authentication_classes = [SupabaseAuthentication]
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        serializer = SubscriptionCancelRequestSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        cancel_at_period_end = serializer.validated_data["cancel_at_period_end"]
+        subscription = (
+            UserSubscription.objects.filter(
+                owner_id=request.user.id,
+                provider="stripe",
+                status__in=(
+                    UserSubscription.Status.ACTIVE,
+                    UserSubscription.Status.PAST_DUE,
+                ),
+            )
+            .order_by("-created_at")
+            .first()
+        )
+        if subscription is None:
+            return Response(
+                {"detail": "No Stripe subscription was found for this account."},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        if (
+            not settings.STRIPE_SECRET_KEY.startswith("sk_test_")
+            or not subscription.provider_subscription_id
+        ):
+            return Response(
+                {"detail": "Stripe subscription management is not configured."},
+                status=status.HTTP_503_SERVICE_UNAVAILABLE,
+            )
+
+        try:
+            remote_subscription = retrieve_subscription(
+                subscription.provider_subscription_id
+            )
+            remote_customer_id = _stripe_identifier(
+                _stripe_value(remote_subscription, "customer")
+            )
+            if (
+                remote_customer_id
+                and remote_customer_id != subscription.provider_customer_id
+            ):
+                return Response(
+                    {
+                        "code": "subscription_customer_mismatch",
+                        "detail": "The Stripe subscription does not match this account.",
+                    },
+                    status=status.HTTP_409_CONFLICT,
+                )
+            remote_status = _stripe_value(remote_subscription, "status")
+            if remote_status == "canceled":
+                updated_subscription = remote_subscription
+            elif cancel_at_period_end:
+                updated_subscription = update_stripe_subscription(
+                    subscription.provider_subscription_id,
+                    {"cancel_at_period_end": True},
+                )
+            else:
+                updated_subscription = cancel_stripe_subscription(
+                    subscription.provider_subscription_id
+                )
+        except stripe.StripeError as error:
+            logger.error(
+                "Stripe cancellation failed: owner=%s error_type=%s",
+                request.user.id,
+                type(error).__name__,
+            )
+            return Response(
+                {"detail": "Unable to update your subscription with Stripe."},
+                status=status.HTTP_502_BAD_GATEWAY,
+            )
+
+        updated_status = _stripe_value(updated_subscription, "status")
+        status_map = {
+            "active": UserSubscription.Status.ACTIVE,
+            "trialing": UserSubscription.Status.ACTIVE,
+            "past_due": UserSubscription.Status.PAST_DUE,
+            "canceled": UserSubscription.Status.CANCELED,
+            "incomplete": UserSubscription.Status.PENDING,
+            "incomplete_expired": UserSubscription.Status.EXPIRED,
+            "unpaid": UserSubscription.Status.FAILED,
+        }
+        subscription.status = status_map.get(updated_status, subscription.status)
+        subscription.cancel_at_period_end = bool(
+            _stripe_value(
+                updated_subscription,
+                "cancel_at_period_end",
+                cancel_at_period_end,
+            )
+        )
+        period_end = _stripe_period_end(updated_subscription)
+        if period_end:
+            subscription.current_period_end = period_end
+        canceled_at = _stripe_datetime(
+            _stripe_value(updated_subscription, "canceled_at")
+        )
+        if subscription.status == UserSubscription.Status.CANCELED:
+            subscription.canceled_at = canceled_at or timezone.now()
+        else:
+            subscription.canceled_at = None
+        subscription.save(
+            update_fields=[
+                "status",
+                "cancel_at_period_end",
+                "canceled_at",
+                "current_period_end",
+                "updated_at",
+            ]
+        )
+        effective_at = (
+            subscription.current_period_end
+            if subscription.cancel_at_period_end
+            else subscription.canceled_at
+        )
+        return Response(
+            {
+                "id": str(subscription.id),
+                "status": subscription.status,
+                "cancel_at_period_end": subscription.cancel_at_period_end,
+                "canceled_at": subscription.canceled_at,
+                "current_period_end": subscription.current_period_end,
+                "effective_at": effective_at,
+                "message": (
+                    "Your subscription will remain active until the end of the current billing period."
+                    if subscription.cancel_at_period_end
+                    else "Your subscription has been canceled immediately and access ends now."
+                ),
+            }
+        )
+
+
+class SubscriptionPlanSwitchView(APIView):
+    authentication_classes = [SupabaseAuthentication]
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        serializer = SubscriptionPlanSwitchRequestSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        plan_id = serializer.validated_data["plan_id"]
+        billing_interval = serializer.validated_data["billing_interval"]
+        price_id = get_price_id(plan_id, billing_interval)
+        price_details = (
+            retrieve_price_details(price_id)
+            if settings.STRIPE_SECRET_KEY.startswith("sk_test_") and price_id
+            else None
+        )
+        expected_interval = "month" if billing_interval == "monthly" else "year"
+        if not (
+            price_id
+            and get_plan_for_price(price_id) == (plan_id, billing_interval)
+            and price_details
+            and price_details["active"]
+            and price_details["recurring_interval"] == expected_interval
+            and price_details["recurring_interval_count"] == 1
+        ):
+            return Response(
+                {
+                    "detail": (
+                        "The selected plan and billing interval are not "
+                        "available in the Stripe catalog."
+                    )
+                },
+                status=status.HTTP_503_SERVICE_UNAVAILABLE,
+            )
+
+        subscription = (
+            UserSubscription.objects.filter(
+                owner_id=request.user.id,
+                provider="stripe",
+                status=UserSubscription.Status.ACTIVE,
+                cancel_at_period_end=False,
+            )
+            .order_by("-created_at")
+            .first()
+        )
+        if subscription is None:
+            return Response(
+                {"detail": "No Stripe subscription was found for this account."},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        if (
+            not settings.STRIPE_SECRET_KEY.startswith("sk_test_")
+            or not subscription.provider_subscription_id
+        ):
+            return Response(
+                {"detail": "Stripe subscription management is not configured."},
+                status=status.HTTP_503_SERVICE_UNAVAILABLE,
+            )
+
+        try:
+            remote_subscription = retrieve_subscription(
+                subscription.provider_subscription_id,
+            )
+            remote_customer_id = _stripe_identifier(
+                _stripe_value(remote_subscription, "customer")
+            )
+            if (
+                remote_customer_id
+                and remote_customer_id != subscription.provider_customer_id
+            ):
+                return Response(
+                    {
+                        "code": "subscription_customer_mismatch",
+                        "detail": "The Stripe subscription does not match this account.",
+                    },
+                    status=status.HTTP_409_CONFLICT,
+                )
+
+            remote_status = _stripe_value(remote_subscription, "status")
+            if (
+                remote_status not in ("active", "trialing")
+                or _stripe_value(remote_subscription, "cancel_at_period_end", False)
+            ):
+                return Response(
+                    {
+                        "code": "subscription_not_switchable",
+                        "detail": (
+                            "Only an active subscription that is not scheduled "
+                            "for cancellation can be changed."
+                        ),
+                    },
+                    status=status.HTTP_409_CONFLICT,
+                )
+
+            remote_items = _stripe_value(
+                _stripe_value(remote_subscription, "items", {}),
+                "data",
+                [],
+            )
+            if not remote_items:
+                return Response(
+                    {
+                        "code": "subscription_items_missing",
+                        "detail": "Stripe did not return a subscription item to update.",
+                    },
+                    status=status.HTTP_409_CONFLICT,
+                )
+            current_item = remote_items[0]
+            current_item_id = _stripe_value(current_item, "id")
+            current_price_id = _stripe_identifier(
+                _stripe_value(current_item, "price")
+            )
+            if current_price_id == price_id:
+                return Response(
+                    {
+                        "code": "plan_already_selected",
+                        "detail": "This plan and billing interval are already active.",
+                    },
+                    status=status.HTTP_409_CONFLICT,
+                )
+
+            metadata = _stripe_value(remote_subscription, "metadata", {})
+            if hasattr(metadata, "to_dict"):
+                metadata = metadata.to_dict()
+            else:
+                metadata = dict(metadata) if hasattr(metadata, "items") else {}
+            metadata.update(
+                {
+                    "ibda_owner_id": str(request.user.id),
+                    "ibda_subscription_id": str(subscription.id),
+                    "plan_id": plan_id,
+                    "billing_interval": billing_interval,
+                }
+            )
+            updated_subscription = update_stripe_subscription(
+                subscription.provider_subscription_id,
+                {
+                    "items": [{"id": current_item_id, "price": price_id}],
+                    "proration_behavior": "create_prorations",
+                    "metadata": metadata,
+                },
+            )
+        except stripe.StripeError as error:
+            logger.error(
+                "Stripe plan change failed: owner=%s error_type=%s",
+                request.user.id,
+                type(error).__name__,
+            )
+            return Response(
+                {"detail": "Unable to update your plan with Stripe."},
+                status=status.HTTP_502_BAD_GATEWAY,
+            )
+
+        subscription.plan_id = plan_id
+        subscription.billing_interval = billing_interval
+        period_end = _stripe_period_end(updated_subscription)
+        update_fields = ["plan_id", "billing_interval", "updated_at"]
+        if period_end:
+            subscription.current_period_end = period_end
+            update_fields.append("current_period_end")
+        subscription.save(update_fields=update_fields)
+        return Response(
+            {
+                "id": str(subscription.id),
+                "plan_id": subscription.plan_id,
+                "billing_interval": subscription.billing_interval,
+                "amount_minor": price_details["price_minor"],
+                "currency": price_details["currency"],
+                "current_period_end": subscription.current_period_end,
+                "proration_disclosure": (
+                    "Stripe will calculate prorated charges or credits and "
+                    "apply them to the upcoming invoice."
+                ),
+                "status": subscription.status,
             }
         )
 
@@ -865,22 +1344,70 @@ class SubscriptionCheckoutView(APIView):
                 {"detail": "Stripe checkout is not fully configured."},
                 status=status.HTTP_503_SERVICE_UNAVAILABLE,
             )
-        except SubscriptionAlreadyExists:
+        except SubscriptionAlreadyExists as error:
             logger.warning(
                 "Stripe checkout rejected: category=subscription_conflict "
+                "reason=%s "
                 "status=409 plan=%s interval=%s",
+                error.reason,
                 plan_id,
                 billing_interval,
             )
-            return Response(
-                {
-                    "detail": (
-                        "An active or pending subscription already exists for "
-                        "this account."
-                    )
-                },
-                status=status.HTTP_409_CONFLICT,
-            )
+            reason_messages = {
+                "active_subscription": (
+                    "You already have an active subscription. Manage or switch "
+                    "your plan from Billing instead of starting another checkout."
+                ),
+                "payment_past_due": (
+                    "Your existing subscription has a payment issue. Update its "
+                    "payment method before starting another subscription."
+                ),
+                "pending_checkout": (
+                    "A checkout for a different plan is still pending. Complete "
+                    "or let that checkout expire before starting another."
+                ),
+                "subscription_incomplete": (
+                    "Stripe has an incomplete subscription for this account. "
+                    "Complete or resolve that payment before retrying."
+                ),
+                "checkout_processing": (
+                    "This checkout has completed and is awaiting webhook "
+                    "confirmation. Refresh Billing or verify the checkout session."
+                ),
+                "checkout_session_unavailable": (
+                    "An existing checkout session could not be safely resumed. "
+                    "Refresh Billing or contact support."
+                ),
+                "checkout_session_mismatch": (
+                    "The stored checkout session does not match this account. "
+                    "Contact support before retrying."
+                ),
+                "stripe_customer_mismatch": (
+                    "The Stripe customer record does not match this account. "
+                    "Contact support before retrying."
+                ),
+                "subscription_unavailable": (
+                    "The existing Stripe subscription cannot be safely resumed. "
+                    "Refresh Billing or contact support."
+                ),
+            }
+            response_data = {
+                "code": "subscription_conflict",
+                "reason": error.reason,
+                "detail": reason_messages.get(
+                    error.reason,
+                    "An existing subscription prevents a duplicate checkout.",
+                ),
+            }
+            if error.subscription is not None:
+                response_data["current_subscription"] = (
+                    UserSubscriptionSerializer(error.subscription).data
+                )
+            if error.checkout_session_id:
+                response_data["checkout_session_id"] = (
+                    error.checkout_session_id
+                )
+            return Response(response_data, status=status.HTTP_409_CONFLICT)
         except stripe.StripeError as error:
             logger.error(
                 "Stripe checkout failed: category=stripe_api "
