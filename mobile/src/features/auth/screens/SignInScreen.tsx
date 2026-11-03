@@ -1,5 +1,6 @@
 import { signInWithGoogle } from "../services/google-auth.service";
 import { signIn } from "../services/auth.service";
+import { AUTHENTICATED_ROUTE } from "../utils/auth-redirect";
 import { router } from "expo-router";
 import { useState } from "react";
 import {
@@ -72,7 +73,7 @@ export function SignInScreen() {
         return;
       }
 
-      router.replace("/onboarding");
+      router.replace(AUTHENTICATED_ROUTE);
     } catch (err) {
       setError(
         err instanceof Error

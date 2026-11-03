@@ -1,5 +1,23 @@
 from ..models import Approval, Notification, ScheduledPost
 
+PUBLISHING_RESULTS = {
+    "published": (
+        Notification.Type.POST_PUBLISHED,
+        "Post published",
+        "published",
+    ),
+    "failed": (
+        Notification.Type.POST_PUBLISH_FAILED,
+        "Publishing failed",
+        "could not be published",
+    ),
+    "blocked": (
+        Notification.Type.POST_PUBLISH_BLOCKED,
+        "Publishing unavailable",
+        "is due but could not be published",
+    ),
+}
+
 
 def notify_approval_decision(approval):
     decision = approval.status
@@ -28,6 +46,32 @@ def notify_approval_decision(approval):
             ),
             "related_object_id": approval.id,
             "destination": Notification.Destination.APPROVAL,
+        },
+    )
+
+
+def notify_publishing_result(scheduled_post, result, detail):
+    notification_type, title, outcome = PUBLISHING_RESULTS[result]
+    scheduled_post = ScheduledPost.objects.select_related(
+        "post",
+        "post__brand",
+    ).get(id=scheduled_post.id)
+    brand = scheduled_post.post.brand
+    post_name = scheduled_post.post.title or brand.name
+    Notification.objects.get_or_create(
+        event_key=(
+            f"scheduled-post:{scheduled_post.id}:{result}:"
+            f"{scheduled_post.attempts}"
+        ),
+        defaults={
+            "recipient_user_id": brand.owner_id,
+            "notification_type": notification_type,
+            "title": title,
+            "message": (
+                f'"{post_name}" {outcome} for {brand.name}. {detail}'
+            ).strip(),
+            "related_object_id": scheduled_post.id,
+            "destination": Notification.Destination.CALENDAR,
         },
     )
 

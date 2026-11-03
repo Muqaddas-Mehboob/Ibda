@@ -177,3 +177,14 @@ export function submitForApproval(
   );
 }
 
+export function getContentPosts(status?: string): Promise<ContentPost[]> {
+  const query = status ? `?status=${encodeURIComponent(status)}` : "";
+  return request<ContentPost[]>(`/content/posts/${query}`);
+}
+
+export function getContentPost(postId: string): Promise<ContentPost> {
+  return request<ContentPost>(
+    `/content/posts/${encodeURIComponent(postId)}/`
+  );
+}
+

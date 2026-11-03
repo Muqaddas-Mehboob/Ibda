@@ -2,7 +2,6 @@ import { useEffect, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
-  Linking,
   Pressable,
   ScrollView,
   Text,
@@ -11,13 +10,11 @@ import {
 } from "react-native";
 import { useRouter } from "expo-router";
 import { BottomNavigation } from "../../../components/navigation/BottomNavigation";
+import { confirmAsync } from "../../../lib/confirm";
 import { supabase } from "../../../lib/supabase";
 import { deleteAccount, signOut as signOutUser } from "../../auth/services/auth.service";
 
 const SUPPORT_EMAIL = process.env.EXPO_PUBLIC_SUPPORT_EMAIL?.trim();
-const PRIVACY_POLICY_URL = process.env.EXPO_PUBLIC_PRIVACY_POLICY_URL?.trim();
-const TERMS_URL = process.env.EXPO_PUBLIC_TERMS_URL?.trim();
-
 function SettingRow({
   icon,
   title,
@@ -126,44 +123,6 @@ export function SettingsScreen() {
       active = false;
     };
   }, []);
-
-  const contactSupport = async () => {
-    if (!SUPPORT_EMAIL) {
-      Alert.alert(
-        "Support unavailable",
-        "A support email address has not been configured for this app."
-      );
-      return;
-    }
-    try {
-      await Linking.openURL(`mailto:${SUPPORT_EMAIL}`);
-    } catch (error) {
-      Alert.alert(
-        "Unable to open email",
-        error instanceof Error
-          ? error.message
-          : `Please email ${SUPPORT_EMAIL} for assistance.`
-      );
-    }
-  };
-
-  const openConfiguredLink = async (url: string | undefined, label: string) => {
-    if (!url) {
-      Alert.alert(
-        `${label} unavailable`,
-        `A public ${label.toLowerCase()} URL has not been configured yet.`
-      );
-      return;
-    }
-    try {
-      await Linking.openURL(url);
-    } catch (error) {
-      Alert.alert(
-        `Unable to open ${label.toLowerCase()}`,
-        error instanceof Error ? error.message : "Please try again later."
-      );
-    }
-  };
 
   const saveProfile = async () => {
     const name = displayName.trim();
@@ -283,44 +242,45 @@ export function SettingsScreen() {
     }
   };
 
-  const confirmSignOut = () => {
-    Alert.alert("Sign out?", "You’ll need to sign in again to access Ibda.", [
-      { text: "Cancel", style: "cancel" },
+  const confirmSignOut = async () => {
+    const confirmed = await confirmAsync(
+      "Sign out?",
+      "You’ll need to sign in again to access Ibda.",
       {
-        text: "Sign out",
-        style: "destructive",
-        onPress: () => void signOut(),
-      },
-    ]);
+        confirmText: "Sign out",
+        cancelText: "Cancel",
+        destructive: true,
+      }
+    );
+    if (!confirmed) return;
+    await signOut();
   };
 
-  const confirmDeleteAccount = () => {
-    Alert.alert(
+  const confirmDeleteAccount = async () => {
+    const confirmed = await confirmAsync(
       "Delete your account?",
       "This permanently removes your Ibda account and related data after the backend confirms deletion. Continue only if you want to permanently delete your account.",
-      [
-        { text: "Close", style: "cancel" },
-        {
-          text: "Delete account",
-          style: "destructive",
-          onPress: async () => {
-            try {
-              const result = await deleteAccount();
-              if (result.error) {
-                Alert.alert("Couldn’t delete account", result.error);
-                return;
-              }
-              router.replace("/sign-in");
-            } catch (error) {
-              Alert.alert(
-                "Couldn’t delete account",
-                error instanceof Error ? error.message : "Please try again."
-              );
-            }
-          },
-        },
-      ]
+      {
+        confirmText: "Delete account",
+        cancelText: "Close",
+        destructive: true,
+      }
     );
+    if (!confirmed) return;
+
+    try {
+      const result = await deleteAccount();
+      if (result.error) {
+        Alert.alert("Couldn’t delete account", result.error);
+        return;
+      }
+      router.replace("/sign-in");
+    } catch (error) {
+      Alert.alert(
+        "Couldn’t delete account",
+        error instanceof Error ? error.message : "Please try again."
+      );
+    }
   };
 
   return (
@@ -480,17 +440,17 @@ export function SettingsScreen() {
           <SettingRow
             icon="?"
             title="Contact support"
-            description={SUPPORT_EMAIL || "Support contact not configured"}
-            onPress={() => void contactSupport()}
+            description={
+              SUPPORT_EMAIL || "Write a message to the Ibda support team"
+            }
+            onPress={() => router.push("/contact-support")}
           />
           <View className="border-t border-[#EAE4DC]">
             <SettingRow
               icon="i"
               title="Privacy policy"
               description="Open Ibda’s privacy information"
-              onPress={() =>
-                void openConfiguredLink(PRIVACY_POLICY_URL, "Privacy policy")
-              }
+              onPress={() => router.push("/privacy-policy")}
             />
           </View>
           <View className="border-t border-[#EAE4DC]">
@@ -498,7 +458,7 @@ export function SettingsScreen() {
               icon="§"
               title="Terms of service"
               description="Open Ibda’s terms"
-              onPress={() => void openConfiguredLink(TERMS_URL, "Terms of service")}
+              onPress={() => router.push("/terms-of-service")}
             />
           </View>
         </Section>
@@ -509,7 +469,7 @@ export function SettingsScreen() {
             title={signingOut ? "Signing out..." : "Sign out"}
             description="Sign out of this device"
             disabled={signingOut}
-            onPress={confirmSignOut}
+            onPress={() => void confirmSignOut()}
           />
           <View className="border-t border-[#EAE4DC]">
             <SettingRow
@@ -517,7 +477,7 @@ export function SettingsScreen() {
               title="Delete account"
               description="Permanently remove your Ibda account"
               destructive
-              onPress={confirmDeleteAccount}
+              onPress={() => void confirmDeleteAccount()}
             />
           </View>
         </Section>

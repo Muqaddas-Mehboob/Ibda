@@ -1,6 +1,5 @@
 import { useCallback, useState } from "react";
 import {
-  Alert,
   ActivityIndicator,
   Pressable,
   Platform,
@@ -10,9 +9,13 @@ import {
   View,
 } from "react-native";
 import { useFocusEffect, useLocalSearchParams, useRouter } from "expo-router";
+import * as Linking from "expo-linking";
+import * as WebBrowser from "expo-web-browser";
 import { BottomNavigation } from "../../../components/navigation/BottomNavigation";
+import { confirmAsync } from "../../../lib/confirm";
 import {
   cancelSubscription,
+  createPortalSession,
   getSubscriptionPlans,
   getUserSubscription,
   switchSubscriptionPlan,
@@ -77,9 +80,11 @@ export function SubscriptionScreen() {
   const [error, setError] = useState("");
   const [actionError, setActionError] = useState("");
   const [actionMessage, setActionMessage] = useState("");
-  const [savingAction, setSavingAction] = useState<"cancel" | "switch" | null>(
-    null
-  );
+  const [savingAction, setSavingAction] = useState<
+    "cancel" | "switch" | "portal" | null
+  >(null);
+  const [awaitingPortalConfirmation, setAwaitingPortalConfirmation] =
+    useState(false);
   const [showPlanOptions, setShowPlanOptions] = useState(false);
   const [selectedPlanChange, setSelectedPlanChange] = useState<{
     planId: PlanId;
@@ -97,6 +102,10 @@ export function SubscriptionScreen() {
       ]);
       setPlans(planResponse);
       setAccount(subscriptionResponse);
+      setAwaitingPortalConfirmation(
+        (awaiting) =>
+          awaiting && subscriptionResponse.subscription?.status === "past_due"
+      );
     } catch (loadError) {
       setError(
         loadError instanceof Error
@@ -132,6 +141,9 @@ export function SubscriptionScreen() {
       currentSubscription?.status === "active" &&
       !currentSubscription.cancel_at_period_end
   );
+  const portalAvailable = Boolean(
+    account?.manage_available && currentSubscription?.status === "past_due"
+  );
 
   const performCancellation = async (cancelAtPeriodEnd: boolean) => {
     if (savingAction) return;
@@ -157,7 +169,7 @@ export function SubscriptionScreen() {
     }
   };
 
-  const confirmCancellation = (cancelAtPeriodEnd: boolean) => {
+  const confirmCancellation = async (cancelAtPeriodEnd: boolean) => {
     const message = cancelAtPeriodEnd
       ? "Your subscription will remain active through the current paid period and end on its renewal date. No refund is implied."
       : "This immediately ends subscription access. Any refund is subject to Stripe and the applicable billing terms.";
@@ -165,21 +177,13 @@ export function SubscriptionScreen() {
       ? "Cancel at period end?"
       : "Cancel immediately?";
 
-    if (Platform.OS === "web") {
-      if (typeof window !== "undefined" && window.confirm(`${title}\n\n${message}`)) {
-        void performCancellation(cancelAtPeriodEnd);
-      }
-      return;
-    }
-
-    Alert.alert(title, message, [
-      { text: "Keep subscription", style: "cancel" },
-      {
-        text: "Confirm cancellation",
-        style: "destructive",
-        onPress: () => void performCancellation(cancelAtPeriodEnd),
-      },
-    ]);
+    const confirmed = await confirmAsync(title, message, {
+      confirmText: "Confirm cancellation",
+      cancelText: "Keep subscription",
+      destructive: true,
+    });
+    if (!confirmed) return;
+    void performCancellation(cancelAtPeriodEnd);
   };
 
   const performPlanSwitch = async () => {
@@ -209,7 +213,7 @@ export function SubscriptionScreen() {
     }
   };
 
-  const confirmPlanSwitch = () => {
+  const confirmPlanSwitch = async () => {
     if (!selectedPlanChange) return;
     const newPlan = plans?.plans.find(
       (plan) => plan.id === selectedPlanChange.planId
@@ -224,20 +228,67 @@ export function SubscriptionScreen() {
       `${selectedPlanChange.interval} billing at ${amount}? ` +
       "Stripe may add prorated charges or credits to your upcoming invoice.";
 
-    if (Platform.OS === "web") {
-      if (typeof window !== "undefined" && window.confirm(message)) {
-        void performPlanSwitch();
-      }
-      return;
-    }
+    const confirmed = await confirmAsync("Confirm plan change", message, {
+      confirmText: "Confirm plan change",
+      cancelText: "Keep current plan",
+      webPrompt: message,
+    });
+    if (!confirmed) return;
+    void performPlanSwitch();
+  };
 
-    Alert.alert("Confirm plan change", message, [
-      { text: "Keep current plan", style: "cancel" },
-      {
-        text: "Confirm plan change",
-        onPress: () => void performPlanSwitch(),
-      },
-    ]);
+  const openBillingPortal = async () => {
+    if (savingAction) return;
+    setSavingAction("portal");
+    setActionError("");
+    setActionMessage("");
+    let openingBrowser = false;
+
+    try {
+      const portal = await createPortalSession(
+        Platform.OS === "web" ? "web" : "mobile"
+      );
+      let portalUrl: URL;
+      try {
+        portalUrl = new URL(portal.url);
+      } catch {
+        throw new Error(
+          "The payment portal link was invalid. Please try again."
+        );
+      }
+      if (portalUrl.protocol !== "https:") {
+        throw new Error(
+          "The payment portal link was invalid. Please try again."
+        );
+      }
+
+      if (Platform.OS === "web") {
+        openingBrowser = true;
+        window.location.assign(portalUrl.toString());
+        return;
+      }
+
+      openingBrowser = true;
+      await WebBrowser.openAuthSessionAsync(
+        portalUrl.toString(),
+        Linking.createURL("/subscription")
+      );
+      setAwaitingPortalConfirmation(true);
+      setActionMessage(
+        "Checking with Stripe for your updated payment details..."
+      );
+      await load(true);
+    } catch (portalError) {
+      setActionError(
+        openingBrowser
+          ? "Unable to open the payment portal. Please try again."
+          : portalError instanceof Error
+            ? portalError.message
+            : "Unable to open the payment portal."
+      );
+    } finally {
+      setSavingAction(null);
+    }
   };
 
   useFocusEffect(
@@ -417,8 +468,34 @@ export function SubscriptionScreen() {
                     latestPayment?.status === "failed" ? (
                       <Text className="mt-2 text-sm font-semibold text-[#B04438]">
                         Payment failed or is overdue. Update the payment method
-                        in Stripe before making plan changes.
+                        below before making plan changes.
                       </Text>
+                    ) : null}
+                    {portalAvailable ? (
+                      <View className="mt-5">
+                        <Pressable
+                          onPress={() => void openBillingPortal()}
+                          disabled={savingAction !== null}
+                          accessibilityRole="button"
+                          className={`min-h-12 items-center justify-center rounded-xl px-4 ${
+                            savingAction ? "bg-[#C8BEB5]" : "bg-[#24221F]"
+                          }`}
+                        >
+                          <Text className="font-bold text-white">
+                            {savingAction === "portal"
+                              ? "Opening payment portal..."
+                              : "Update payment method"}
+                          </Text>
+                        </Pressable>
+                        {awaitingPortalConfirmation &&
+                        currentSubscription?.status === "past_due" ? (
+                          <Text className="mt-2 text-sm leading-5 text-[#8A6412]">
+                            Waiting for Stripe to confirm your updated payment
+                            details. This can take a moment — pull to refresh
+                            Billing to check again.
+                          </Text>
+                        ) : null}
+                      </View>
                     ) : null}
                     {currentPayment ? (
                       <View className="mt-4 rounded-xl bg-[#F8F5F0] p-3">
@@ -461,7 +538,7 @@ export function SubscriptionScreen() {
                     {cancelAvailable ? (
                       <View className="mt-5 gap-2">
                         <Pressable
-                          onPress={() => confirmCancellation(true)}
+                          onPress={() => void confirmCancellation(true)}
                           disabled={savingAction !== null}
                           accessibilityRole="button"
                           className={`min-h-12 items-center justify-center rounded-xl px-4 ${
@@ -475,7 +552,7 @@ export function SubscriptionScreen() {
                           </Text>
                         </Pressable>
                         <Pressable
-                          onPress={() => confirmCancellation(false)}
+                          onPress={() => void confirmCancellation(false)}
                           disabled={savingAction !== null}
                           accessibilityRole="button"
                           className="min-h-11 items-center justify-center rounded-xl border border-[#EAE4DC] bg-white px-4"
@@ -580,7 +657,7 @@ export function SubscriptionScreen() {
                         calculated by Stripe before the next invoice.
                       </Text>
                       <Pressable
-                        onPress={confirmPlanSwitch}
+                        onPress={() => void confirmPlanSwitch()}
                         disabled={savingAction !== null}
                         accessibilityRole="button"
                         className="mt-3 min-h-12 items-center justify-center rounded-xl bg-[#FF6B5F] px-4"

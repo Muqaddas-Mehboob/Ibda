@@ -380,3 +380,16 @@ export function switchSubscriptionPlan(
     }),
   });
 }
+
+export type SubscriptionPortalResponse = {
+  url: string;
+};
+
+export function createPortalSession(
+  platform: "web" | "mobile"
+): Promise<SubscriptionPortalResponse> {
+  return request("/subscription/portal/", {
+    method: "POST",
+    body: JSON.stringify({ platform }),
+  });
+}

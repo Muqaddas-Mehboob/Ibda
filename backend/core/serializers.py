@@ -8,8 +8,10 @@ from .models import (
     PaymentTransaction,
     ScheduledPost,
     SocialAccount,
+    SupportRequest,
     UserSubscription,
 )
+from .services.social_platforms import publishing_available
 
 
 class BrandVoiceSerializer(serializers.ModelSerializer):
@@ -214,16 +216,26 @@ class ContentPostSerializer(serializers.ModelSerializer):
 
 
 class ScheduledPostContentSerializer(serializers.ModelSerializer):
+    brand_id = serializers.UUIDField(source="brand.id", read_only=True)
     brand_name = serializers.CharField(source="brand.name", read_only=True)
 
     class Meta:
         model = ContentPost
-        fields = ["id", "brand_name", "title", "body", "platform"]
+        fields = [
+            "id",
+            "brand_id",
+            "brand_name",
+            "title",
+            "body",
+            "platform",
+            "status",
+        ]
         read_only_fields = fields
 
 
 class ScheduledPostSerializer(serializers.ModelSerializer):
     post = ScheduledPostContentSerializer(read_only=True)
+    publishing_available = serializers.SerializerMethodField()
 
     class Meta:
         model = ScheduledPost
@@ -232,11 +244,62 @@ class ScheduledPostSerializer(serializers.ModelSerializer):
             "post",
             "platform",
             "scheduled_for",
+            "timezone_name",
             "status",
+            "attempts",
+            "last_attempt_at",
+            "error_message",
+            "external_post_id",
+            "published_at",
+            "publishing_available",
             "created_at",
             "updated_at",
         ]
         read_only_fields = fields
+
+    def get_publishing_available(self, scheduled_post):
+        return publishing_available(scheduled_post.platform)
+
+
+class ScheduledPostCreateSerializer(serializers.Serializer):
+    post_id = serializers.UUIDField()
+    platforms = serializers.ListField(
+        child=serializers.ChoiceField(choices=ContentPost.Platform.choices),
+        allow_empty=False,
+        max_length=len(ContentPost.Platform.choices),
+    )
+    scheduled_for = serializers.DateTimeField()
+    timezone_name = serializers.CharField(
+        max_length=64,
+        required=False,
+        default="UTC",
+        allow_blank=False,
+        trim_whitespace=True,
+    )
+
+
+class ScheduledPostUpdateSerializer(serializers.Serializer):
+    scheduled_for = serializers.DateTimeField(required=False)
+    timezone_name = serializers.CharField(
+        max_length=64,
+        required=False,
+        allow_blank=False,
+        trim_whitespace=True,
+    )
+
+    def validate(self, attrs):
+        if not attrs:
+            raise serializers.ValidationError(
+                "Provide a new scheduled time or timezone."
+            )
+        return attrs
+
+
+class PublishingCapabilitySerializer(serializers.Serializer):
+    platform = serializers.CharField()
+    label = serializers.CharField()
+    available = serializers.BooleanField()
+    reason = serializers.CharField()
 
 
 class ScheduledPostRangeSerializer(serializers.Serializer):
@@ -311,6 +374,30 @@ class NotificationSerializer(serializers.ModelSerializer):
 
     def get_is_read(self, notification):
         return notification.read_at is not None
+
+
+class SupportRequestCreateSerializer(serializers.ModelSerializer):
+    contact_email = serializers.EmailField(
+        max_length=254,
+        required=False,
+        allow_blank=True,
+    )
+
+    class Meta:
+        model = SupportRequest
+        fields = ["contact_email", "subject", "message"]
+
+    def validate_subject(self, value):
+        value = value.strip()
+        if not value:
+            raise serializers.ValidationError("A subject is required.")
+        return value
+
+    def validate_message(self, value):
+        value = value.strip()
+        if not value:
+            raise serializers.ValidationError("A message is required.")
+        return value
 
 
 class SocialAccountSerializer(serializers.ModelSerializer):
@@ -424,6 +511,13 @@ class CheckoutSessionVerificationSerializer(serializers.Serializer):
 
 class SubscriptionCancelRequestSerializer(serializers.Serializer):
     cancel_at_period_end = serializers.BooleanField(default=True)
+
+
+class SubscriptionPortalRequestSerializer(serializers.Serializer):
+    platform = serializers.ChoiceField(
+        choices=("web", "mobile"),
+        default="web",
+    )
 
 
 class SubscriptionPlanSwitchRequestSerializer(serializers.Serializer):

@@ -8,7 +8,7 @@ import {
   TextInput,
   View,
 } from "react-native";
-import { useFocusEffect, useLocalSearchParams } from "expo-router";
+import { useFocusEffect, useLocalSearchParams, useRouter } from "expo-router";
 import { BottomNavigation } from "../../../components/navigation/BottomNavigation";
 import {
   getMemoryBrands,
@@ -47,6 +47,7 @@ function getErrorMessage(error: unknown, fallback: string): string {
 }
 
 export function ContentStudioScreen() {
+  const router = useRouter();
   const { topic: initialTopic } =
     useLocalSearchParams<{ topic?: string }>();
 
@@ -756,6 +757,33 @@ export function ContentStudioScreen() {
                       : "Submit for Approval"}
                   </Text>
                 </Pressable>
+
+                <Pressable
+                  onPress={() => {
+                    if (!savedPost) {
+                      setError("Save this content before scheduling it.");
+                      return;
+                    }
+                    router.push({
+                      pathname: "/calendar",
+                      params: { postId: savedPost.id },
+                    });
+                  }}
+                  disabled={!canEdit || !savedPost}
+                  accessibilityRole="button"
+                  className={`min-h-12 items-center justify-center rounded-2xl border border-[#FF6B5F] bg-white px-4 py-3 ${
+                    !canEdit || !savedPost ? "opacity-50" : ""
+                  }`}
+                >
+                  <Text className="font-bold text-[#B04438]">
+                    Schedule in Calendar
+                  </Text>
+                </Pressable>
+
+                <Text className="text-center text-xs leading-5 text-[#827970]">
+                  Scheduling requires approved content. Save the draft, submit
+                  it for approval, then schedule it from the calendar.
+                </Text>
               </View>
             )}
           </View>

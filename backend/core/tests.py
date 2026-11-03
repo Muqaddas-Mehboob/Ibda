@@ -29,11 +29,17 @@ from .models import (
     ProviderWebhookEvent,
     ScheduledPost,
     SocialAccount,
+    SupportRequest,
 )
 from .services.payments.catalog import (
     checkout_configuration_present,
     get_checkout_redirect_urls,
 )
+from .services.payments.webhooks import (
+    StripeWebhookProcessingError,
+    reprocess_stripe_event,
+)
+from .services.scheduling import publish_due_posts
 
 
 class CheckoutRedirectConfigurationTests(SimpleTestCase):
@@ -805,6 +811,174 @@ class ScheduledPostApiTests(APITestCase):
         self.assertEqual(notifications.count(), 2)
 
 
+class SchedulingWorkflowApiTests(APITestCase):
+    def setUp(self):
+        self.user = SimpleNamespace(id=uuid4(), is_authenticated=True)
+        self.client.force_authenticate(user=self.user)
+        self.brand = Brand.objects.create(owner_id=self.user.id, name="Scheduling")
+
+    def create_post(self, status_value=ContentPost.Status.APPROVED, owner_id=None):
+        brand = self.brand
+        if owner_id is not None:
+            brand = Brand.objects.create(owner_id=owner_id, name="Other brand")
+        return ContentPost.objects.create(
+            brand=brand,
+            title="Launch post",
+            body="Body copy",
+            platform=ContentPost.Platform.INSTAGRAM,
+            status=status_value,
+        )
+
+    def schedule(self, post, scheduled_for="2030-01-15T09:30:00+05:00"):
+        return self.client.post(
+            "/api/calendar/scheduled-posts/create/",
+            {
+                "post_id": str(post.id),
+                "platforms": ["instagram"],
+                "scheduled_for": scheduled_for,
+                "timezone_name": "Asia/Karachi",
+            },
+            format="json",
+        )
+
+    def test_scheduling_requires_approved_content(self):
+        post = self.create_post(status_value=ContentPost.Status.DRAFT)
+
+        response = self.schedule(post)
+
+        self.assertEqual(response.status_code, status.HTTP_409_CONFLICT)
+        self.assertEqual(response.data["code"], "approval_required")
+        self.assertFalse(ScheduledPost.objects.filter(post=post).exists())
+
+    def test_schedule_stores_utc_time_and_keeps_user_timezone(self):
+        post = self.create_post()
+
+        response = self.schedule(post)
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        scheduled = ScheduledPost.objects.get(post=post)
+        self.assertEqual(
+            scheduled.scheduled_for,
+            datetime(2030, 1, 15, 4, 30, tzinfo=datetime_timezone.utc),
+        )
+        self.assertEqual(scheduled.timezone_name, "Asia/Karachi")
+        self.assertEqual(scheduled.status, ScheduledPost.Status.PENDING)
+        post.refresh_from_db()
+        self.assertEqual(post.status, ContentPost.Status.SCHEDULED)
+
+    def test_schedule_cannot_target_another_users_content(self):
+        post = self.create_post(owner_id=uuid4())
+
+        response = self.schedule(post)
+
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+        self.assertFalse(ScheduledPost.objects.filter(post=post).exists())
+
+    def test_duplicate_active_schedule_is_rejected(self):
+        post = self.create_post()
+        self.assertEqual(self.schedule(post).status_code, status.HTTP_201_CREATED)
+
+        response = self.schedule(post, "2030-01-16T09:30:00+05:00")
+
+        self.assertEqual(response.status_code, status.HTTP_409_CONFLICT)
+        self.assertEqual(response.data["code"], "already_scheduled")
+        self.assertEqual(ScheduledPost.objects.filter(post=post).count(), 1)
+
+    def test_reschedule_then_cancel_restores_post_to_approved(self):
+        post = self.create_post()
+        self.schedule(post)
+        scheduled = ScheduledPost.objects.get(post=post)
+
+        rescheduled = self.client.patch(
+            f"/api/calendar/scheduled-posts/{scheduled.id}/",
+            {"scheduled_for": "2030-02-01T12:00:00+05:00"},
+            format="json",
+        )
+        self.assertEqual(rescheduled.status_code, status.HTTP_200_OK)
+        self.assertEqual(
+            rescheduled.data["scheduled_for"],
+            "2030-02-01T07:00:00Z",
+        )
+
+        cancelled = self.client.delete(
+            f"/api/calendar/scheduled-posts/{scheduled.id}/"
+        )
+        self.assertEqual(cancelled.status_code, status.HTTP_200_OK)
+        self.assertEqual(cancelled.data["status"], ScheduledPost.Status.CANCELLED)
+        post.refresh_from_db()
+        self.assertEqual(post.status, ContentPost.Status.APPROVED)
+
+    def test_failed_schedule_can_be_rescheduled_without_a_retry_budget(self):
+        post = self.create_post()
+        self.schedule(post)
+        scheduled = ScheduledPost.objects.get(post=post)
+        scheduled.status = ScheduledPost.Status.FAILED
+        scheduled.attempts = 3
+        scheduled.error_message = "Publishing failed."
+        scheduled.save(update_fields=["status", "attempts", "error_message"])
+
+        response = self.client.patch(
+            f"/api/calendar/scheduled-posts/{scheduled.id}/",
+            {"scheduled_for": "2030-02-01T12:00:00+05:00"},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data["status"], ScheduledPost.Status.PENDING)
+        scheduled.refresh_from_db()
+        self.assertEqual(scheduled.status, ScheduledPost.Status.PENDING)
+        self.assertEqual(scheduled.attempts, 0)
+        self.assertEqual(scheduled.error_message, "")
+
+    def test_failed_schedule_can_be_cancelled_and_restores_the_post(self):
+        post = self.create_post()
+        self.schedule(post)
+        scheduled = ScheduledPost.objects.get(post=post)
+        scheduled.status = ScheduledPost.Status.FAILED
+        scheduled.error_message = "Publishing failed."
+        scheduled.save(update_fields=["status", "error_message"])
+
+        response = self.client.delete(
+            f"/api/calendar/scheduled-posts/{scheduled.id}/"
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data["status"], ScheduledPost.Status.CANCELLED)
+        post.refresh_from_db()
+        self.assertEqual(post.status, ContentPost.Status.APPROVED)
+
+    def test_due_post_is_blocked_not_published_without_an_integration(self):
+        post = self.create_post()
+        scheduled = ScheduledPost.objects.create(
+            post=post,
+            platform=ContentPost.Platform.INSTAGRAM,
+            scheduled_for=datetime(2030, 1, 15, tzinfo=datetime_timezone.utc),
+            timezone_name="Asia/Karachi",
+        )
+        post.status = ContentPost.Status.SCHEDULED
+        post.save(update_fields=["status"])
+
+        counts = publish_due_posts(
+            now=datetime(2030, 1, 16, tzinfo=datetime_timezone.utc)
+        )
+
+        self.assertEqual(counts["blocked"], 1)
+        self.assertEqual(counts["published"], 0)
+        scheduled.refresh_from_db()
+        self.assertEqual(scheduled.status, ScheduledPost.Status.BLOCKED)
+        self.assertEqual(scheduled.attempts, 1)
+        self.assertIsNone(scheduled.published_at)
+        self.assertIn("No Instagram publishing integration", scheduled.error_message)
+        post.refresh_from_db()
+        self.assertEqual(post.status, ContentPost.Status.SCHEDULED)
+        self.assertTrue(
+            Notification.objects.filter(
+                related_object_id=scheduled.id,
+                notification_type=Notification.Type.POST_PUBLISH_BLOCKED,
+            ).exists()
+        )
+
+
 class AnalyticsApiTests(APITestCase):
     def setUp(self):
         self.user = SimpleNamespace(id=uuid4(), is_authenticated=True)
@@ -887,11 +1061,6 @@ class AnalyticsApiTests(APITestCase):
         ScheduledPost.objects.create(
             post=old_post,
             scheduled_for=now - timedelta(days=20),
-            platform=ContentPost.Platform.INSTAGRAM,
-        )
-        ScheduledPost.objects.create(
-            post=approved,
-            scheduled_for=now,
             platform=ContentPost.Platform.INSTAGRAM,
         )
         ScheduledPost.objects.create(
@@ -1039,6 +1208,85 @@ class NotificationApiTests(APITestCase):
         self.client.force_authenticate(user=None)
         response = self.client.get("/api/notifications/")
         self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
+
+
+class SupportRequestApiTests(APITestCase):
+    def setUp(self):
+        self.user = SimpleNamespace(
+            id=uuid4(),
+            email="account@example.com",
+            is_authenticated=True,
+        )
+        self.client.force_authenticate(user=self.user)
+
+    def test_submits_support_request_and_uses_account_email_by_default(self):
+        response = self.client.post(
+            "/api/support/requests/",
+            {
+                "subject": "Unable to schedule a post",
+                "message": "The calendar does not save my schedule.",
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        support_request = SupportRequest.objects.get(id=response.data["id"])
+        self.assertEqual(support_request.owner_id, self.user.id)
+        self.assertEqual(support_request.contact_email, self.user.email)
+        self.assertEqual(support_request.subject, "Unable to schedule a post")
+        self.assertEqual(
+            support_request.message,
+            "The calendar does not save my schedule.",
+        )
+        self.assertEqual(support_request.status, SupportRequest.Status.NEW)
+        self.assertEqual(response.data["status"], SupportRequest.Status.NEW)
+
+    def test_submitted_contact_email_is_saved(self):
+        response = self.client.post(
+            "/api/support/requests/",
+            {
+                "contact_email": "reply@example.com",
+                "subject": "Billing question",
+                "message": "Please help me understand my plan.",
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        support_request = SupportRequest.objects.get(id=response.data["id"])
+        self.assertEqual(support_request.contact_email, "reply@example.com")
+
+    def test_invalid_or_empty_requests_are_rejected_without_storage(self):
+        for payload in (
+            {"subject": "  ", "message": "A message"},
+            {"subject": "A subject", "message": "  "},
+            {
+                "contact_email": "not-an-email",
+                "subject": "A subject",
+                "message": "A message",
+            },
+        ):
+            with self.subTest(payload=payload):
+                response = self.client.post(
+                    "/api/support/requests/",
+                    payload,
+                    format="json",
+                )
+                self.assertEqual(
+                    response.status_code,
+                    status.HTTP_400_BAD_REQUEST,
+                )
+        self.assertEqual(SupportRequest.objects.count(), 0)
+
+    def test_support_request_endpoint_requires_authentication(self):
+        self.client.force_authenticate(user=None)
+        response = self.client.post(
+            "/api/support/requests/",
+            {"subject": "A subject", "message": "A message"},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
+        self.assertEqual(SupportRequest.objects.count(), 0)
 
 
 class SocialAccountApiTests(APITestCase):
@@ -2776,7 +3024,7 @@ class StripeWebhookApiTests(APITestCase):
         self.assertTrue(duplicate.data["duplicate"])
         self.assertEqual(ProviderWebhookEvent.objects.count(), 1)
 
-    def test_failed_stripe_event_is_not_marked_processed(self):
+    def test_unknown_price_event_is_recorded_for_recovery_without_changes(self):
         subscription = self.create_stripe_subscription()
         event = self.subscription_event(
             subscription,
@@ -2788,10 +3036,103 @@ class StripeWebhookApiTests(APITestCase):
         ):
             response = self.post_stripe_event(event)
 
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertFalse(ProviderWebhookEvent.objects.exists())
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertFalse(response.data["duplicate"])
+        self.assertTrue(response.data["needs_attention"])
+        record = ProviderWebhookEvent.objects.get(
+            event_id="evt_subscription_created"
+        )
+        self.assertEqual(
+            record.status,
+            ProviderWebhookEvent.Status.NEEDS_ATTENTION,
+        )
+        self.assertIn("price_not_configured", record.detail)
         subscription.refresh_from_db()
         self.assertEqual(subscription.status, UserSubscription.Status.PENDING)
+        self.assertEqual(subscription.plan_id, "starter")
+        self.assertIsNone(subscription.provider_subscription_id)
+
+    def test_unknown_price_event_is_reprocessed_after_configuration_fix(self):
+        subscription = self.create_stripe_subscription()
+        event = self.subscription_event(
+            subscription,
+            event_id="evt_recover_price",
+            price_id="price_recoverable",
+        )
+        with self.settings(
+            STRIPE_WEBHOOK_SECRET=self.signing_secret,
+            STRIPE_PRICE_STARTER_MONTHLY="price_starter_monthly",
+        ):
+            first = self.post_stripe_event(event)
+
+        self.assertEqual(first.status_code, status.HTTP_200_OK)
+        self.assertEqual(
+            ProviderWebhookEvent.objects.get(
+                event_id="evt_recover_price"
+            ).status,
+            ProviderWebhookEvent.Status.NEEDS_ATTENTION,
+        )
+
+        with self.settings(
+            STRIPE_WEBHOOK_SECRET=self.signing_secret,
+            STRIPE_PRICE_PRO_MONTHLY="price_recoverable",
+        ):
+            recovered = self.post_stripe_event(event)
+
+        self.assertEqual(recovered.status_code, status.HTTP_200_OK)
+        self.assertFalse(recovered.data["duplicate"])
+        self.assertEqual(recovered.data["processing_status"], "processed")
+        record = ProviderWebhookEvent.objects.get(event_id="evt_recover_price")
+        self.assertEqual(record.status, ProviderWebhookEvent.Status.PROCESSED)
+        self.assertEqual(record.detail, "")
+        subscription.refresh_from_db()
+        self.assertEqual(subscription.status, UserSubscription.Status.ACTIVE)
+        self.assertEqual(subscription.plan_id, "pro")
+        self.assertEqual(
+            subscription.billing_interval,
+            UserSubscription.BillingInterval.MONTHLY,
+        )
+
+    def test_reprocess_stripe_event_retrieves_the_recorded_event_read_only(self):
+        subscription = self.create_stripe_subscription()
+        event = self.subscription_event(
+            subscription,
+            event_id="evt_reprocess_me",
+            price_id="price_reprocess_me",
+        )
+        with self.settings(
+            STRIPE_WEBHOOK_SECRET=self.signing_secret,
+            STRIPE_PRICE_STARTER_MONTHLY="price_starter_monthly",
+        ):
+            first = self.post_stripe_event(event)
+
+        self.assertEqual(first.status_code, status.HTTP_200_OK)
+
+        with self.settings(STRIPE_PRICE_PRO_ANNUAL="price_reprocess_me"):
+            with patch(
+                "core.services.payments.webhooks.retrieve_event",
+                return_value=event,
+            ) as retrieve_event_mock:
+                result = reprocess_stripe_event("evt_reprocess_me")
+
+        self.assertTrue(result["reprocessed"])
+        self.assertEqual(result["processing_status"], "processed")
+        retrieve_event_mock.assert_called_once_with("evt_reprocess_me")
+        record = ProviderWebhookEvent.objects.get(event_id="evt_reprocess_me")
+        self.assertEqual(record.status, ProviderWebhookEvent.Status.PROCESSED)
+        subscription.refresh_from_db()
+        self.assertEqual(subscription.status, UserSubscription.Status.ACTIVE)
+        self.assertEqual(subscription.plan_id, "pro")
+        self.assertEqual(
+            subscription.billing_interval,
+            UserSubscription.BillingInterval.ANNUAL,
+        )
+
+    def test_reprocess_rejects_an_unrecorded_event(self):
+        with self.assertRaises(StripeWebhookProcessingError):
+            reprocess_stripe_event("evt_never_recorded")
+
+        self.assertFalse(ProviderWebhookEvent.objects.exists())
 
     def test_checkout_completed_does_not_activate_a_subscription(self):
         subscription = self.create_stripe_subscription()
@@ -2987,3 +3328,406 @@ class StripeWebhookApiTests(APITestCase):
         self.assertEqual(duplicate.status_code, status.HTTP_200_OK)
         self.assertTrue(duplicate.data["duplicate"])
         self.assertEqual(ProviderWebhookEvent.objects.count(), 1)
+
+
+class AccountDeletionApiTests(APITestCase):
+    deletion_path = "/api/me/delete-account/"
+    supabase_url = "https://supabase.example.invalid"
+
+    def setUp(self):
+        self.user = SimpleNamespace(id=uuid4(), is_authenticated=True)
+        self.other_user_id = uuid4()
+        self.client.force_authenticate(user=self.user)
+
+    def create_owner_records(self, owner_id):
+        brand = Brand.objects.create(owner_id=owner_id, name="Deletion test brand")
+        post = ContentPost.objects.create(brand=brand, body="Deletion test body")
+        subscription = UserSubscription.objects.create(
+            owner_id=owner_id,
+            provider="stripe",
+            provider_customer_id="cus_deletion_test",
+            provider_subscription_id=f"sub_{uuid4()}",
+            plan_id="pro",
+            billing_interval=UserSubscription.BillingInterval.ANNUAL,
+            status=UserSubscription.Status.ACTIVE,
+        )
+        return brand, post, subscription
+
+    def remote_subscriptions(self):
+        return [
+            SimpleNamespace(
+                owner_id=self.user.id,
+                provider="stripe",
+                provider_subscription_id="sub_first_required",
+                status=UserSubscription.Status.ACTIVE,
+            ),
+            SimpleNamespace(
+                owner_id=self.user.id,
+                provider="stripe",
+                provider_subscription_id="sub_second_required",
+                status=UserSubscription.Status.PAST_DUE,
+            ),
+        ]
+
+    @override_settings(
+        SUPABASE_URL="https://supabase.example.invalid",
+        SUPABASE_SERVICE_ROLE_KEY="",
+        STRIPE_SECRET_KEY="sk_test_unit_test",
+    )
+    def test_missing_service_role_key_blocks_deletion_before_stripe_calls(self):
+        brand, _, subscription = self.create_owner_records(self.user.id)
+
+        with patch(
+            "core.views.cancel_stripe_subscription"
+        ) as cancel_subscription, patch(
+            "core.views.requests.delete"
+        ) as admin_delete:
+            response = self.client.post(self.deletion_path)
+
+        self.assertEqual(
+            response.status_code,
+            status.HTTP_503_SERVICE_UNAVAILABLE,
+        )
+        self.assertEqual(response.data["code"], "account_deletion_unavailable")
+        cancel_subscription.assert_not_called()
+        admin_delete.assert_not_called()
+        self.assertTrue(Brand.objects.filter(id=brand.id).exists())
+        self.assertTrue(
+            UserSubscription.objects.filter(id=subscription.id).exists()
+        )
+
+    @override_settings(
+        SUPABASE_URL="https://supabase.example.invalid",
+        SUPABASE_SERVICE_ROLE_KEY="service-role-test-key",
+        STRIPE_SECRET_KEY="sk_test_unit_test",
+    )
+    def test_stripe_cancellation_failure_prevents_supabase_deletion(self):
+        brand, _, subscription = self.create_owner_records(self.user.id)
+
+        with patch(
+            "core.views.cancel_stripe_subscription",
+            side_effect=stripe.APIConnectionError("test connection failure"),
+        ) as cancel_subscription, patch(
+            "core.views.requests.delete"
+        ) as admin_delete:
+            response = self.client.post(self.deletion_path)
+
+        self.assertEqual(response.status_code, status.HTTP_502_BAD_GATEWAY)
+        self.assertEqual(response.data["code"], "stripe_cancellation_failed")
+        self.assertNotIn("connection failure", response.data["detail"])
+        cancel_subscription.assert_called_once_with(
+            subscription.provider_subscription_id
+        )
+        admin_delete.assert_not_called()
+        self.assertTrue(Brand.objects.filter(id=brand.id).exists())
+        self.assertTrue(
+            UserSubscription.objects.filter(id=subscription.id).exists()
+        )
+
+    @override_settings(
+        SUPABASE_URL="https://supabase.example.invalid",
+        SUPABASE_SERVICE_ROLE_KEY="service-role-test-key",
+        STRIPE_SECRET_KEY="sk_test_unit_test",
+    )
+    def test_successful_cancellation_deletes_remote_and_local_records(self):
+        brand, post, subscription = self.create_owner_records(self.user.id)
+        support_request = SupportRequest.objects.create(
+            owner_id=self.user.id,
+            contact_email="supporter@example.com",
+            subject="Account question",
+            message="Please help with my account.",
+        )
+
+        with patch(
+            "core.views.cancel_stripe_subscription"
+        ) as cancel_subscription, patch(
+            "core.views.requests.delete"
+        ) as admin_delete:
+            admin_delete.return_value.status_code = 200
+            response = self.client.post(self.deletion_path)
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertTrue(response.data["deleted"])
+        cancel_subscription.assert_called_once_with(
+            subscription.provider_subscription_id
+        )
+        admin_delete.assert_called_once()
+        self.assertEqual(
+            admin_delete.call_args.args[0],
+            f"{self.supabase_url}/auth/v1/admin/users/{self.user.id}",
+        )
+        self.assertFalse(Brand.objects.filter(id=brand.id).exists())
+        self.assertFalse(ContentPost.objects.filter(id=post.id).exists())
+        self.assertFalse(
+            UserSubscription.objects.filter(owner_id=self.user.id).exists()
+        )
+        self.assertFalse(
+            SupportRequest.objects.filter(id=support_request.id).exists()
+        )
+
+    @override_settings(
+        SUPABASE_URL="https://supabase.example.invalid",
+        SUPABASE_SERVICE_ROLE_KEY="service-role-test-key",
+        STRIPE_SECRET_KEY="sk_test_unit_test",
+    )
+    def test_all_required_cancellations_run_before_deletion(self):
+        subscriptions = self.remote_subscriptions()
+
+        with patch(
+            "core.views.UserSubscription.objects.filter"
+        ) as subscription_filter, patch(
+            "core.views.cancel_stripe_subscription"
+        ) as cancel_subscription, patch(
+            "core.views.requests.delete"
+        ) as admin_delete:
+            subscription_filter.return_value.order_by.return_value = subscriptions
+            admin_delete.return_value.status_code = 200
+            response = self.client.post(self.deletion_path)
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(
+            [call.args for call in cancel_subscription.call_args_list],
+            [("sub_first_required",), ("sub_second_required",)],
+        )
+        admin_delete.assert_called_once()
+
+    @override_settings(
+        SUPABASE_URL="https://supabase.example.invalid",
+        SUPABASE_SERVICE_ROLE_KEY="service-role-test-key",
+        STRIPE_SECRET_KEY="sk_test_unit_test",
+    )
+    def test_any_failed_cancellation_stops_deletion(self):
+        subscriptions = self.remote_subscriptions()
+
+        def cancel(subscription_id):
+            if subscription_id == "sub_second_required":
+                raise stripe.APIConnectionError("test connection failure")
+
+        with patch(
+            "core.views.UserSubscription.objects.filter"
+        ) as subscription_filter, patch(
+            "core.views.cancel_stripe_subscription",
+            side_effect=cancel,
+        ) as cancel_subscription, patch(
+            "core.views.requests.delete"
+        ) as admin_delete:
+            subscription_filter.return_value.order_by.return_value = subscriptions
+            response = self.client.post(self.deletion_path)
+
+        self.assertEqual(response.status_code, status.HTTP_502_BAD_GATEWAY)
+        self.assertEqual(response.data["code"], "stripe_cancellation_failed")
+        self.assertEqual(cancel_subscription.call_count, 2)
+        admin_delete.assert_not_called()
+
+    @override_settings(
+        SUPABASE_URL="https://supabase.example.invalid",
+        SUPABASE_SERVICE_ROLE_KEY="service-role-test-key",
+        STRIPE_SECRET_KEY="sk_live_unit_test",
+    )
+    def test_deletion_is_scoped_to_the_authenticated_user_only(self):
+        brand, _, subscription = self.create_owner_records(self.user.id)
+        other_brand, _, other_subscription = self.create_owner_records(
+            self.other_user_id
+        )
+
+        with patch(
+            "core.views.cancel_stripe_subscription"
+        ) as cancel_subscription, patch(
+            "core.views.requests.delete"
+        ) as admin_delete:
+            admin_delete.return_value.status_code = 204
+            response = self.client.post(self.deletion_path)
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        cancel_subscription.assert_called_once_with(
+            subscription.provider_subscription_id
+        )
+        self.assertEqual(
+            admin_delete.call_args.args[0],
+            f"{self.supabase_url}/auth/v1/admin/users/{self.user.id}",
+        )
+        self.assertNotIn(str(self.other_user_id), admin_delete.call_args.args[0])
+        self.assertFalse(Brand.objects.filter(id=brand.id).exists())
+        self.assertTrue(Brand.objects.filter(id=other_brand.id).exists())
+        self.assertTrue(
+            UserSubscription.objects.filter(id=other_subscription.id).exists()
+        )
+
+
+class SubscriptionPortalApiTests(APITestCase):
+    portal_path = "/api/subscription/portal/"
+    web_return_url = "https://ibda.example/subscription"
+
+    def setUp(self):
+        self.user = SimpleNamespace(id=uuid4(), is_authenticated=True)
+        self.other_user_id = uuid4()
+        self.client.force_authenticate(user=self.user)
+
+    def create_past_due_subscription(
+        self, owner_id=None, customer_id="cus_portal_test"
+    ):
+        return UserSubscription.objects.create(
+            owner_id=owner_id or self.user.id,
+            provider="stripe",
+            provider_customer_id=customer_id,
+            provider_subscription_id=f"sub_{uuid4()}",
+            plan_id="pro",
+            billing_interval=UserSubscription.BillingInterval.MONTHLY,
+            status=UserSubscription.Status.PAST_DUE,
+        )
+
+    def portal_settings(self, **overrides):
+        values = {
+            "STRIPE_SECRET_KEY": "sk_test_unit_test",
+            "STRIPE_PORTAL_RETURN_URL": "",
+            "STRIPE_PORTAL_RETURN_URL_WEB": self.web_return_url,
+            "STRIPE_PORTAL_RETURN_URL_MOBILE": "",
+        }
+        values.update(overrides)
+        return self.settings(**values)
+
+    def test_authenticated_owner_can_create_a_portal_session(self):
+        subscription = self.create_past_due_subscription(
+            customer_id="cus_owner_test"
+        )
+        session = SimpleNamespace(
+            id="bps_owner_test",
+            url="https://billing.stripe.test/session",
+        )
+
+        with self.portal_settings():
+            with patch(
+                "core.services.payments.portal.create_billing_portal_session",
+                return_value=session,
+            ) as create_portal:
+                response = self.client.post(
+                    self.portal_path,
+                    {},
+                    format="json",
+                )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data, {"url": session.url})
+        create_portal.assert_called_once_with(
+            customer_id="cus_owner_test",
+            return_url=self.web_return_url,
+        )
+        subscription.refresh_from_db()
+        self.assertEqual(
+            subscription.status,
+            UserSubscription.Status.PAST_DUE,
+        )
+
+    def test_another_users_subscription_cannot_open_a_portal_session(self):
+        self.create_past_due_subscription(
+            owner_id=self.other_user_id,
+            customer_id="cus_foreign_test",
+        )
+
+        with self.portal_settings():
+            with patch(
+                "core.services.payments.portal.create_billing_portal_session"
+            ) as create_portal:
+                response = self.client.post(
+                    self.portal_path,
+                    {},
+                    format="json",
+                )
+
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+        self.assertEqual(
+            response.data["code"],
+            "portal_subscription_not_found",
+        )
+        create_portal.assert_not_called()
+
+    def test_missing_customer_id_is_handled_safely(self):
+        self.create_past_due_subscription(customer_id="")
+
+        with self.portal_settings():
+            with patch(
+                "core.services.payments.portal.create_billing_portal_session"
+            ) as create_portal:
+                response = self.client.post(
+                    self.portal_path,
+                    {},
+                    format="json",
+                )
+
+        self.assertEqual(response.status_code, status.HTTP_409_CONFLICT)
+        self.assertEqual(
+            response.data["code"],
+            "portal_customer_unavailable",
+        )
+        self.assertIn("Stripe customer", response.data["detail"])
+        create_portal.assert_not_called()
+
+    def test_missing_portal_return_url_returns_configuration_error(self):
+        self.create_past_due_subscription()
+
+        with self.portal_settings(
+            STRIPE_PORTAL_RETURN_URL_WEB="",
+            STRIPE_PORTAL_RETURN_URL="",
+            STRIPE_PORTAL_RETURN_URL_MOBILE="",
+        ):
+            with patch(
+                "core.services.payments.portal.create_billing_portal_session"
+            ) as create_portal:
+                response = self.client.post(
+                    self.portal_path,
+                    {},
+                    format="json",
+                )
+
+        self.assertEqual(
+            response.status_code,
+            status.HTTP_503_SERVICE_UNAVAILABLE,
+        )
+        self.assertEqual(response.data["code"], "portal_not_configured")
+        self.assertIn("return URL", response.data["detail"])
+        create_portal.assert_not_called()
+
+    def test_invalid_portal_return_url_is_rejected(self):
+        self.create_past_due_subscription()
+
+        with self.portal_settings(
+            STRIPE_PORTAL_RETURN_URL_WEB="javascript:alert(1)"
+        ):
+            with patch(
+                "core.services.payments.portal.create_billing_portal_session"
+            ) as create_portal:
+                response = self.client.post(
+                    self.portal_path,
+                    {},
+                    format="json",
+                )
+
+        self.assertEqual(
+            response.status_code,
+            status.HTTP_503_SERVICE_UNAVAILABLE,
+        )
+        self.assertEqual(response.data["code"], "portal_not_configured")
+        create_portal.assert_not_called()
+
+    def test_mobile_portal_uses_the_app_scheme_return_url(self):
+        self.create_past_due_subscription()
+        session = SimpleNamespace(url="https://billing.stripe.test/mobile")
+
+        with self.portal_settings(
+            STRIPE_PORTAL_RETURN_URL_MOBILE="ibda://subscription"
+        ):
+            with patch(
+                "core.services.payments.portal.create_billing_portal_session",
+                return_value=session,
+            ) as create_portal:
+                response = self.client.post(
+                    self.portal_path,
+                    {"platform": "mobile"},
+                    format="json",
+                )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        create_portal.assert_called_once_with(
+            customer_id="cus_portal_test",
+            return_url="ibda://subscription",
+        )

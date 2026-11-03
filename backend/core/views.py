@@ -17,7 +17,7 @@ from django.shortcuts import get_object_or_404
 from django.views.decorators.csrf import csrf_exempt
 from rest_framework import generics
 from rest_framework.permissions import IsAuthenticated
-from rest_framework.exceptions import PermissionDenied
+from rest_framework.exceptions import PermissionDenied, ValidationError
 from rest_framework.response import Response
 from rest_framework.views import APIView
 from rest_framework import status
@@ -34,6 +34,7 @@ from .models import (
     ProviderWebhookEvent,
     ScheduledPost,
     SocialAccount,
+    SupportRequest,
     UserSubscription,
 )
 from .serializers import (
@@ -49,13 +50,17 @@ from .serializers import (
     CheckoutSessionVerificationSerializer,
     SubscriptionCancelRequestSerializer,
     SubscriptionPlanSwitchRequestSerializer,
+    SubscriptionPortalRequestSerializer,
     SubscriptionPlansRequestSerializer,
     PaymentTransactionSerializer,
     PaymentWebhookSerializer,
+    ScheduledPostCreateSerializer,
     ScheduledPostRangeSerializer,
     ScheduledPostSerializer,
+    ScheduledPostUpdateSerializer,
     ConnectedAccountsResponseSerializer,
     SocialAccountSerializer,
+    SupportRequestCreateSerializer,
     UserSubscriptionSerializer,
     GEOOptimizationSerializer,
 )
@@ -84,9 +89,23 @@ from .services.payments.verification import (
     CheckoutSessionNotFound,
     verify_checkout_session,
 )
+from .services.payments.portal import (
+    PortalUnavailable,
+    start_billing_portal,
+)
 from .services.payments.webhooks import (
     StripeWebhookProcessingError,
     process_stripe_event,
+)
+from .services.scheduling import (
+    SchedulingError,
+    cancel_scheduled_post,
+    reschedule_scheduled_post,
+    schedule_post,
+)
+from .services.social_platforms import (
+    SOCIAL_PROVIDERS,
+    get_publishing_capabilities,
 )
 from .services.payments.stripe_gateway import (
     cancel_subscription as cancel_stripe_subscription,
@@ -398,9 +417,17 @@ class ContentPostListCreateView(generics.ListCreateAPIView):
     permission_classes = [IsAuthenticated]
 
     def get_queryset(self):
-        return ContentPost.objects.filter(
+        queryset = ContentPost.objects.filter(
             brand__owner_id=self.request.user.id
         ).select_related("brand")
+        status_filter = self.request.query_params.get("status")
+        if status_filter:
+            if status_filter not in ContentPost.Status.values:
+                raise ValidationError(
+                    {"status": "Unsupported content status."}
+                )
+            queryset = queryset.filter(status=status_filter)
+        return queryset
 
     def perform_create(self, serializer):
         serializer.save(
@@ -509,6 +536,101 @@ class ScheduledPostListView(generics.ListAPIView):
             .select_related("post", "post__brand")
             .order_by("scheduled_for")
         )
+
+
+class ScheduledPostCreateView(APIView):
+    authentication_classes = [SupabaseAuthentication]
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        serializer = ScheduledPostCreateSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        try:
+            created = schedule_post(
+                owner_id=request.user.id,
+                post_id=serializer.validated_data["post_id"],
+                platforms=serializer.validated_data["platforms"],
+                scheduled_for=serializer.validated_data["scheduled_for"],
+                timezone_name=serializer.validated_data["timezone_name"],
+            )
+        except SchedulingError as error:
+            logger.warning(
+                "Scheduling rejected: code=%s status=%s",
+                error.code,
+                error.status_code,
+            )
+            return Response(
+                {"code": error.code, "detail": error.message},
+                status=error.status_code,
+            )
+
+        return Response(
+            ScheduledPostSerializer(created, many=True).data,
+            status=status.HTTP_201_CREATED,
+        )
+
+
+class ScheduledPostDetailView(APIView):
+    authentication_classes = [SupabaseAuthentication]
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request, id):
+        scheduled = get_object_or_404(
+            ScheduledPost.objects.select_related("post", "post__brand"),
+            id=id,
+            post__brand__owner_id=request.user.id,
+        )
+        return Response(ScheduledPostSerializer(scheduled).data)
+
+    def patch(self, request, id):
+        serializer = ScheduledPostUpdateSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        try:
+            scheduled = reschedule_scheduled_post(
+                owner_id=request.user.id,
+                scheduled_id=id,
+                scheduled_for=serializer.validated_data.get("scheduled_for"),
+                timezone_name=serializer.validated_data.get("timezone_name"),
+            )
+        except SchedulingError as error:
+            return Response(
+                {"code": error.code, "detail": error.message},
+                status=error.status_code,
+            )
+
+        scheduled = ScheduledPost.objects.select_related(
+            "post",
+            "post__brand",
+        ).get(id=scheduled.id)
+        return Response(ScheduledPostSerializer(scheduled).data)
+
+    def delete(self, request, id):
+        try:
+            scheduled = cancel_scheduled_post(
+                owner_id=request.user.id,
+                scheduled_id=id,
+            )
+        except SchedulingError as error:
+            return Response(
+                {"code": error.code, "detail": error.message},
+                status=error.status_code,
+            )
+
+        scheduled = ScheduledPost.objects.select_related(
+            "post",
+            "post__brand",
+        ).get(id=scheduled.id)
+        return Response(ScheduledPostSerializer(scheduled).data)
+
+
+class SchedulingPlatformsView(APIView):
+    authentication_classes = [SupabaseAuthentication]
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        return Response({"platforms": get_publishing_capabilities()})
 
 
 class AnalyticsView(APIView):
@@ -675,28 +797,39 @@ class NotificationMarkAllReadView(APIView):
         return Response({"updated_count": updated_count, "unread_count": 0})
 
 
-SOCIAL_PROVIDERS = (
-    {
-        "platform": SocialAccount.Platform.INSTAGRAM,
-        "name": "Instagram",
-        "reason": "Instagram OAuth is not configured for this deployment.",
-    },
-    {
-        "platform": SocialAccount.Platform.FACEBOOK_PAGES,
-        "name": "Facebook Pages",
-        "reason": "Facebook OAuth is not configured for this deployment.",
-    },
-    {
-        "platform": SocialAccount.Platform.LINKEDIN,
-        "name": "LinkedIn",
-        "reason": "LinkedIn OAuth is not configured for this deployment.",
-    },
-    {
-        "platform": SocialAccount.Platform.TIKTOK,
-        "name": "TikTok",
-        "reason": "TikTok OAuth is not configured for this deployment.",
-    },
-)
+class SupportRequestCreateView(APIView):
+    authentication_classes = [SupabaseAuthentication]
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        serializer = SupportRequestCreateSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        contact_email = (
+            serializer.validated_data.get("contact_email", "").strip()
+            or (getattr(request.user, "email", "") or "").strip()
+        )
+        if not contact_email:
+            return Response(
+                {
+                    "contact_email": [
+                        "Provide a contact email or add one to your account."
+                    ]
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        support_request = serializer.save(
+            owner_id=request.user.id,
+            contact_email=contact_email,
+        )
+        return Response(
+            {
+                "id": str(support_request.id),
+                "status": support_request.status,
+                "created_at": support_request.created_at,
+            },
+            status=status.HTTP_201_CREATED,
+        )
 
 
 class SocialAccountListView(APIView):
@@ -880,57 +1013,97 @@ class UserDeleteAccountView(APIView):
     authentication_classes = [SupabaseAuthentication]
     permission_classes = [IsAuthenticated]
 
-    def _cancel_stripe_subscription(self, subscription):
-        if (
-            subscription.provider != "stripe"
-            or not subscription.provider_subscription_id
-        ):
-            return
+    # Local statuses that imply a subscription may still be billable remotely.
+    CANCELLATION_STATUSES = (
+        UserSubscription.Status.PENDING,
+        UserSubscription.Status.ACTIVE,
+        UserSubscription.Status.PAST_DUE,
+    )
 
-        if not settings.STRIPE_SECRET_KEY.startswith("sk_test_"):
-            return
+    @classmethod
+    def _subscriptions_requiring_cancellation(cls, subscriptions):
+        return [
+            subscription
+            for subscription in subscriptions
+            if subscription.provider == "stripe"
+            and subscription.provider_subscription_id
+            and subscription.status in cls.CANCELLATION_STATUSES
+        ]
 
-        try:
-            stripe.Subscription.cancel(subscription.provider_subscription_id)
-        except stripe.InvalidRequestError:
-            logger.warning(
-                "Stripe cancellation ignored for missing subscription: %s",
-                subscription.provider_subscription_id,
-            )
-        except stripe.StripeError:
-            logger.exception(
-                "Stripe cancelation failed for user account deletion: owner=%s subscription=%s",
-                subscription.owner_id,
-                subscription.provider_subscription_id,
-            )
+    @staticmethod
+    def _cancel_stripe_subscription(subscription):
+        """Cancel through the shared Stripe gateway configuration."""
+        cancel_stripe_subscription(subscription.provider_subscription_id)
 
     def post(self, request):
+        # Ownership is derived only from the authenticated Supabase identity.
         user_id = request.user.id
+
+        # Validate required configuration before any destructive operation.
+        supabase_url = getattr(settings, "SUPABASE_URL", "").rstrip("/")
+        service_role_key = getattr(settings, "SUPABASE_SERVICE_ROLE_KEY", "").strip()
+        if not supabase_url or not service_role_key:
+            logger.error(
+                "Account deletion is unavailable: Supabase admin configuration is missing."
+            )
+            return Response(
+                {
+                    "code": "account_deletion_unavailable",
+                    "detail": (
+                        "Account deletion is not available right now. "
+                        "No data was removed. Please try again later or contact support."
+                    ),
+                },
+                status=status.HTTP_503_SERVICE_UNAVAILABLE,
+            )
+
         subscriptions = list(
             UserSubscription.objects.filter(owner_id=user_id)
             .order_by("-created_at")
         )
-        for subscription in subscriptions:
-            if (
-                subscription.provider == "stripe"
-                and subscription.status
-                in (
-                    UserSubscription.Status.ACTIVE,
-                    UserSubscription.Status.PENDING,
-                    UserSubscription.Status.PAST_DUE,
-                )
-            ):
-                self._cancel_stripe_subscription(subscription)
-
-        supabase_url = getattr(settings, "SUPABASE_URL", "").rstrip("/")
-        service_role_key = getattr(settings, "SUPABASE_SERVICE_ROLE_KEY", "").strip()
-        if not supabase_url or not service_role_key:
+        cancellations = self._subscriptions_requiring_cancellation(subscriptions)
+        if cancellations and not getattr(
+            settings, "STRIPE_SECRET_KEY", ""
+        ).strip():
+            logger.error(
+                "Account deletion is unavailable: Stripe is not configured "
+                "for a subscription owner=%s",
+                user_id,
+            )
             return Response(
                 {
-                    "detail": "Secure account deletion is not configured on the backend.",
+                    "code": "stripe_cancellation_unavailable",
+                    "detail": (
+                        "Your subscription could not be cancelled, so your "
+                        "account was not deleted. No data was removed. Please "
+                        "try again later or contact support."
+                    ),
                 },
                 status=status.HTTP_503_SERVICE_UNAVAILABLE,
             )
+
+        for subscription in cancellations:
+            try:
+                self._cancel_stripe_subscription(subscription)
+            except stripe.StripeError as error:
+                logger.error(
+                    "Stripe cancellation failed for user account deletion: "
+                    "owner=%s subscription=%s error_type=%s",
+                    user_id,
+                    subscription.provider_subscription_id,
+                    type(error).__name__,
+                )
+                return Response(
+                    {
+                        "code": "stripe_cancellation_failed",
+                        "detail": (
+                            "Your subscription could not be cancelled, so your "
+                            "account was not deleted. No data was removed. "
+                            "Please try again later or contact support."
+                        ),
+                    },
+                    status=status.HTTP_502_BAD_GATEWAY,
+                )
 
         try:
             response = requests.delete(
@@ -970,6 +1143,7 @@ class UserDeleteAccountView(APIView):
             ContentPost.objects.filter(brand__owner_id=user_id).delete()
             Brand.objects.filter(owner_id=user_id).delete()
             SocialAccount.objects.filter(owner_id=user_id).delete()
+            SupportRequest.objects.filter(owner_id=user_id).delete()
             PaymentTransaction.objects.filter(subscription__owner_id=user_id).delete()
             UserSubscription.objects.filter(owner_id=user_id).delete()
 
@@ -1109,6 +1283,85 @@ class SubscriptionCancelView(APIView):
                 ),
             }
         )
+
+
+class SubscriptionPortalView(APIView):
+    authentication_classes = [SupabaseAuthentication]
+    permission_classes = [IsAuthenticated]
+
+    PORTAL_ERRORS = {
+        "not_configured": (
+            status.HTTP_503_SERVICE_UNAVAILABLE,
+            "portal_not_configured",
+            "Billing portal is not configured on the backend.",
+        ),
+        "return_url": (
+            status.HTTP_503_SERVICE_UNAVAILABLE,
+            "portal_not_configured",
+            "Billing portal return URL is not configured on the backend.",
+        ),
+        "no_subscription": (
+            status.HTTP_404_NOT_FOUND,
+            "portal_subscription_not_found",
+            "No Stripe subscription was found for this account.",
+        ),
+        "customer_missing": (
+            status.HTTP_409_CONFLICT,
+            "portal_customer_unavailable",
+            "This subscription has no Stripe customer record. Contact support.",
+        ),
+        "session_missing": (
+            status.HTTP_502_BAD_GATEWAY,
+            "portal_unavailable",
+            "Stripe did not return a billing portal link. Please try again.",
+        ),
+    }
+
+    def post(self, request):
+        serializer = SubscriptionPortalRequestSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        try:
+            portal_url = start_billing_portal(
+                owner_id=request.user.id,
+                platform=serializer.validated_data["platform"],
+            )
+        except PortalUnavailable as error:
+            status_code, code, detail = self.PORTAL_ERRORS.get(
+                error.reason,
+                (
+                    status.HTTP_503_SERVICE_UNAVAILABLE,
+                    "portal_unavailable",
+                    "Billing portal is unavailable right now.",
+                ),
+            )
+            logger.warning(
+                "Billing portal rejected: category=%s status=%s",
+                error.reason,
+                status_code,
+            )
+            return Response(
+                {"code": code, "detail": detail},
+                status=status_code,
+            )
+        except stripe.StripeError as error:
+            logger.error(
+                "Stripe billing portal failed: category=stripe_api "
+                "status=502 error_type=%s",
+                type(error).__name__,
+            )
+            return Response(
+                {
+                    "code": "portal_unavailable",
+                    "detail": (
+                        "Unable to open the billing portal right now. "
+                        "Please try again later."
+                    ),
+                },
+                status=status.HTTP_502_BAD_GATEWAY,
+            )
+
+        return Response({"url": portal_url})
 
 
 class SubscriptionPlanSwitchView(APIView):
@@ -1335,8 +1588,9 @@ class SubscriptionCheckoutView(APIView):
         except CheckoutUnavailable as error:
             logger.warning(
                 "Stripe checkout rejected: category=%s status=503 "
-                "plan=%s interval=%s",
+                "owner=%s plan=%s interval=%s",
                 error.reason,
+                request.user.id,
                 plan_id,
                 billing_interval,
             )
@@ -1347,9 +1601,9 @@ class SubscriptionCheckoutView(APIView):
         except SubscriptionAlreadyExists as error:
             logger.warning(
                 "Stripe checkout rejected: category=subscription_conflict "
-                "reason=%s "
-                "status=409 plan=%s interval=%s",
+                "reason=%s status=409 owner=%s plan=%s interval=%s",
                 error.reason,
+                request.user.id,
                 plan_id,
                 billing_interval,
             )
@@ -1411,7 +1665,8 @@ class SubscriptionCheckoutView(APIView):
         except stripe.StripeError as error:
             logger.error(
                 "Stripe checkout failed: category=stripe_api "
-                "status=502 error_type=%s",
+                "status=502 owner=%s error_type=%s",
+                request.user.id,
                 type(error).__name__,
             )
             return Response(

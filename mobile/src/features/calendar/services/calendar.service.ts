@@ -4,12 +4,22 @@ const API_URL = (
   process.env.EXPO_PUBLIC_API_URL || "http://127.0.0.1:8000/api"
 ).replace(/\/+$/, "");
 
+export type ScheduledStatus =
+  | "pending"
+  | "publishing"
+  | "published"
+  | "failed"
+  | "blocked"
+  | "cancelled";
+
 export type ScheduledContent = {
   id: string;
+  brand_id: string;
   brand_name: string;
   title: string;
   body: string;
   platform: string;
+  status: string;
 };
 
 export type ScheduledPost = {
@@ -17,9 +27,30 @@ export type ScheduledPost = {
   post: ScheduledContent;
   platform: string;
   scheduled_for: string;
-  status: "pending" | "published" | "failed" | "cancelled";
+  timezone_name: string;
+  status: ScheduledStatus;
+  attempts: number;
+  last_attempt_at: string | null;
+  error_message: string;
+  external_post_id: string;
+  published_at: string | null;
+  publishing_available: boolean;
   created_at: string;
   updated_at: string;
+};
+
+export type PublishingCapability = {
+  platform: string;
+  label: string;
+  available: boolean;
+  reason: string;
+};
+
+export type ScheduleInput = {
+  post_id: string;
+  platforms: string[];
+  scheduled_for: string;
+  timezone_name: string;
 };
 
 async function request<T>(
@@ -41,7 +72,7 @@ async function request<T>(
   const send = (accessToken: string) => {
     const headers = new Headers(options.headers);
     headers.set("Accept", "application/json");
-    headers.set("Content-Type", "application/json");
+    if (options.body) headers.set("Content-Type", "application/json");
     headers.set("Authorization", `Bearer ${accessToken}`);
     return fetch(`${API_URL}${path}`, { ...options, headers });
   };
@@ -81,10 +112,6 @@ async function request<T>(
       `API error ${response.status}: ${detail || "Request failed."}`
     );
   }
-
-  if (!Array.isArray(data)) {
-    throw new Error("The calendar API returned an unexpected response.");
-  }
   return data as T;
 }
 
@@ -98,5 +125,75 @@ export function getScheduledPosts(
   });
   return request<ScheduledPost[]>(
     `/calendar/scheduled-posts/?${query.toString()}`
+  );
+}
+
+export function getPublishingPlatforms(): Promise<{
+  platforms: PublishingCapability[];
+}> {
+  return request<{ platforms: PublishingCapability[] }>("/calendar/platforms/");
+}
+
+export function schedulePost(input: ScheduleInput): Promise<ScheduledPost[]> {
+  return request<ScheduledPost[]>("/calendar/scheduled-posts/create/", {
+    method: "POST",
+    body: JSON.stringify(input),
+  });
+}
+
+export function rescheduleScheduledPost(
+  scheduledId: string,
+  input: { scheduled_for?: string; timezone_name?: string }
+): Promise<ScheduledPost> {
+  return request<ScheduledPost>(
+    `/calendar/scheduled-posts/${encodeURIComponent(scheduledId)}/`,
+    { method: "PATCH", body: JSON.stringify(input) }
+  );
+}
+
+export function cancelScheduledPost(
+  scheduledId: string
+): Promise<ScheduledPost> {
+  return request<ScheduledPost>(
+    `/calendar/scheduled-posts/${encodeURIComponent(scheduledId)}/`,
+    { method: "DELETE" }
+  );
+}
+
+export function getDeviceTimezone(): string {
+  try {
+    return Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
+  } catch {
+    return "UTC";
+  }
+}
+
+/** Parse a `YYYY-MM-DDTHH:mm` value typed by the user as device-local time. */
+export function parseLocalDateTimeInput(value: string): Date | null {
+  const match = value
+    .trim()
+    .match(/^(\d{4})-(\d{2})-(\d{2})[T ](\d{2}):(\d{2})$/);
+  if (!match) return null;
+  const [, year, month, day, hour, minute] = match;
+  const date = new Date(
+    Number(year),
+    Number(month) - 1,
+    Number(day),
+    Number(hour),
+    Number(minute),
+    0,
+    0
+  );
+  return Number.isNaN(date.getTime()) ? null : date;
+}
+
+/** Render a UTC timestamp as the `YYYY-MM-DDTHH:mm` local input value. */
+export function toLocalDateTimeInput(value: string): string {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "";
+  const pad = (part: number) => String(part).padStart(2, "0");
+  return (
+    `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}` +
+    `T${pad(date.getHours())}:${pad(date.getMinutes())}`
   );
 }

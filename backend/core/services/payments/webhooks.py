@@ -1,4 +1,5 @@
 from datetime import datetime, timezone as datetime_timezone
+import logging
 import uuid
 
 import stripe
@@ -7,7 +8,10 @@ from django.db import IntegrityError, transaction
 from core.models import PaymentTransaction, ProviderWebhookEvent, UserSubscription
 
 from .catalog import get_plan_for_price
-from .stripe_gateway import construct_webhook_event
+from .stripe_gateway import construct_webhook_event, retrieve_event
+
+
+logger = logging.getLogger(__name__)
 
 
 STRIPE_PROVIDER = "stripe"
@@ -46,6 +50,16 @@ class StripeWebhookProcessingError(Exception):
     def __init__(self, message, status_code=400):
         super().__init__(message)
         self.status_code = status_code
+
+
+class UnknownStripePrice(StripeWebhookProcessingError):
+    """A recognized configuration gap: the event is durable but not applied."""
+
+    def __init__(self, price_id):
+        super().__init__(
+            "Stripe subscription price is not in the configured plan catalog."
+        )
+        self.price_id = price_id
 
 
 def _value(value, key, default=None):
@@ -198,11 +212,10 @@ def _sync_subscription(event_type, event, data):
     provider_subscription_id = _identifier(data)
     _set_provider_subscription_id(subscription, provider_subscription_id)
 
-    plan = get_plan_for_price(_first_subscription_price(data))
+    price_id = _first_subscription_price(data)
+    plan = get_plan_for_price(price_id)
     if plan is None:
-        raise StripeWebhookProcessingError(
-            "Stripe subscription price is not in the configured plan catalog."
-        )
+        raise UnknownStripePrice(price_id)
     subscription.plan_id, subscription.billing_interval = plan
 
     stripe_status = (
@@ -386,6 +399,10 @@ def _record_invoice(invoice, event_type, event):
 
 def process_stripe_event(payload, signature):
     event = construct_webhook_event(payload, signature)
+    return _process_event(event)
+
+
+def _process_event(event):
     if _value(event, "livemode") is not False:
         raise StripeWebhookProcessingError(
             "Live-mode Stripe events are disabled.",
@@ -402,24 +419,96 @@ def process_stripe_event(payload, signature):
 
     try:
         with transaction.atomic():
-            _, created = ProviderWebhookEvent.objects.get_or_create(
+            record, created = ProviderWebhookEvent.objects.get_or_create(
                 provider=STRIPE_PROVIDER,
                 event_id=event_id,
                 defaults={"event_type": event_type},
             )
             if not created:
-                return {"received": True, "duplicate": True}
+                if record.status == ProviderWebhookEvent.Status.PROCESSED:
+                    return {
+                        "received": True,
+                        "duplicate": True,
+                        "processing_status": record.status,
+                    }
+                # A durably recorded event that needed configuration can be
+                # reprocessed by re-delivery or by an administrator.
+                record.event_type = event_type
 
-            if event_type.startswith("checkout.session."):
-                _checkout_completed(event_type, event, data)
-            elif event_type.startswith("customer.subscription."):
-                _sync_subscription(event_type, event, data)
-            elif event_type in ("invoice.paid", "invoice.payment_failed"):
-                _record_invoice(data, event_type, event)
+            try:
+                if event_type.startswith("checkout.session."):
+                    _checkout_completed(event_type, event, data)
+                elif event_type.startswith("customer.subscription."):
+                    _sync_subscription(event_type, event, data)
+                elif event_type in ("invoice.paid", "invoice.payment_failed"):
+                    _record_invoice(data, event_type, event)
+            except UnknownStripePrice as error:
+                record.status = ProviderWebhookEvent.Status.NEEDS_ATTENTION
+                record.detail = f"unknown_price:{error.price_id}"[:255]
+                record.save(update_fields=["event_type", "status", "detail"])
+                logger.error(
+                    "Stripe webhook needs attention: event_id=%s "
+                    "event_type=%s reason=unknown_price price_id=%s owner=%s",
+                    event_id,
+                    event_type,
+                    error.price_id,
+                    _metadata(data).get("ibda_owner_id", "unknown"),
+                )
+                return {
+                    "received": True,
+                    "duplicate": False,
+                    "needs_attention": True,
+                    "reason": "unknown_price",
+                    "processing_status": record.status,
+                }
+
+            record.status = ProviderWebhookEvent.Status.PROCESSED
+            record.detail = ""
+            record.save(update_fields=["event_type", "status", "detail"])
     except IntegrityError as error:
         raise StripeWebhookProcessingError(
             "Stripe event conflicts with existing billing data.",
             status_code=409,
         ) from error
 
-    return {"received": True, "duplicate": False}
+    return {
+        "received": True,
+        "duplicate": False,
+        "processing_status": ProviderWebhookEvent.Status.PROCESSED,
+    }
+
+
+def reprocess_stripe_event(event_id):
+    """Re-runs a recorded event that is waiting on configuration.
+
+    Read-only against Stripe: the event is retrieved with GET /v1/events and
+    nothing is cancelled, updated, or deleted remotely. Local billing data is
+    only written through the normal, idempotent event processor.
+    """
+    record = ProviderWebhookEvent.objects.filter(
+        provider=STRIPE_PROVIDER,
+        event_id=event_id,
+    ).first()
+    if record is None:
+        raise StripeWebhookProcessingError(
+            "Webhook event was not recorded locally.",
+            status_code=404,
+        )
+    if record.status == ProviderWebhookEvent.Status.PROCESSED:
+        return {
+            "received": True,
+            "duplicate": True,
+            "reprocessed": False,
+            "processing_status": record.status,
+        }
+
+    event = retrieve_event(event_id)
+    result = _process_event(event)
+    record.refresh_from_db()
+    result.update(
+        {
+            "reprocessed": True,
+            "processing_status": record.status,
+        }
+    )
+    return result

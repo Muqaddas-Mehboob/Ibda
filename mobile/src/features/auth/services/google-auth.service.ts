@@ -25,10 +25,6 @@ export async function signInWithGoogle(): Promise<string | null> {
       options: {
         redirectTo,
         skipBrowserRedirect: Platform.OS !== "web",
-        queryParams: {
-          access_type: "offline",
-          prompt: "consent",
-        },
       },
     });
 

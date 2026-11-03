@@ -66,12 +66,49 @@ def retrieve_subscription(subscription_id):
     return _client().v1.subscriptions.retrieve(subscription_id)
 
 
+def list_customer_subscriptions(customer_id):
+    """Read-only: lists every Stripe subscription for a customer."""
+    subscriptions = []
+    starting_after = None
+    while True:
+        params = {
+            "customer": customer_id,
+            "status": "all",
+            "limit": 100,
+        }
+        if starting_after:
+            params["starting_after"] = starting_after
+        page = _client().v1.subscriptions.list(params)
+        data = getattr(page, "data", []) or []
+        subscriptions.extend(data)
+        if not getattr(page, "has_more", False) or not data:
+            break
+        starting_after = getattr(data[-1], "id", None)
+        if not starting_after:
+            break
+    return subscriptions
+
+
+def retrieve_event(event_id):
+    """Read-only: retrieves a Stripe event for administrative reprocessing."""
+    return _client().v1.events.retrieve(event_id)
+
+
 def update_subscription(subscription_id, params):
     return _client().v1.subscriptions.update(subscription_id, params)
 
 
 def cancel_subscription(subscription_id):
     return _client().v1.subscriptions.cancel(subscription_id)
+
+
+def create_billing_portal_session(*, customer_id, return_url):
+    return _client().v1.billing_portal.sessions.create(
+        {
+            "customer": customer_id,
+            "return_url": return_url,
+        }
+    )
 
 
 def retrieve_price_details(price_id):

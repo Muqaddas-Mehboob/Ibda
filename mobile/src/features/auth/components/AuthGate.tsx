@@ -2,6 +2,10 @@ import { useEffect, type ReactNode } from "react";
 import { ActivityIndicator, View } from "react-native";
 import { useSegments, useRouter } from "expo-router";
 import { useAuth } from "../providers/AuthProvider";
+import {
+  AUTHENTICATED_ROUTE,
+  SIGN_IN_ROUTE,
+} from "../utils/auth-redirect";
 
 export function AuthGate({ children }: { children: ReactNode }) {
   const { session, loading } = useAuth();
@@ -14,22 +18,32 @@ export function AuthGate({ children }: { children: ReactNode }) {
     currentRoute === "sign-up" ||
     currentRoute === "forgot-password";
 
+  // The OAuth callback owns its own navigation: it must be able to wait for the
+  // code exchange without AuthGate bouncing to /sign-in or /onboarding first.
+  const isOAuthCallbackRoute =
+    currentRoute === "auth" && segments[1] === "callback";
+
   const isPublicRoute =
     currentRoute === undefined ||
-    isAuthRoute;
+    isAuthRoute ||
+    isOAuthCallbackRoute;
 
   useEffect(() => {
-    if (loading) return;
+    if (loading || isOAuthCallbackRoute) return;
 
     if (!session && !isPublicRoute) {
-      router.replace("/sign-in");
+      router.replace(SIGN_IN_ROUTE);
       return;
     }
 
     if (session && isPublicRoute) {
-      router.replace("/onboarding");
+      router.replace(AUTHENTICATED_ROUTE);
     }
-  }, [loading, session, isPublicRoute, router]);
+  }, [loading, session, isPublicRoute, isOAuthCallbackRoute, router]);
+
+  if (isOAuthCallbackRoute) {
+    return <>{children}</>;
+  }
 
   if (loading) {
     return (

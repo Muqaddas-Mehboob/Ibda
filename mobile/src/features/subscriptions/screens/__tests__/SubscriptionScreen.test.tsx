@@ -35,6 +35,7 @@ jest.mock("../../../../components/navigation/BottomNavigation", () => ({
 
 jest.mock("../../services/subscription.service", () => ({
   cancelSubscription: jest.fn(),
+  createPortalSession: jest.fn(),
   getSubscriptionPlans: jest.fn(),
   getUserSubscription: jest.fn(),
   switchSubscriptionPlan: jest.fn(),
@@ -221,6 +222,15 @@ describe("SubscriptionScreen", () => {
     });
     expect(switchRequest).toHaveBeenCalledWith("pro", "monthly");
     alertSpy.mockRestore();
+  });
+
+  it("offers payment recovery and cancellation for a past_due subscription", async () => {
+    subscriptionRequest.mockResolvedValue(makeAccount("past_due"));
+    await render(<SubscriptionScreen />);
+
+    expect(await screen.findByText("Update payment method")).toBeTruthy();
+    expect(screen.getByText("Cancel Subscription")).toBeTruthy();
+    expect(screen.queryByText("Switch Plan")).toBeNull();
   });
 
   it("shows available Subscribe pricing when there is no current subscription", async () => {

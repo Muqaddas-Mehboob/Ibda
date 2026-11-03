@@ -138,9 +138,13 @@ class Approval(TimeStampedModel):
 class ScheduledPost(TimeStampedModel):
     class Status(models.TextChoices):
         PENDING = "pending", "Pending"
+        PUBLISHING = "publishing", "Publishing"
         PUBLISHED = "published", "Published"
         FAILED = "failed", "Failed"
+        BLOCKED = "blocked", "Publishing unavailable"
         CANCELLED = "cancelled", "Cancelled"
+
+    ACTIVE_STATUSES = (Status.PENDING, Status.PUBLISHING)
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     post = models.ForeignKey(
@@ -154,7 +158,9 @@ class ScheduledPost(TimeStampedModel):
         choices=ContentPost.Platform.choices,
         default=ContentPost.Platform.INSTAGRAM,
     )
+    # Stored in UTC; the user's zone is kept separately for display and auditing.
     scheduled_for = models.DateTimeField(db_index=True)
+    timezone_name = models.CharField(max_length=64, default="UTC")
     status = models.CharField(
         max_length=20,
         choices=Status.choices,
@@ -162,12 +168,25 @@ class ScheduledPost(TimeStampedModel):
         db_index=True,
     )
 
+    attempts = models.PositiveSmallIntegerField(default=0)
+    last_attempt_at = models.DateTimeField(null=True, blank=True)
+    publishing_started_at = models.DateTimeField(null=True, blank=True)
     external_post_id = models.CharField(max_length=255, blank=True)
     error_message = models.TextField(blank=True)
     published_at = models.DateTimeField(null=True, blank=True)
 
     class Meta:
         ordering = ["scheduled_for"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["post", "platform"],
+                condition=models.Q(status__in=["pending", "publishing"]),
+                name="unique_active_scheduled_post",
+            )
+        ]
+        indexes = [
+            models.Index(fields=["status", "scheduled_for"]),
+        ]
 
     def __str__(self):
         return f"{self.post_id} scheduled for {self.scheduled_for}"
@@ -179,6 +198,12 @@ class Notification(TimeStampedModel):
         APPROVAL_REJECTED = "approval_rejected", "Content rejected"
         SCHEDULED_POST_CREATED = "scheduled_post_created", "Post scheduled"
         SCHEDULED_POST_UPDATED = "scheduled_post_updated", "Schedule updated"
+        POST_PUBLISHED = "post_published", "Post published"
+        POST_PUBLISH_FAILED = "post_publish_failed", "Publishing failed"
+        POST_PUBLISH_BLOCKED = (
+            "post_publish_blocked",
+            "Publishing unavailable",
+        )
 
     class Destination(models.TextChoices):
         APPROVAL = "approval", "Approval"
@@ -203,6 +228,31 @@ class Notification(TimeStampedModel):
 
     def __str__(self):
         return f"{self.title} for {self.recipient_user_id}"
+
+
+class SupportRequest(TimeStampedModel):
+    class Status(models.TextChoices):
+        NEW = "new", "New"
+        IN_PROGRESS = "in_progress", "In progress"
+        RESOLVED = "resolved", "Resolved"
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    owner_id = models.UUIDField(db_index=True)
+    contact_email = models.EmailField(max_length=254)
+    subject = models.CharField(max_length=120)
+    message = models.TextField(max_length=4000)
+    status = models.CharField(
+        max_length=20,
+        choices=Status.choices,
+        default=Status.NEW,
+        db_index=True,
+    )
+
+    class Meta:
+        ordering = ["-created_at"]
+
+    def __str__(self):
+        return f"{self.subject} ({self.get_status_display()})"
 
 
 class SocialAccount(TimeStampedModel):
@@ -352,11 +402,22 @@ class PaymentTransaction(TimeStampedModel):
 
 
 class ProviderWebhookEvent(models.Model):
+    class Status(models.TextChoices):
+        PROCESSED = "processed", "Processed"
+        NEEDS_ATTENTION = "needs_attention", "Needs attention"
+
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     provider = models.CharField(max_length=40)
     event_id = models.CharField(max_length=255)
     event_type = models.CharField(max_length=100)
     processed_at = models.DateTimeField(auto_now_add=True)
+    status = models.CharField(
+        max_length=20,
+        choices=Status.choices,
+        default=Status.PROCESSED,
+        db_index=True,
+    )
+    detail = models.CharField(max_length=255, blank=True)
 
     class Meta:
         constraints = [
