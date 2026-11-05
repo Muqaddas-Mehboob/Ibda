@@ -1,4 +1,4 @@
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import {
   ActivityIndicator,
   Pressable,
@@ -80,6 +80,9 @@ export function SubscriptionScreen() {
   const [error, setError] = useState("");
   const [actionError, setActionError] = useState("");
   const [actionMessage, setActionMessage] = useState("");
+  const [checkoutSyncStatus, setCheckoutSyncStatus] = useState<
+    "syncing" | "confirmed" | "pending" | "error"
+  >("syncing");
   const [savingAction, setSavingAction] = useState<
     "cancel" | "switch" | "portal" | null
   >(null);
@@ -117,6 +120,54 @@ export function SubscriptionScreen() {
       setRefreshing(false);
     }
   }, []);
+  useEffect(() => {
+    if (checkoutReturn !== "success") return;
+
+    let active = true;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    let attempt = 0;
+    let refreshFailed = false;
+    setCheckoutSyncStatus("syncing");
+
+    const refreshCheckoutHistory = async () => {
+      try {
+        const response = await getUserSubscription();
+        if (!active) return;
+        setAccount(response);
+        const subscription = response.subscription;
+        const paymentConfirmed = Boolean(
+          subscription?.status === "active" &&
+            response.transactions.some(
+              (item) =>
+                item.subscription_id === subscription.id &&
+                item.status === "succeeded"
+            )
+        );
+        if (paymentConfirmed) {
+          setCheckoutSyncStatus("confirmed");
+          return;
+        }
+      } catch {
+        if (!active) return;
+        refreshFailed = true;
+      }
+
+      if (attempt >= 5) {
+        setCheckoutSyncStatus(refreshFailed ? "error" : "pending");
+        return;
+      }
+      attempt += 1;
+      timer = setTimeout(() => {
+        void refreshCheckoutHistory();
+      }, 2000);
+    };
+
+    void refreshCheckoutHistory();
+    return () => {
+      active = false;
+      if (timer) clearTimeout(timer);
+    };
+  }, [checkoutReturn]);
   const currentPayment = account?.subscription
     ? account.transactions.find(
         (item) =>
@@ -314,6 +365,16 @@ export function SubscriptionScreen() {
         }
         showsVerticalScrollIndicator={false}
       >
+        <Pressable
+        onPress={() =>
+          router.canGoBack() ? router.back() : router.replace("/settings")
+        }
+        accessibilityRole="button"
+        accessibilityLabel="Go back"
+        className="mb-8 h-11 w-11 items-center justify-center rounded-full border border-[#EAE4DC] bg-white"
+      >
+        <Text className="text-xl text-[#51483F]">‹</Text>
+      </Pressable>
         <Text className="mb-2 text-xs font-bold uppercase tracking-[3px] text-[#FF6B5F]">
           YOUR ACCOUNT
         </Text>
@@ -327,10 +388,21 @@ export function SubscriptionScreen() {
         {checkoutReturn === "success" ? (
           <View className="mb-5 rounded-2xl border border-[#EAE4DC] bg-white p-4">
             <Text className="text-sm leading-5 text-[#51483F]">
-              You returned from checkout. Your current plan below is refreshed
-              from the backend; access changes only after Stripe confirms the
-              subscription.
+              {checkoutSyncStatus === "confirmed"
+                ? "Payment confirmed. Your subscription and payment history have been refreshed."
+                : checkoutSyncStatus === "pending"
+                  ? "Checkout returned to Billing. Payment history will update when Stripe confirms payment. You can pull down to refresh; you do not need to pay again."
+                  : checkoutSyncStatus === "error"
+                    ? "Could not refresh billing right now. Pull down to refresh your subscription and payment history. You do not need to pay again."
+                    : "Checkout returned to Billing. Refreshing your subscription and payment history from the backend."}
             </Text>
+            {checkoutSyncStatus === "syncing" ? (
+              <ActivityIndicator
+                className="mt-3 self-start"
+                color="#FF6B5F"
+                accessibilityLabel="Refreshing payment history"
+              />
+            ) : null}
           </View>
         ) : checkoutReturn === "cancelled" ? (
           <View className="mb-5 rounded-2xl border border-[#EAE4DC] bg-white p-4">

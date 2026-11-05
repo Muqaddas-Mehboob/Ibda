@@ -1,5 +1,5 @@
-import { PaymentSuccessScreen } from "../../features/subscriptions/screens/PaymentSuccessScreen";
+import { Redirect } from "expo-router";
 
 export default function SubscriptionSuccessRoute() {
-  return <PaymentSuccessScreen />;
+  return <Redirect href="/subscription?checkout=success" />;
 }

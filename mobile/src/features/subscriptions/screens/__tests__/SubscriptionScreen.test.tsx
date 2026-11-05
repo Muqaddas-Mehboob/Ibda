@@ -8,12 +8,20 @@ import {
   cancelSubscription,
   getSubscriptionPlans,
   getUserSubscription,
+  startSubscriptionCheckout,
   switchSubscriptionPlan,
 } from "../../services/subscription.service";
 
 const mockPush = jest.fn();
 const mockReplace = jest.fn();
 const mockSetParams = jest.fn();
+const mockOpenAuthSession = jest.fn<
+  (
+    checkoutUrl: string,
+    returnUrl: string
+  ) => Promise<{ type: string; url: string }>
+>();
+let mockParams: Record<string, string | undefined> = { plan: "starter" };
 
 jest.mock("expo-router", () => {
   const ReactModule = require("react");
@@ -23,11 +31,21 @@ jest.mock("expo-router", () => {
       replace: mockReplace,
       setParams: mockSetParams,
     }),
-    useLocalSearchParams: () => ({ plan: "starter" }),
+    useLocalSearchParams: () => mockParams,
     useFocusEffect: (callback: () => void) =>
       ReactModule.useEffect(callback, [callback]),
   };
 });
+
+jest.mock("expo-linking", () => ({
+  createURL: jest.fn(() => "ibda://subscription/success"),
+  parse: jest.fn(() => ({ queryParams: { checkout: "success" } })),
+}));
+
+jest.mock("expo-web-browser", () => ({
+  openAuthSessionAsync: (checkoutUrl: string, returnUrl: string) =>
+    mockOpenAuthSession(checkoutUrl, returnUrl),
+}));
 
 jest.mock("../../../../components/navigation/BottomNavigation", () => ({
   BottomNavigation: () => null,
@@ -140,10 +158,12 @@ const plansRequest = jest.mocked(getSubscriptionPlans);
 const subscriptionRequest = jest.mocked(getUserSubscription);
 const cancelRequest = jest.mocked(cancelSubscription);
 const switchRequest = jest.mocked(switchSubscriptionPlan);
+const checkoutRequest = jest.mocked(startSubscriptionCheckout);
 
 describe("SubscriptionScreen", () => {
   beforeEach(() => {
     jest.clearAllMocks();
+    mockParams = { plan: "starter" };
     plansRequest.mockResolvedValue(plans);
     subscriptionRequest.mockResolvedValue(makeAccount("active"));
     cancelRequest.mockResolvedValue({
@@ -241,11 +261,29 @@ describe("SubscriptionScreen", () => {
     expect(screen.getAllByText("Annual pricing")).toHaveLength(2);
     expect(screen.queryByText("Cancel Subscription")).toBeNull();
   });
+
+  it("refreshes billing and displays webhook-confirmed payment history after checkout", async () => {
+    mockParams = { checkout: "success" };
+    subscriptionRequest.mockResolvedValue(makeAccount("active"));
+
+    await render(<SubscriptionScreen />);
+
+    expect(
+      await screen.findByText(
+        "Payment confirmed. Your subscription and payment history have been refreshed."
+      )
+    ).toBeTruthy();
+    expect(screen.getByText("Payment history")).toBeTruthy();
+    expect(screen.getAllByText("succeeded").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("$12.00").length).toBeGreaterThan(0);
+    expect(subscriptionRequest).toHaveBeenCalled();
+  });
 });
 
 describe("PricingScreen", () => {
   beforeEach(() => {
     jest.clearAllMocks();
+    mockParams = { plan: "starter" };
     plansRequest.mockResolvedValue(plans);
     subscriptionRequest.mockResolvedValue(makeAccount("active"));
   });
@@ -255,5 +293,25 @@ describe("PricingScreen", () => {
 
     expect(await screen.findByText("Manage subscription")).toBeTruthy();
     expect(screen.queryByText("Continue to checkout")).toBeNull();
+  });
+
+  it("returns to Billing after mobile checkout instead of verifying the session", async () => {
+    subscriptionRequest.mockResolvedValue(makeAccount(null));
+    checkoutRequest.mockResolvedValue({
+      checkout_url: "https://checkout.stripe.com/c/pay/cs_test_checkout",
+      session_id: "cs_test_checkout",
+    });
+    mockOpenAuthSession.mockResolvedValue({
+      type: "success",
+      url: "ibda://subscription/success?checkout=success",
+    });
+
+    await render(<PricingScreen interval="monthly" />);
+    await fireEvent.press(await screen.findByText("Continue to checkout"));
+
+    expect(mockReplace).toHaveBeenCalledWith({
+      pathname: "/subscription",
+      params: { checkout: "success" },
+    });
   });
 });

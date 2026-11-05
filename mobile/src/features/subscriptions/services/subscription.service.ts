@@ -110,23 +110,6 @@ export type SubscriptionCheckoutResponse = {
   session_id: string;
 };
 
-export type CheckoutSessionVerification = {
-  status: "pending" | "success" | "failed";
-  plan_id: PlanId;
-  billing_interval: BillingInterval;
-  payment_status:
-    | "pending"
-    | "succeeded"
-    | "failed"
-    | "no_payment_required";
-  subscription_status: UserSubscription["status"];
-  amount_minor: number | null;
-  currency: string;
-  paid_at: string | null;
-  current_period_end: string | null;
-  cancel_at_period_end: boolean;
-};
-
 export class SubscriptionApiError extends Error {
   constructor(
     message: string,
@@ -325,17 +308,6 @@ export function startSubscriptionCheckout(
       platform,
     }),
   });
-}
-
-export function verifyCheckoutSession(
-  sessionId: string
-): Promise<CheckoutSessionVerification> {
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 20000);
-  return request<CheckoutSessionVerification>(
-    `/subscription/checkout/verify/?session_id=${encodeURIComponent(sessionId)}`,
-    { signal: controller.signal }
-  ).finally(() => clearTimeout(timeout));
 }
 
 export type SubscriptionCancellationResponse = {

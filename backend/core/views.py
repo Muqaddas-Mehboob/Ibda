@@ -64,6 +64,16 @@ from .serializers import (
     UserSubscriptionSerializer,
     GEOOptimizationSerializer,
 )
+from .services.account_deletion import (
+    AccountDeletionError,
+    delete_supabase_user,
+    finish_account_deletion,
+    mark_subscriptions_canceled,
+    mark_supabase_identity_deleted,
+    purge_local_account_data,
+    record_deletion_failure,
+    start_account_deletion,
+)
 from .services.content_generation import (
     ContentGenerationError,
     generate_content,
@@ -1031,9 +1041,31 @@ class UserDeleteAccountView(APIView):
         ]
 
     @staticmethod
-    def _cancel_stripe_subscription(subscription):
-        """Cancel through the shared Stripe gateway configuration."""
-        cancel_stripe_subscription(subscription.provider_subscription_id)
+    def _cancel_remote_subscription(subscription):
+        """Cancel one Stripe subscription, retry-safe.
+
+        A previous attempt may already have cancelled the subscription, which
+        makes Stripe answer the cancel call with an invalid request error. The
+        remote status is checked before that error is accepted as success, so
+        an unrelated Stripe failure still fails closed.
+        """
+        subscription_id = subscription.provider_subscription_id
+        try:
+            cancel_stripe_subscription(subscription_id)
+            return
+        except stripe.InvalidRequestError as error:
+            try:
+                remote = retrieve_subscription(subscription_id)
+            except stripe.InvalidRequestError:
+                logger.info(
+                    "Stripe subscription no longer exists during account "
+                    "deletion: %s",
+                    subscription_id,
+                )
+                return
+            if _stripe_value(remote, "status") == "canceled":
+                return
+            raise error
 
     def post(self, request):
         # Ownership is derived only from the authenticated Supabase identity.
@@ -1041,29 +1073,39 @@ class UserDeleteAccountView(APIView):
 
         # Validate required configuration before any destructive operation.
         supabase_url = getattr(settings, "SUPABASE_URL", "").rstrip("/")
-        service_role_key = getattr(settings, "SUPABASE_SERVICE_ROLE_KEY", "").strip()
+        service_role_key = getattr(
+            settings,
+            "SUPABASE_SERVICE_ROLE_KEY",
+            "",
+        ).strip()
         if not supabase_url or not service_role_key:
             logger.error(
-                "Account deletion is unavailable: Supabase admin configuration is missing."
+                "Account deletion is unavailable: Supabase admin configuration "
+                "is missing."
             )
             return Response(
                 {
                     "code": "account_deletion_unavailable",
+                    "retryable": True,
                     "detail": (
                         "Account deletion is not available right now. "
-                        "No data was removed. Please try again later or contact support."
+                        "No data was removed. Please try again later or contact "
+                        "support."
                     ),
                 },
                 status=status.HTTP_503_SERVICE_UNAVAILABLE,
             )
 
         subscriptions = list(
-            UserSubscription.objects.filter(owner_id=user_id)
-            .order_by("-created_at")
+            UserSubscription.objects.filter(owner_id=user_id).order_by(
+                "-created_at"
+            )
         )
         cancellations = self._subscriptions_requiring_cancellation(subscriptions)
         if cancellations and not getattr(
-            settings, "STRIPE_SECRET_KEY", ""
+            settings,
+            "STRIPE_SECRET_KEY",
+            "",
         ).strip():
             logger.error(
                 "Account deletion is unavailable: Stripe is not configured "
@@ -1073,6 +1115,7 @@ class UserDeleteAccountView(APIView):
             return Response(
                 {
                     "code": "stripe_cancellation_unavailable",
+                    "retryable": True,
                     "detail": (
                         "Your subscription could not be cancelled, so your "
                         "account was not deleted. No data was removed. Please "
@@ -1082,9 +1125,14 @@ class UserDeleteAccountView(APIView):
                 status=status.HTTP_503_SERVICE_UNAVAILABLE,
             )
 
+        # From here on every step is recorded so a retry resumes where the
+        # previous attempt stopped instead of repeating or skipping work.
+        start_account_deletion(user_id)
+
+        # 1. Cancel billable subscriptions before anything is deleted.
         for subscription in cancellations:
             try:
-                self._cancel_stripe_subscription(subscription)
+                self._cancel_remote_subscription(subscription)
             except stripe.StripeError as error:
                 logger.error(
                     "Stripe cancellation failed for user account deletion: "
@@ -1093,9 +1141,11 @@ class UserDeleteAccountView(APIView):
                     subscription.provider_subscription_id,
                     type(error).__name__,
                 )
+                record_deletion_failure(user_id, "stripe_cancellation_failed")
                 return Response(
                     {
                         "code": "stripe_cancellation_failed",
+                        "retryable": True,
                         "detail": (
                             "Your subscription could not be cancelled, so your "
                             "account was not deleted. No data was removed. "
@@ -1104,49 +1154,68 @@ class UserDeleteAccountView(APIView):
                     },
                     status=status.HTTP_502_BAD_GATEWAY,
                 )
+        mark_subscriptions_canceled(user_id)
+
+        # 2. Delete every local owner record in one transaction. A failure
+        # rolls the whole purge back, so the account keeps all of its data and
+        # can still be retried normally.
+        try:
+            purge_local_account_data(user_id)
+        except Exception:
+            logger.exception(
+                "Local account data cleanup failed: owner=%s",
+                user_id,
+            )
+            record_deletion_failure(user_id, "local_cleanup_failed")
+            return Response(
+                {
+                    "code": "local_cleanup_failed",
+                    "retryable": True,
+                    "detail": (
+                        "Your Ibda data could not be removed, so your account "
+                        "was not deleted. Nothing was removed. Please try again."
+                    ),
+                },
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
+
+        # 3. Delete the Supabase Auth identity last. The local purge has already
+        # committed, so a failure here is retryable and can never strand local
+        # rows behind an identity that no longer exists.
+        try:
+            delete_supabase_user(
+                user_id=user_id,
+                supabase_url=supabase_url,
+                service_role_key=service_role_key,
+            )
+        except AccountDeletionError as error:
+            logger.error(
+                "Supabase account deletion stopped: owner=%s code=%s",
+                user_id,
+                error.code,
+            )
+            record_deletion_failure(user_id, error.code)
+            return Response(
+                {
+                    "code": error.code,
+                    "retryable": error.retryable,
+                    "detail": error.detail,
+                },
+                status=error.status_code,
+            )
 
         try:
-            response = requests.delete(
-                f"{supabase_url}/auth/v1/admin/users/{user_id}",
-                headers={
-                    "apikey": service_role_key,
-                    "Authorization": f"Bearer {service_role_key}",
-                },
-                timeout=10,
-            )
-        except requests.RequestException:
+            mark_supabase_identity_deleted(user_id)
+            finish_account_deletion(user_id)
+        except Exception:
+            # Everything the owner owns is gone. A leftover marker is an
+            # operational record only and must not turn success into failure.
             logger.exception(
-                "Supabase user deletion failed for owner=%s",
+                "Could not finalise the account deletion marker: owner=%s",
                 user_id,
             )
-            return Response(
-                {"detail": "Could not delete the authenticated account."},
-                status=status.HTTP_502_BAD_GATEWAY,
-            )
 
-        if response.status_code not in (200, 202, 204):
-            logger.error(
-                "Supabase admin deletion rejected for owner=%s status=%s body=%s",
-                user_id,
-                response.status_code,
-                response.text[:500],
-            )
-            return Response(
-                {"detail": "Could not delete the authenticated account."},
-                status=status.HTTP_502_BAD_GATEWAY,
-            )
-
-        with transaction.atomic():
-            Notification.objects.filter(recipient_user_id=user_id).delete()
-            Approval.objects.filter(post__brand__owner_id=user_id).delete()
-            ScheduledPost.objects.filter(post__brand__owner_id=user_id).delete()
-            ContentPost.objects.filter(brand__owner_id=user_id).delete()
-            Brand.objects.filter(owner_id=user_id).delete()
-            SocialAccount.objects.filter(owner_id=user_id).delete()
-            SupportRequest.objects.filter(owner_id=user_id).delete()
-            PaymentTransaction.objects.filter(subscription__owner_id=user_id).delete()
-            UserSubscription.objects.filter(owner_id=user_id).delete()
-
+        logger.info("Account deleted: owner=%s", user_id)
         return Response({"deleted": True, "user_id": str(user_id)})
 
 

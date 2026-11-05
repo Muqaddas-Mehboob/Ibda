@@ -7,6 +7,11 @@ from django.conf import settings
 from rest_framework.authentication import BaseAuthentication
 from rest_framework.exceptions import AuthenticationFailed
 
+from .services.account_deletion import (
+    is_account_deletion_endpoint,
+    is_partially_deleted_account,
+)
+
 logger = logging.getLogger(__name__)
 
 
@@ -100,6 +105,21 @@ class SupabaseAuthentication(BaseAuthentication):
         except (TypeError, ValueError, AttributeError):
             raise AuthenticationFailed(
                 "Supabase response included an invalid user ID."
+            )
+
+        # An account whose local data is already gone but whose Supabase
+        # identity still exists must not keep using the product. The deletion
+        # endpoint stays reachable so the owner can finish the cleanup.
+        if not is_account_deletion_endpoint(
+            request.path
+        ) and is_partially_deleted_account(normalized_user_id):
+            logger.warning(
+                "Supabase auth: partial account deletion for user %s",
+                normalized_user_id,
+            )
+            raise AuthenticationFailed(
+                "This account is being deleted. Repeat the deletion request "
+                "to finish, or contact support."
             )
 
         return SupabaseUser(normalized_user_id, email), token

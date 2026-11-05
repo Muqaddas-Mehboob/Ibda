@@ -362,6 +362,36 @@ class UserSubscription(TimeStampedModel):
         return f"{self.plan_id} subscription for {self.owner_id}"
 
 
+class StripeCheckoutAttempt(TimeStampedModel):
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    checkout_session_id = models.CharField(max_length=255, unique=True)
+    owner_id = models.UUIDField(db_index=True)
+    subscription = models.ForeignKey(
+        UserSubscription,
+        on_delete=models.CASCADE,
+        related_name="stripe_checkout_attempts",
+    )
+    customer_id = models.CharField(max_length=255)
+    plan_id = models.CharField(max_length=100)
+    price_id = models.CharField(max_length=255)
+    billing_interval = models.CharField(
+        max_length=10,
+        choices=UserSubscription.BillingInterval.choices,
+    )
+    stripe_created_at = models.DateTimeField(null=True, blank=True)
+    expires_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        ordering = ["-created_at"]
+        indexes = [
+            models.Index(fields=["subscription", "created_at"]),
+            models.Index(fields=["owner_id", "created_at"]),
+        ]
+
+    def __str__(self):
+        return f"Stripe checkout attempt {self.checkout_session_id}"
+
+
 class PaymentTransaction(TimeStampedModel):
     class Status(models.TextChoices):
         PENDING = "pending", "Pending"
@@ -430,3 +460,29 @@ class ProviderWebhookEvent(models.Model):
 
     def __str__(self):
         return f"{self.provider} event {self.event_id}"
+
+
+class AccountDeletionRequest(TimeStampedModel):
+    """Progress marker for a deletion that spans several systems.
+
+    The row exists only while a deletion is in flight. It records which steps
+    already completed so a retry can resume, and ``local_data_purged_at`` marks
+    an account whose local data is gone but whose Supabase identity could not be
+    removed yet: authentication refuses protected endpoints for that account
+    while keeping the deletion endpoint reachable for the retry.
+
+    It contains no user content and is removed once deletion completes.
+    """
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    owner_id = models.UUIDField(unique=True)
+    subscriptions_canceled_at = models.DateTimeField(null=True, blank=True)
+    local_data_purged_at = models.DateTimeField(null=True, blank=True)
+    supabase_identity_deleted_at = models.DateTimeField(null=True, blank=True)
+    last_error = models.CharField(max_length=64, blank=True)
+
+    class Meta:
+        ordering = ["-created_at"]
+
+    def __str__(self):
+        return f"Account deletion for {self.owner_id}"

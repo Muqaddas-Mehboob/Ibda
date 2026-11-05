@@ -294,6 +294,16 @@ export function SettingsScreen() {
         keyboardShouldPersistTaps="handled"
         showsVerticalScrollIndicator={false}
       >
+        <Pressable
+        onPress={() =>
+          router.canGoBack() ? router.back() : router.replace("/dashboard")
+        }
+        accessibilityRole="button"
+        accessibilityLabel="Go back"
+        className="mb-8 h-11 w-11 items-center justify-center rounded-full border border-[#EAE4DC] bg-white"
+      >
+        <Text className="text-xl text-[#51483F]">‹</Text>
+      </Pressable>
         <Text className="mb-2 text-xs font-bold uppercase tracking-[3px] text-[#FF6B5F]">
           YOUR WORKSPACE
         </Text>
@@ -351,65 +361,6 @@ export function SettingsScreen() {
             <Text className="text-[#827970]">
               {email || "Email unavailable"}
             </Text>
-          </View>
-          <View className="border-t border-[#EAE4DC]">
-            <SettingRow
-              icon="↻"
-              title="Reset password"
-              description={
-                sendingReset ? "Sending instructions..." : "Email a secure reset link"
-              }
-              disabled={sendingReset}
-              onPress={() => void sendPasswordReset()}
-            />
-          </View>
-          <View className="border-t border-[#EAE4DC] px-4 py-4">
-            <Text className="mb-2 text-sm font-semibold text-[#51483F]">
-              New password
-            </Text>
-            <TextInput
-              value={password}
-              onChangeText={setPassword}
-              placeholder="At least 8 characters"
-              placeholderTextColor="#A79D94"
-              secureTextEntry
-              autoCapitalize="none"
-              autoComplete="new-password"
-              textContentType="newPassword"
-              accessibilityLabel="New password"
-              className="min-h-12 rounded-xl border border-[#EAE4DC] bg-[#FCF9F4] px-4 text-[#24221F]"
-            />
-            <Text className="mb-2 mt-3 text-sm font-semibold text-[#51483F]">
-              Confirm new password
-            </Text>
-            <TextInput
-              value={confirmPassword}
-              onChangeText={setConfirmPassword}
-              placeholder="Enter it again"
-              placeholderTextColor="#A79D94"
-              secureTextEntry
-              autoCapitalize="none"
-              autoComplete="new-password"
-              textContentType="newPassword"
-              accessibilityLabel="Confirm new password"
-              className="min-h-12 rounded-xl border border-[#EAE4DC] bg-[#FCF9F4] px-4 text-[#24221F]"
-            />
-            <Pressable
-              onPress={() => void updatePassword()}
-              disabled={updatingPassword || !password || !confirmPassword}
-              accessibilityRole="button"
-              className={`mt-3 min-h-11 flex-row items-center justify-center rounded-xl px-4 ${
-                updatingPassword || !password || !confirmPassword
-                  ? "bg-[#D7CEC5]"
-                  : "bg-[#24221F]"
-              }`}
-            >
-              {updatingPassword ? (
-                <ActivityIndicator color="#FFFFFF" />
-              ) : (
-                <Text className="font-bold text-white">Update password</Text>
-              )}
-            </Pressable>
           </View>
         </Section>
 
@@ -471,15 +422,6 @@ export function SettingsScreen() {
             disabled={signingOut}
             onPress={() => void confirmSignOut()}
           />
-          <View className="border-t border-[#EAE4DC]">
-            <SettingRow
-              icon="×"
-              title="Delete account"
-              description="Permanently remove your Ibda account"
-              destructive
-              onPress={() => void confirmDeleteAccount()}
-            />
-          </View>
         </Section>
       </ScrollView>
       <BottomNavigation />

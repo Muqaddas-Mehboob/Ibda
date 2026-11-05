@@ -113,6 +113,16 @@ export function ApprovalDetailScreen() {
 
   return (
     <View className="flex-1 bg-[#FCF9F4]">
+      <Pressable
+        onPress={() =>
+          router.canGoBack() ? router.back() : router.replace("/dashboard")
+        }
+        accessibilityRole="button"
+        accessibilityLabel="Go back"
+        className="mb-8 h-11 w-11 items-center justify-center rounded-full border border-[#EAE4DC] bg-white"
+      >
+        <Text className="text-xl text-[#51483F]">‹</Text>
+      </Pressable>
       <ScrollView
         contentContainerStyle={{ padding: 24, paddingTop: 32, paddingBottom: 40 }}
       >

@@ -308,6 +308,16 @@ export function ContentStudioScreen() {
         keyboardDismissMode="on-drag"
         showsVerticalScrollIndicator={false}
       >
+        <Pressable
+          onPress={() =>
+            router.canGoBack() ? router.back() : router.replace("/dashboard")
+          }
+          accessibilityRole="button"
+          accessibilityLabel="Go back"
+          className="mb-8 h-11 w-11 items-center justify-center rounded-full border border-[#EAE4DC] bg-white"
+        >
+          <Text className="text-xl text-[#51483F]">‹</Text>
+        </Pressable>
         <Text className="mb-2 text-xs font-bold uppercase tracking-[3px] text-[#FF6B5F]">
           IBDA WORKSPACE
         </Text>
@@ -731,19 +741,6 @@ export function ContentStudioScreen() {
             {!submitted && (
               <View className="mt-4 gap-3">
                 <Pressable
-                  onPress={() => void handleSave()}
-                  disabled={!canEdit}
-                  accessibilityRole="button"
-                  className={`min-h-12 items-center justify-center rounded-2xl border border-[#EAE4DC] bg-white px-4 py-3 ${
-                    !canEdit ? "opacity-60" : ""
-                  }`}
-                >
-                  <Text className="font-bold text-[#24221F]">
-                    {saving ? "Saving..." : "Save Draft"}
-                  </Text>
-                </Pressable>
-
-                <Pressable
                   onPress={() => void handleSubmitForApproval()}
                   disabled={!canEdit}
                   accessibilityRole="button"
@@ -757,33 +754,6 @@ export function ContentStudioScreen() {
                       : "Submit for Approval"}
                   </Text>
                 </Pressable>
-
-                <Pressable
-                  onPress={() => {
-                    if (!savedPost) {
-                      setError("Save this content before scheduling it.");
-                      return;
-                    }
-                    router.push({
-                      pathname: "/calendar",
-                      params: { postId: savedPost.id },
-                    });
-                  }}
-                  disabled={!canEdit || !savedPost}
-                  accessibilityRole="button"
-                  className={`min-h-12 items-center justify-center rounded-2xl border border-[#FF6B5F] bg-white px-4 py-3 ${
-                    !canEdit || !savedPost ? "opacity-50" : ""
-                  }`}
-                >
-                  <Text className="font-bold text-[#B04438]">
-                    Schedule in Calendar
-                  </Text>
-                </Pressable>
-
-                <Text className="text-center text-xs leading-5 text-[#827970]">
-                  Scheduling requires approved content. Save the draft, submit
-                  it for approval, then schedule it from the calendar.
-                </Text>
               </View>
             )}
           </View>

@@ -7,7 +7,7 @@ import {
   Text,
   View,
 } from "react-native";
-import { useFocusEffect } from "expo-router";
+import { router, useFocusEffect } from "expo-router";
 import { BottomNavigation } from "../../../components/navigation/BottomNavigation";
 import {
   getAnalytics,
@@ -119,6 +119,17 @@ export function AnalyticsScreen() {
         }
         showsVerticalScrollIndicator={false}
       >
+        <Pressable
+        onPress={() =>
+          router.canGoBack() ? router.back() : router.replace("/dashboard")
+        }
+        accessibilityRole="button"
+        accessibilityLabel="Go back"
+        className="mb-8 h-11 w-11 items-center justify-center rounded-full border border-[#EAE4DC] bg-white"
+      >
+        <Text className="text-xl text-[#51483F]">‹</Text>
+      </Pressable>
+      
         <Text className="mb-2 text-xs font-bold uppercase tracking-[3px] text-[#FF6B5F]">
           YOUR WORKSPACE
         </Text>

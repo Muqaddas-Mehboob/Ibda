@@ -280,13 +280,10 @@ export function PricingScreen({ interval }: { interval: BillingInterval }) {
           : undefined;
       if (returnStatus === "cancelled") {
         router.replace("/subscription/cancel");
-      } else if (
-        returnStatus === "success" &&
-        typeof returnParams.session_id === "string"
-      ) {
+      } else if (returnStatus === "success") {
         router.replace({
-          pathname: "/subscription/success",
-          params: { session_id: returnParams.session_id },
+          pathname: "/subscription",
+          params: { checkout: "success" },
         });
       } else {
         router.replace("/subscription");

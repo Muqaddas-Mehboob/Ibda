@@ -52,6 +52,7 @@ export function BrandMemoryProfilesScreen() {
   );
 
   return (
+    
     <View className="flex-1 bg-[#FCF9F4]">
       <ScrollView
         contentContainerStyle={{ padding: 24, paddingTop: 40, paddingBottom: 32 }}
@@ -65,6 +66,16 @@ export function BrandMemoryProfilesScreen() {
         keyboardShouldPersistTaps="handled"
         showsVerticalScrollIndicator={false}
       >
+      <Pressable
+        onPress={() =>
+          router.canGoBack() ? router.back() : router.replace("/dashboard")
+        }
+        accessibilityRole="button"
+        accessibilityLabel="Go back"
+        className="mb-8 h-11 w-11 items-center justify-center rounded-full border border-[#EAE4DC] bg-white"
+      >
+        <Text className="text-xl text-[#51483F]">‹</Text>
+      </Pressable>
         <Text className="mb-2 text-xs font-bold uppercase tracking-[3px] text-[#FF6B5F]">
           YOUR WORKSPACE
         </Text>
