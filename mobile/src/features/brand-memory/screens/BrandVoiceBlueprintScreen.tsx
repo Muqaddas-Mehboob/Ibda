@@ -62,13 +62,9 @@ export function BrandVoiceBlueprintScreen() {
       const deletedName = brandName || "Your brand";
       setVoice(null);
       setBrandName("");
-      Alert.alert(
-        "Brand deleted",
-        `"${deletedName}" and its brand-specific data were permanently deleted.`
-      );
       router.dismissTo({
         pathname: "/brand-memory",
-        params: { deleted: "1" },
+        params: { deleted: "1", deletedBrand: deletedName },
       });
     } catch (e) {
       Alert.alert(

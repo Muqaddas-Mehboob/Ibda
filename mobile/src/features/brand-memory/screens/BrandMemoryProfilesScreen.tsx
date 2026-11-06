@@ -23,9 +23,10 @@ import { confirmAsync } from "../../../lib/confirm";
 
 export function BrandMemoryProfilesScreen() {
   const router = useRouter();
-  const { created, deleted } = useLocalSearchParams<{
+  const { created, deleted, deletedBrand } = useLocalSearchParams<{
     created?: string;
     deleted?: string;
+    deletedBrand?: string;
   }>();
   const [brands, setBrands] = useState<BrandMemoryProfile[]>([]);
   const [loading, setLoading] = useState(true);
@@ -152,7 +153,9 @@ export function BrandMemoryProfilesScreen() {
             <Text className="font-semibold text-[#287D54]">
               {deleted === "all"
                 ? "All your brands were deleted successfully."
-                : "Brand deleted successfully."}
+                : deletedBrand
+                  ? `"${deletedBrand}" was deleted successfully.`
+                  : "Brand deleted successfully."}
             </Text>
           </View>
         )}

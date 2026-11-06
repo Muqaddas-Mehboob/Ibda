@@ -230,7 +230,7 @@ class BrandDetailView(generics.RetrieveUpdateDestroyAPIView):
         brand = Brand.objects.filter(id=brand_id).first()
         if brand is None:
             return Response(status=status.HTTP_204_NO_CONTENT)
-        if brand.owner_id != request.user.id:
+        if brand.owner_id != uuid.UUID(str(request.user.id)):
             raise NotFound("Brand not found.")
 
         return _brand_deletion_response(

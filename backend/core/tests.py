@@ -525,6 +525,22 @@ class BrandDeletionApiTests(APITestCase):
             ).exists()
         )
 
+    def test_single_delete_accepts_string_supabase_user_id(self):
+        self.user.id = str(self.user.id)
+        selected = self.create_brand_records(self.user.id, "Selected brand")
+
+        voice_response = self.client.get(
+            f"/api/brands/{selected['brand'].id}/voice/"
+        )
+        delete_response = self.client.delete(
+            f"/api/brands/{selected['brand'].id}/"
+        )
+
+        self.assertEqual(voice_response.status_code, status.HTTP_200_OK)
+        self.assertEqual(delete_response.status_code, status.HTTP_200_OK)
+        self.assertEqual(delete_response.data["deleted"], 1)
+        self.assert_records_deleted(selected)
+
     def test_single_delete_rejects_another_users_brand(self):
         foreign = self.create_brand_records(
             self.other_user_id,

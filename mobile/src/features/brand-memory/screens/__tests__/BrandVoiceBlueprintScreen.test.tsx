@@ -90,14 +90,14 @@ describe("BrandVoiceBlueprintScreen brand deletion", () => {
       expect.objectContaining({ destructive: true })
     );
     expect(deleteBrandMock).toHaveBeenCalledTimes(1);
-    expect(alertSpy).toHaveBeenCalledWith(
+    expect(alertSpy).not.toHaveBeenCalledWith(
       "Brand deleted",
-      expect.stringContaining("Acme Studio")
+      expect.any(String)
     );
     await waitFor(() => {
       expect(mockDismissTo).toHaveBeenCalledWith({
         pathname: "/brand-memory",
-        params: { deleted: "1" },
+        params: { deleted: "1", deletedBrand: "Acme Studio" },
       });
     });
   });
