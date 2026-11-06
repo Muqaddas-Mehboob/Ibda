@@ -9,7 +9,7 @@ import requests
 
 from django.conf import settings
 from django.db import transaction
-from django.db.models import Count, Q
+from django.db.models import Count, F, Q
 from django.db.models.functions import TruncDate, TruncWeek
 from django.utils.decorators import method_decorator
 from django.utils import timezone
@@ -17,7 +17,7 @@ from django.shortcuts import get_object_or_404
 from django.views.decorators.csrf import csrf_exempt
 from rest_framework import generics
 from rest_framework.permissions import IsAuthenticated
-from rest_framework.exceptions import PermissionDenied, ValidationError
+from rest_framework.exceptions import NotFound, PermissionDenied, ValidationError
 from rest_framework.response import Response
 from rest_framework.views import APIView
 from rest_framework import status
@@ -63,6 +63,10 @@ from .serializers import (
     SupportRequestCreateSerializer,
     UserSubscriptionSerializer,
     GEOOptimizationSerializer,
+)
+from .services.brand_deletion import (
+    BrandDeletionError,
+    delete_brands,
 )
 from .services.account_deletion import (
     AccountDeletionError,
@@ -164,6 +168,22 @@ def health_check(request):
     })
 
 
+def _brand_deletion_response(*, owner_id, brand_ids=None):
+    """Run a brand deletion and turn its result into an API response."""
+    try:
+        counts = delete_brands(owner_id=owner_id, brand_ids=brand_ids)
+    except BrandDeletionError as error:
+        return Response(
+            {"detail": error.detail},
+            status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+        )
+
+    return Response(
+        {"deleted": counts["brands"], "counts": counts},
+        status=status.HTTP_200_OK,
+    )
+
+
 class BrandListCreateView(generics.ListCreateAPIView):
     serializer_class = BrandSerializer
     authentication_classes = [SupabaseAuthentication]
@@ -186,6 +206,10 @@ class BrandListCreateView(generics.ListCreateAPIView):
             )
         serializer.save(owner_id=self.request.user.id)
 
+    def delete(self, request, *args, **kwargs):
+        """Delete every brand owned by the authenticated user."""
+        return _brand_deletion_response(owner_id=request.user.id)
+
 
 class BrandDetailView(generics.RetrieveUpdateDestroyAPIView):
     serializer_class = BrandSerializer
@@ -195,6 +219,24 @@ class BrandDetailView(generics.RetrieveUpdateDestroyAPIView):
 
     def get_queryset(self):
         return Brand.objects.filter(owner_id=self.request.user.id)
+
+    def destroy(self, request, *args, **kwargs):
+        """Delete one brand the authenticated user owns.
+
+        A brand that is already gone returns 204 so a repeated request is
+        safe. A brand owned by someone else is never revealed or deleted.
+        """
+        brand_id = self.kwargs.get("id")
+        brand = Brand.objects.filter(id=brand_id).first()
+        if brand is None:
+            return Response(status=status.HTTP_204_NO_CONTENT)
+        if brand.owner_id != request.user.id:
+            raise NotFound("Brand not found.")
+
+        return _brand_deletion_response(
+            owner_id=request.user.id,
+            brand_ids=[brand.id],
+        )
 
 class BrandVoiceView(APIView):
     authentication_classes = [SupabaseAuthentication]
@@ -977,7 +1019,10 @@ class UserSubscriptionView(APIView):
         )
         transactions = PaymentTransaction.objects.filter(
             subscription__owner_id=request.user.id
-        ).select_related("subscription")[:100]
+        ).select_related("subscription").order_by(
+            F("occurred_at").desc(nulls_last=True),
+            "-created_at",
+        )
         entitlement = get_user_entitlements(request.user.id)
         manage_available = bool(
             getattr(settings, "STRIPE_SECRET_KEY", "").startswith("sk_test_")

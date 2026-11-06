@@ -25,12 +25,14 @@ from .models import (
     ContentPost,
     Notification,
     PaymentTransaction,
+    StripeCheckoutAttempt,
     UserSubscription,
     ProviderWebhookEvent,
     ScheduledPost,
     SocialAccount,
     SupportRequest,
 )
+from .services.brand_deletion import BrandDeletionError
 from .services.payments.catalog import (
     checkout_configuration_present,
     get_checkout_redirect_urls,
@@ -368,6 +370,219 @@ class BrandVoiceApiTests(APITestCase):
 
         self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
         self.assertFalse(BrandVoice.objects.filter(brand=brand).exists())
+
+
+class BrandDeletionApiTests(APITestCase):
+    list_path = "/api/brands/"
+
+    def setUp(self):
+        self.user = SimpleNamespace(id=uuid4(), is_authenticated=True)
+        self.other_user_id = uuid4()
+        self.client.force_authenticate(user=self.user)
+
+    def create_brand_records(self, owner_id, name):
+        brand = Brand.objects.create(owner_id=owner_id, name=name)
+        voice = BrandVoice.objects.create(brand=brand, tone="Bold")
+        post = ContentPost.objects.create(
+            brand=brand,
+            title=f"{name} post",
+            body="Brand deletion test body",
+        )
+        approval = Approval.objects.create(post=post)
+        scheduled = ScheduledPost.objects.create(
+            post=post,
+            platform=ContentPost.Platform.INSTAGRAM,
+            scheduled_for=(
+                datetime.now(datetime_timezone.utc) + timedelta(days=1)
+            ),
+        )
+        notification = Notification.objects.create(
+            recipient_user_id=owner_id,
+            notification_type=Notification.Type.APPROVAL_APPROVED,
+            title=f"{name} update",
+            message="Brand-specific notification",
+            related_object_id=approval.id,
+            event_key=f"brand-deletion-{uuid4()}",
+        )
+        # Creating a scheduled post also notifies the owner through a signal.
+        schedule_notification = Notification.objects.get(
+            related_object_id=scheduled.id
+        )
+        return {
+            "brand": brand,
+            "voice": voice,
+            "post": post,
+            "approval": approval,
+            "scheduled": scheduled,
+            "notification": notification,
+            "schedule_notification": schedule_notification,
+        }
+
+    def assert_records_deleted(self, records):
+        self.assertFalse(Brand.objects.filter(id=records["brand"].id).exists())
+        self.assertFalse(BrandVoice.objects.filter(id=records["voice"].id).exists())
+        self.assertFalse(ContentPost.objects.filter(id=records["post"].id).exists())
+        self.assertFalse(
+            Approval.objects.filter(id=records["approval"].id).exists()
+        )
+        self.assertFalse(
+            ScheduledPost.objects.filter(id=records["scheduled"].id).exists()
+        )
+        self.assertFalse(
+            Notification.objects.filter(
+                id=records["notification"].id
+            ).exists()
+        )
+        self.assertFalse(
+            Notification.objects.filter(
+                id=records["schedule_notification"].id
+            ).exists()
+        )
+
+    def test_bulk_delete_removes_all_own_brands_and_brand_records(self):
+        first = self.create_brand_records(self.user.id, "First brand")
+        second = self.create_brand_records(self.user.id, "Second brand")
+        foreign = self.create_brand_records(
+            self.other_user_id,
+            "Foreign brand",
+        )
+
+        response = self.client.delete(self.list_path)
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data["deleted"], 2)
+        self.assertEqual(response.data["counts"]["brands"], 2)
+        self.assertEqual(response.data["counts"]["brand_voices"], 2)
+        self.assertEqual(response.data["counts"]["content_posts"], 2)
+        self.assertEqual(response.data["counts"]["approvals"], 2)
+        self.assertEqual(response.data["counts"]["scheduled_posts"], 2)
+        self.assertEqual(response.data["counts"]["notifications"], 4)
+
+        self.assert_records_deleted(first)
+        self.assert_records_deleted(second)
+
+        # Another owner's brand and its records are untouched.
+        self.assertTrue(
+            Brand.objects.filter(id=foreign["brand"].id).exists()
+        )
+        self.assertTrue(
+            BrandVoice.objects.filter(id=foreign["voice"].id).exists()
+        )
+        self.assertTrue(
+            ContentPost.objects.filter(id=foreign["post"].id).exists()
+        )
+        self.assertTrue(
+            Notification.objects.filter(
+                id=foreign["notification"].id
+            ).exists()
+        )
+        self.assertTrue(
+            Notification.objects.filter(
+                id=foreign["schedule_notification"].id
+            ).exists()
+        )
+
+    def test_bulk_delete_is_safe_when_repeated(self):
+        brand = self.create_brand_records(self.user.id, "Own brand")
+
+        first_response = self.client.delete(self.list_path)
+        second_response = self.client.delete(self.list_path)
+
+        self.assertEqual(first_response.status_code, status.HTTP_200_OK)
+        self.assertEqual(first_response.data["deleted"], 1)
+        self.assertEqual(second_response.status_code, status.HTTP_200_OK)
+        self.assertEqual(second_response.data["deleted"], 0)
+        self.assert_records_deleted(brand)
+
+    def test_bulk_delete_without_brands_returns_zero(self):
+        response = self.client.delete(self.list_path)
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data["deleted"], 0)
+        self.assertFalse(Brand.objects.filter(owner_id=self.user.id).exists())
+
+    def test_single_delete_removes_only_the_selected_brand(self):
+        selected = self.create_brand_records(self.user.id, "Selected brand")
+        kept = self.create_brand_records(self.user.id, "Kept brand")
+
+        response = self.client.delete(
+            f"/api/brands/{selected['brand'].id}/"
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data["deleted"], 1)
+        self.assert_records_deleted(selected)
+
+        self.assertTrue(Brand.objects.filter(id=kept["brand"].id).exists())
+        self.assertTrue(BrandVoice.objects.filter(id=kept["voice"].id).exists())
+        self.assertTrue(ContentPost.objects.filter(id=kept["post"].id).exists())
+        self.assertTrue(
+            Notification.objects.filter(id=kept["notification"].id).exists()
+        )
+        self.assertTrue(
+            Notification.objects.filter(
+                id=kept["schedule_notification"].id
+            ).exists()
+        )
+
+    def test_single_delete_rejects_another_users_brand(self):
+        foreign = self.create_brand_records(
+            self.other_user_id,
+            "Foreign brand",
+        )
+
+        response = self.client.delete(
+            f"/api/brands/{foreign['brand'].id}/"
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+        self.assertTrue(Brand.objects.filter(id=foreign["brand"].id).exists())
+        self.assertTrue(
+            BrandVoice.objects.filter(id=foreign["voice"].id).exists()
+        )
+        self.assertTrue(
+            Notification.objects.filter(
+                id=foreign["notification"].id
+            ).exists()
+        )
+        self.assertTrue(
+            Notification.objects.filter(
+                id=foreign["schedule_notification"].id
+            ).exists()
+        )
+
+    def test_repeated_single_delete_is_safe(self):
+        brand = self.create_brand_records(self.user.id, "Own brand")
+        path = f"/api/brands/{brand['brand'].id}/"
+
+        first_response = self.client.delete(path)
+        second_response = self.client.delete(path)
+
+        self.assertEqual(first_response.status_code, status.HTTP_200_OK)
+        self.assertEqual(first_response.data["deleted"], 1)
+        self.assertEqual(second_response.status_code, status.HTTP_204_NO_CONTENT)
+        self.assert_records_deleted(brand)
+
+    @patch(
+        "core.views.delete_brands",
+        side_effect=BrandDeletionError("Deletion failed safely."),
+    )
+    def test_database_failure_returns_error_and_keeps_brand(self, _delete):
+        brand = self.create_brand_records(self.user.id, "Own brand")
+
+        response = self.client.delete(
+            f"/api/brands/{brand['brand'].id}/"
+        )
+
+        self.assertEqual(
+            response.status_code,
+            status.HTTP_500_INTERNAL_SERVER_ERROR,
+        )
+        self.assertEqual(response.data["detail"], "Deletion failed safely.")
+        self.assertTrue(Brand.objects.filter(id=brand["brand"].id).exists())
+        self.assertTrue(
+            BrandVoice.objects.filter(id=brand["voice"].id).exists()
+        )
 
 
 class ApprovalApiTests(APITestCase):
@@ -1433,6 +1648,7 @@ class SubscriptionApiTests(APITestCase):
 
     def checkout_session(self, local_subscription, **overrides):
         values = {
+            "id": "cs_test_checkout",
             "mode": "subscription",
             "status": "complete",
             "payment_status": "paid",
@@ -1441,6 +1657,7 @@ class SubscriptionApiTests(APITestCase):
             "subscription": local_subscription.provider_subscription_id,
             "amount_total": 24000,
             "currency": "usd",
+            "created": 1_800_000_000,
             "metadata": {
                 "ibda_owner_id": str(local_subscription.owner_id),
                 "ibda_subscription_id": str(local_subscription.id),
@@ -1587,6 +1804,39 @@ class SubscriptionApiTests(APITestCase):
             ).id),
         )
 
+    def test_empty_payment_history_is_returned_as_an_empty_list(self):
+        response = self.client.get("/api/subscription/me/")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data["transactions"], [])
+
+    def test_payment_history_is_ordered_by_payment_time_not_insert_time(self):
+        subscription = self.create_stripe_subscription(
+            status_value=UserSubscription.Status.ACTIVE,
+        )
+        older = PaymentTransaction.objects.create(
+            subscription=subscription,
+            provider="stripe",
+            provider_transaction_id="in_history_older",
+            status=PaymentTransaction.Status.SUCCEEDED,
+            occurred_at=datetime(2026, 1, 1, tzinfo=datetime_timezone.utc),
+        )
+        newer = PaymentTransaction.objects.create(
+            subscription=subscription,
+            provider="stripe",
+            provider_transaction_id="in_history_newer",
+            status=PaymentTransaction.Status.FAILED,
+            occurred_at=datetime(2026, 2, 1, tzinfo=datetime_timezone.utc),
+        )
+
+        response = self.client.get("/api/subscription/me/")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(
+            [item["transaction_id"] for item in response.data["transactions"]],
+            [newer.provider_transaction_id, older.provider_transaction_id],
+        )
+
     def test_billing_api_returns_actual_subscription_plan_interval_and_payment(self):
         subscription = self.create_stripe_subscription(
             status_value=UserSubscription.Status.ACTIVE,
@@ -1656,10 +1906,84 @@ class SubscriptionApiTests(APITestCase):
         self.assertEqual(response.data["amount_minor"], 24000)
         self.assertEqual(response.data["currency"], "USD")
         self.assertEqual(response.data["payment_status"], "succeeded")
+        self.assertEqual(PaymentTransaction.objects.count(), 2)
         self.assertNotIn("provider_customer_id", response.data)
         self.assertNotIn("stripe_secret_key", response.data)
         retrieve_session.assert_called_once_with("cs_test_checkout")
         verify_user.assert_called_once()
+
+    @override_settings(STRIPE_SECRET_KEY="sk_test_unit_test")
+    def test_verified_paid_checkout_creates_one_transaction_on_repeated_verification(
+        self,
+    ):
+        subscription = self.create_stripe_subscription()
+        subscription.checkout_session_id = "cs_verified_initial"
+        subscription.save(update_fields=["checkout_session_id", "updated_at"])
+        session = self.checkout_session(
+            subscription,
+            id="cs_verified_initial",
+            invoice="in_verified_initial",
+            payment_intent="pi_verified_initial",
+        )
+        with patch(
+            "core.services.payments.verification.retrieve_checkout_session",
+            return_value=session,
+        ):
+            first = self.client.get(
+                "/api/subscription/checkout/verify/",
+                {"session_id": "cs_verified_initial"},
+            )
+            repeated = self.client.get(
+                "/api/subscription/checkout/verify/",
+                {"session_id": "cs_verified_initial"},
+            )
+
+        self.assertEqual(first.status_code, status.HTTP_200_OK)
+        self.assertEqual(first.data["status"], "success")
+        self.assertEqual(repeated.status_code, status.HTTP_200_OK)
+        payment = PaymentTransaction.objects.get(
+            provider_invoice_id="in_verified_initial"
+        )
+        self.assertEqual(PaymentTransaction.objects.count(), 1)
+        self.assertEqual(payment.provider_payment_intent_id, "pi_verified_initial")
+        self.assertEqual(payment.checkout_session_id, "cs_verified_initial")
+        self.assertEqual(payment.status, PaymentTransaction.Status.SUCCEEDED)
+
+    @override_settings(STRIPE_SECRET_KEY="sk_test_unit_test")
+    def test_checkout_verification_rejects_a_session_other_than_saved_session(
+        self,
+    ):
+        subscription = self.create_stripe_subscription()
+        subscription.checkout_session_id = "cs_saved_checkout"
+        subscription.save(update_fields=["checkout_session_id", "updated_at"])
+        session = self.checkout_session(subscription)
+        with patch(
+            "core.services.payments.verification.retrieve_checkout_session",
+            return_value=session,
+        ):
+            response = self.client.get(
+                "/api/subscription/checkout/verify/",
+                {"session_id": "cs_test_checkout"},
+            )
+
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+        self.assertFalse(PaymentTransaction.objects.exists())
+
+    @override_settings(STRIPE_SECRET_KEY="sk_test_unit_test")
+    def test_stripe_verification_api_failure_does_not_create_payment(self):
+        subscription = self.create_stripe_subscription()
+        session = self.checkout_session(subscription)
+        with patch(
+            "core.services.payments.verification.retrieve_checkout_session",
+            side_effect=stripe.APIConnectionError("offline"),
+        ):
+            response = self.client.get(
+                "/api/subscription/checkout/verify/",
+                {"session_id": "cs_test_checkout"},
+            )
+
+        self.assertEqual(response.status_code, status.HTTP_502_BAD_GATEWAY)
+        self.assertFalse(PaymentTransaction.objects.exists())
 
     @override_settings(STRIPE_SECRET_KEY="sk_test_unit_test")
     def test_checkout_session_verification_rejects_another_users_session(self):
@@ -1667,7 +1991,7 @@ class SubscriptionApiTests(APITestCase):
             owner_id=self.other_user_id,
             status_value=UserSubscription.Status.ACTIVE,
         )
-        session = self.checkout_session(foreign)
+        session = self.checkout_session(foreign, id="cs_test_foreign")
         with patch(
             "core.services.payments.verification.retrieve_checkout_session",
             return_value=session,
@@ -1686,6 +2010,7 @@ class SubscriptionApiTests(APITestCase):
         subscription = self.create_stripe_subscription()
         session = self.checkout_session(
             subscription,
+            id="cs_test_delayed",
             status="complete",
             payment_status="unpaid",
             subscription=None,
@@ -1711,7 +2036,7 @@ class SubscriptionApiTests(APITestCase):
         subscription = self.create_stripe_subscription()
         subscription.provider_subscription_id = "sub_delayed_checkout"
         subscription.save(update_fields=["provider_subscription_id", "updated_at"])
-        session = self.checkout_session(subscription)
+        session = self.checkout_session(subscription, id="cs_test_delayed")
         with patch(
             "core.services.payments.verification.retrieve_checkout_session",
             return_value=session,
@@ -1726,14 +2051,14 @@ class SubscriptionApiTests(APITestCase):
 
         subscription.status = UserSubscription.Status.ACTIVE
         subscription.save(update_fields=["status", "updated_at"])
-        PaymentTransaction.objects.create(
-            subscription=subscription,
-            provider="stripe",
-            provider_transaction_id="in_delayed_checkout",
-            status=PaymentTransaction.Status.SUCCEEDED,
-            amount_minor=24000,
-            currency="USD",
+        payment = PaymentTransaction.objects.get(
+            checkout_session_id="cs_test_delayed"
         )
+        payment.provider_invoice_id = "in_delayed_checkout"
+        payment.status = PaymentTransaction.Status.SUCCEEDED
+        payment.amount_minor = 24000
+        payment.currency = "USD"
+        payment.save()
         with patch(
             "core.services.payments.verification.retrieve_checkout_session",
             return_value=session,
@@ -1760,6 +2085,7 @@ class SubscriptionApiTests(APITestCase):
         )
         session = self.checkout_session(
             subscription,
+            id="cs_failed_checkout",
             payment_status="unpaid",
             subscription=None,
         )
@@ -2009,6 +2335,10 @@ class SubscriptionApiTests(APITestCase):
         self.assertEqual(
             UserSubscription.objects.get().plan_id,
             "pro",
+        )
+        self.assertEqual(
+            StripeCheckoutAttempt.objects.get().checkout_session_id,
+            session.id,
         )
 
     def test_mobile_checkout_uses_configured_expo_return_url(self):
@@ -2884,6 +3214,8 @@ class StripeWebhookApiTests(APITestCase):
                     "metadata": {
                         "ibda_subscription_id": str(subscription.id),
                         "ibda_owner_id": str(subscription.owner_id),
+                        "plan_id": subscription.plan_id,
+                        "billing_interval": subscription.billing_interval,
                     },
                     "items": {
                         "data": [{"price": {"id": price_id}}],
@@ -3151,6 +3483,8 @@ class StripeWebhookApiTests(APITestCase):
                     "metadata": {
                         "ibda_subscription_id": str(subscription.id),
                         "ibda_owner_id": str(subscription.owner_id),
+                        "plan_id": subscription.plan_id,
+                        "billing_interval": subscription.billing_interval,
                     },
                 }
             },
@@ -3162,8 +3496,17 @@ class StripeWebhookApiTests(APITestCase):
         subscription.refresh_from_db()
         self.assertEqual(subscription.status, UserSubscription.Status.PENDING)
         self.assertEqual(subscription.provider_subscription_id, "sub_webhook_test")
+        payment = PaymentTransaction.objects.get(
+            checkout_session_id="cs_completed_test"
+        )
+        self.assertEqual(payment.status, PaymentTransaction.Status.SUCCEEDED)
+        self.assertEqual(
+            payment.transaction_type,
+            PaymentTransaction.TransactionType.INITIAL_PAYMENT,
+        )
+        self.assertEqual(payment.subscription_id, subscription.id)
 
-    def test_unpaid_checkout_completion_does_not_activate_or_record_payment(self):
+    def test_unpaid_checkout_completion_is_pending_and_does_not_activate(self):
         subscription = self.create_stripe_subscription()
         event = {
             "id": "evt_checkout_unpaid",
@@ -3181,6 +3524,8 @@ class StripeWebhookApiTests(APITestCase):
                     "metadata": {
                         "ibda_subscription_id": str(subscription.id),
                         "ibda_owner_id": str(subscription.owner_id),
+                        "plan_id": subscription.plan_id,
+                        "billing_interval": subscription.billing_interval,
                     },
                 }
             },
@@ -3195,7 +3540,10 @@ class StripeWebhookApiTests(APITestCase):
             subscription.provider_subscription_id,
             "sub_checkout_unpaid",
         )
-        self.assertFalse(PaymentTransaction.objects.exists())
+        payment = PaymentTransaction.objects.get(
+            checkout_session_id="cs_checkout_unpaid"
+        )
+        self.assertEqual(payment.status, PaymentTransaction.Status.PENDING)
 
     def test_async_checkout_failure_records_failed_payment_without_activation(self):
         subscription = self.create_stripe_subscription()
@@ -3217,6 +3565,8 @@ class StripeWebhookApiTests(APITestCase):
                     "metadata": {
                         "ibda_subscription_id": str(subscription.id),
                         "ibda_owner_id": str(subscription.owner_id),
+                        "plan_id": subscription.plan_id,
+                        "billing_interval": subscription.billing_interval,
                     },
                 }
             },
@@ -3279,6 +3629,125 @@ class StripeWebhookApiTests(APITestCase):
             subscription.status,
             UserSubscription.Status.PAST_DUE,
         )
+
+    def test_out_of_order_invoice_event_cannot_overwrite_success(self):
+        subscription = self.create_stripe_subscription(
+            status_value=UserSubscription.Status.ACTIVE,
+        )
+        subscription.provider_subscription_id = "sub_invoice_order_test"
+        subscription.save(update_fields=["provider_subscription_id", "updated_at"])
+        invoice_data = {
+            "id": "in_invoice_order_test",
+            "subscription": "sub_invoice_order_test",
+            "customer": "cus_webhook_test",
+            "amount_paid": 1250,
+            "amount_due": 1250,
+            "currency": "usd",
+        }
+        with self.settings(STRIPE_WEBHOOK_SECRET=self.signing_secret):
+            self.post_stripe_event(
+                {
+                    "id": "evt_invoice_order_paid",
+                    "type": "invoice.paid",
+                    "created": 2_000_000_010,
+                    "data": {"object": invoice_data},
+                }
+            )
+            stale_failure = self.post_stripe_event(
+                {
+                    "id": "evt_invoice_order_failed",
+                    "type": "invoice.payment_failed",
+                    "created": 2_000_000_000,
+                    "data": {"object": invoice_data},
+                }
+            )
+
+        self.assertEqual(stale_failure.status_code, status.HTTP_200_OK)
+        payment = PaymentTransaction.objects.get(
+            provider_invoice_id="in_invoice_order_test"
+        )
+        self.assertEqual(payment.status, PaymentTransaction.Status.SUCCEEDED)
+
+    def test_duplicate_invoice_webhook_does_not_duplicate_payment(self):
+        subscription = self.create_stripe_subscription(
+            status_value=UserSubscription.Status.ACTIVE,
+        )
+        subscription.provider_subscription_id = "sub_invoice_duplicate_test"
+        subscription.save(update_fields=["provider_subscription_id", "updated_at"])
+        event = {
+            "id": "evt_invoice_duplicate_test",
+            "type": "invoice.paid",
+            "created": int(time.time()),
+            "data": {
+                "object": {
+                    "id": "in_invoice_duplicate_test",
+                    "subscription": "sub_invoice_duplicate_test",
+                    "customer": "cus_webhook_test",
+                    "amount_paid": 1200,
+                    "currency": "usd",
+                }
+            },
+        }
+        with self.settings(STRIPE_WEBHOOK_SECRET=self.signing_secret):
+            first = self.post_stripe_event(event)
+            duplicate = self.post_stripe_event(event)
+
+        self.assertEqual(first.status_code, status.HTTP_200_OK)
+        self.assertEqual(duplicate.status_code, status.HTTP_200_OK)
+        self.assertTrue(duplicate.data["duplicate"])
+        self.assertEqual(PaymentTransaction.objects.count(), 1)
+
+    def test_refund_webhook_records_refund_without_overwriting_partial_payment(self):
+        subscription = self.create_stripe_subscription(
+            status_value=UserSubscription.Status.ACTIVE,
+        )
+        original = PaymentTransaction.objects.create(
+            subscription=subscription,
+            provider="stripe",
+            provider_transaction_id="in_refund_test",
+            provider_customer_id="cus_webhook_test",
+            provider_payment_intent_id="pi_refund_test",
+            provider_charge_id="ch_refund_test",
+            status=PaymentTransaction.Status.SUCCEEDED,
+            amount_minor=5000,
+            currency="USD",
+        )
+        event = {
+            "id": "evt_refund_test",
+            "type": "charge.refunded",
+            "created": int(time.time()),
+            "data": {
+                "object": {
+                    "id": "ch_refund_test",
+                    "customer": "cus_webhook_test",
+                    "payment_intent": "pi_refund_test",
+                    "amount": 5000,
+                    "amount_refunded": 1000,
+                    "refunds": {
+                        "data": [
+                            {
+                                "id": "re_refund_test",
+                                "status": "succeeded",
+                                "amount": 1000,
+                                "currency": "usd",
+                                "created": int(time.time()),
+                            }
+                        ]
+                    },
+                }
+            },
+        }
+        with self.settings(STRIPE_WEBHOOK_SECRET=self.signing_secret):
+            response = self.post_stripe_event(event)
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        original.refresh_from_db()
+        refund = PaymentTransaction.objects.get(
+            provider_transaction_id="re_refund_test"
+        )
+        self.assertEqual(original.status, PaymentTransaction.Status.SUCCEEDED)
+        self.assertEqual(refund.status, PaymentTransaction.Status.REFUNDED)
+        self.assertEqual(refund.transaction_type, PaymentTransaction.TransactionType.REFUND)
 
     def test_old_subscription_event_cannot_reactivate_a_canceled_subscription(
         self,

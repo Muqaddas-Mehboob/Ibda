@@ -19,7 +19,9 @@ import {
   getSubscriptionPlans,
   getUserSubscription,
   switchSubscriptionPlan,
+  verifyCheckoutSession,
   type SubscriptionPlansResponse,
+  type PaymentTransaction,
   type UserSubscriptionResponse,
 } from "../services/subscription.service";
 import type { BillingInterval, PlanId } from "../data/planCatalog";
@@ -51,6 +53,16 @@ function formatAmount(amountMinor: number | null, currency: string) {
   }
 }
 
+function formatTransactionType(type: PaymentTransaction["transaction_type"]) {
+  return {
+    initial_payment: "Initial payment",
+    renewal: "Renewal",
+    plan_change: "Plan change",
+    refund: "Refund",
+    other: "Payment",
+  }[type];
+}
+
 function Section({
   title,
   children,
@@ -70,9 +82,14 @@ function Section({
 
 export function SubscriptionScreen() {
   const router = useRouter();
-  const params = useLocalSearchParams<{ checkout?: string | string[] }>();
+  const params = useLocalSearchParams<{
+    checkout?: string | string[];
+    session_id?: string | string[];
+  }>();
   const checkoutReturn =
     typeof params.checkout === "string" ? params.checkout : null;
+  const checkoutSessionId =
+    typeof params.session_id === "string" ? params.session_id : null;
   const [plans, setPlans] = useState<SubscriptionPlansResponse | null>(null);
   const [account, setAccount] = useState<UserSubscriptionResponse | null>(null);
   const [loading, setLoading] = useState(true);
@@ -81,7 +98,7 @@ export function SubscriptionScreen() {
   const [actionError, setActionError] = useState("");
   const [actionMessage, setActionMessage] = useState("");
   const [checkoutSyncStatus, setCheckoutSyncStatus] = useState<
-    "syncing" | "confirmed" | "pending" | "error"
+    "syncing" | "confirmed" | "pending" | "failed" | "error"
   >("syncing");
   const [savingAction, setSavingAction] = useState<
     "cancel" | "switch" | "portal" | null
@@ -131,15 +148,33 @@ export function SubscriptionScreen() {
 
     const refreshCheckoutHistory = async () => {
       try {
+        const verification = checkoutSessionId
+          ? await verifyCheckoutSession(checkoutSessionId)
+          : null;
         const response = await getUserSubscription();
         if (!active) return;
         setAccount(response);
         const subscription = response.subscription;
+        const matchingCheckout = response.transactions.find(
+          (item) =>
+            checkoutSessionId &&
+            item.checkout_session_id === checkoutSessionId
+        );
+        if (
+          verification?.status === "failed" ||
+          matchingCheckout?.status === "failed"
+        ) {
+          setCheckoutSyncStatus("failed");
+          return;
+        }
         const paymentConfirmed = Boolean(
-          subscription?.status === "active" &&
+          verification?.status === "success" &&
+            verification.payment_status === "succeeded"
+        ) || Boolean(
+          checkoutSessionId &&
             response.transactions.some(
               (item) =>
-                item.subscription_id === subscription.id &&
+                item.checkout_session_id === checkoutSessionId &&
                 item.status === "succeeded"
             )
         );
@@ -167,7 +202,7 @@ export function SubscriptionScreen() {
       active = false;
       if (timer) clearTimeout(timer);
     };
-  }, [checkoutReturn]);
+  }, [checkoutReturn, checkoutSessionId]);
   const currentPayment = account?.subscription
     ? account.transactions.find(
         (item) =>
@@ -392,6 +427,8 @@ export function SubscriptionScreen() {
                 ? "Payment confirmed. Your subscription and payment history have been refreshed."
                 : checkoutSyncStatus === "pending"
                   ? "Checkout returned to Billing. Payment history will update when Stripe confirms payment. You can pull down to refresh; you do not need to pay again."
+                  : checkoutSyncStatus === "failed"
+                    ? "Checkout did not complete successfully. No successful payment was recorded. Review payment history below or start a new checkout."
                   : checkoutSyncStatus === "error"
                     ? "Could not refresh billing right now. Pull down to refresh your subscription and payment history. You do not need to pay again."
                     : "Checkout returned to Billing. Refreshing your subscription and payment history from the backend."}
@@ -859,10 +896,12 @@ export function SubscriptionScreen() {
                       index ? "border-t border-[#EAE4DC]" : ""
                     }`}
                   >
-                    <Text className="font-semibold capitalize text-[#24221F]">
-                      {plans.plans.find((plan) => plan.id === item.plan_id)
-                        ?.name ?? item.plan_id}{" "}
-                      · {item.billing_interval}
+                    <Text className="font-semibold text-[#24221F]">
+                      {item.plan_name ||
+                        plans.plans.find((plan) => plan.id === item.plan_id)
+                          ?.name ||
+                        item.plan_id}{" "}
+                      · {formatTransactionType(item.transaction_type)} · {item.billing_interval}
                     </Text>
                     <View className="mt-2 flex-row items-center justify-between gap-3">
                       <Text className="text-sm font-semibold capitalize text-[#51483F]">
@@ -875,8 +914,25 @@ export function SubscriptionScreen() {
                       ) : null}
                     </View>
                     <Text className="mt-1 text-sm text-[#827970]">
-                      {formatDate(item.occurred_at ?? item.created_at)}
+                      {formatDate(item.paid_at ?? item.occurred_at ?? item.created_at)}
                     </Text>
+                    {item.payment_method_brand && item.payment_method_last4 ? (
+                      <Text className="mt-1 text-sm text-[#827970]">
+                        {item.payment_method_brand} ending in {item.payment_method_last4}
+                      </Text>
+                    ) : null}
+                    {item.receipt_url ? (
+                      <Pressable
+                        onPress={() => void Linking.openURL(item.receipt_url)}
+                        accessibilityRole="link"
+                        accessibilityLabel="Open invoice receipt"
+                        className="mt-2 min-h-10 justify-center"
+                      >
+                        <Text className="font-semibold text-[#B94E45]">
+                          View invoice
+                        </Text>
+                      </Pressable>
+                    ) : null}
                   </View>
                 ))
               ) : (

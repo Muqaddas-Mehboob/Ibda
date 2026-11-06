@@ -10,6 +10,7 @@ import {
   getUserSubscription,
   startSubscriptionCheckout,
   switchSubscriptionPlan,
+  verifyCheckoutSession,
 } from "../../services/subscription.service";
 
 const mockPush = jest.fn();
@@ -58,6 +59,7 @@ jest.mock("../../services/subscription.service", () => ({
   getUserSubscription: jest.fn(),
   switchSubscriptionPlan: jest.fn(),
   startSubscriptionCheckout: jest.fn(),
+  verifyCheckoutSession: jest.fn(),
 }));
 
 const plans = {
@@ -136,15 +138,27 @@ function makeAccount(
         ? [
             {
               id: "payment-1",
+              transaction_id: "in_test_payment",
               subscription_id: "subscription-1",
               plan_id: "starter",
+              plan_name: "Starter",
               billing_interval: "monthly" as const,
+              transaction_type: "initial_payment" as const,
               subscription_status: "active" as const,
               status: "succeeded" as const,
               amount_minor: 1200,
               currency: "USD",
+              checkout_session_id: "cs_test_verified",
+              payment_intent_id: "pi_test_payment",
+              invoice_id: "in_test_payment",
+              payment_method_type: "",
+              payment_method_brand: "",
+              payment_method_last4: "",
+              receipt_url: "",
               occurred_at: "2026-11-02T08:00:00Z",
+              paid_at: "2026-11-02T08:00:00Z",
               created_at: "2026-11-02T08:00:00Z",
+              updated_at: "2026-11-02T08:00:00Z",
             },
           ]
         : [],
@@ -263,7 +277,11 @@ describe("SubscriptionScreen", () => {
   });
 
   it("refreshes billing and displays webhook-confirmed payment history after checkout", async () => {
-    mockParams = { checkout: "success" };
+    mockParams = { checkout: "success", session_id: "cs_test_verified" };
+    jest.mocked(verifyCheckoutSession).mockResolvedValue({
+      status: "success",
+      payment_status: "succeeded",
+    });
     subscriptionRequest.mockResolvedValue(makeAccount("active"));
 
     await render(<SubscriptionScreen />);
@@ -277,6 +295,7 @@ describe("SubscriptionScreen", () => {
     expect(screen.getAllByText("succeeded").length).toBeGreaterThan(0);
     expect(screen.getAllByText("$12.00").length).toBeGreaterThan(0);
     expect(subscriptionRequest).toHaveBeenCalled();
+    expect(verifyCheckoutSession).toHaveBeenCalledWith("cs_test_verified");
   });
 });
 
@@ -311,7 +330,7 @@ describe("PricingScreen", () => {
 
     expect(mockReplace).toHaveBeenCalledWith({
       pathname: "/subscription",
-      params: { checkout: "success" },
+      params: { checkout: "success", session_id: "cs_test_checkout" },
     });
   });
 });

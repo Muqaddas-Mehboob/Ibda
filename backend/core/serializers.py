@@ -12,6 +12,7 @@ from .models import (
     UserSubscription,
 )
 from .services.social_platforms import publishing_available
+from .services.payments.catalog import PLAN_DEFINITIONS
 
 
 class BrandVoiceSerializer(serializers.ModelSerializer):
@@ -440,32 +441,70 @@ class UserSubscriptionSerializer(serializers.ModelSerializer):
 
 
 class PaymentTransactionSerializer(serializers.ModelSerializer):
-    subscription_id = serializers.UUIDField(read_only=True)
-    plan_id = serializers.CharField(source="subscription.plan_id", read_only=True)
-    billing_interval = serializers.CharField(
-        source="subscription.billing_interval",
+    transaction_id = serializers.CharField(
+        source="provider_transaction_id",
         read_only=True,
     )
+    subscription_id = serializers.UUIDField(read_only=True)
+    plan_id = serializers.SerializerMethodField()
+    plan_name = serializers.SerializerMethodField()
+    billing_interval = serializers.SerializerMethodField()
     subscription_status = serializers.CharField(
         source="subscription.status",
         read_only=True,
     )
 
+    def get_plan_id(self, obj):
+        return obj.plan_id or obj.subscription.plan_id
+
+    def get_plan_name(self, obj):
+        if obj.plan_name:
+            return obj.plan_name
+        plan_id = self.get_plan_id(obj)
+        return next(
+            (name for configured_id, name in PLAN_DEFINITIONS if configured_id == plan_id),
+            plan_id,
+        )
+
+    def get_billing_interval(self, obj):
+        return obj.billing_interval or obj.subscription.billing_interval
+
     class Meta:
         model = PaymentTransaction
         fields = [
             "id",
+            "transaction_id",
             "subscription_id",
             "plan_id",
+            "plan_name",
             "billing_interval",
+            "transaction_type",
             "subscription_status",
             "status",
             "amount_minor",
             "currency",
+            "checkout_session_id",
+            "payment_intent_id",
+            "invoice_id",
+            "payment_method_type",
+            "payment_method_brand",
+            "payment_method_last4",
+            "receipt_url",
             "occurred_at",
+            "paid_at",
             "created_at",
+            "updated_at",
         ]
         read_only_fields = fields
+
+    payment_intent_id = serializers.CharField(
+        source="provider_payment_intent_id",
+        read_only=True,
+    )
+    invoice_id = serializers.CharField(
+        source="provider_invoice_id",
+        read_only=True,
+    )
 
 
 class CheckoutRequestSerializer(serializers.Serializer):

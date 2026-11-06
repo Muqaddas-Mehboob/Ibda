@@ -1,14 +1,28 @@
 
 import { useEffect, useState } from "react";
-import { ActivityIndicator, Pressable, ScrollView, Text, View } from "react-native";
+import {
+  ActivityIndicator,
+  Alert,
+  Pressable,
+  ScrollView,
+  Text,
+  View,
+} from "react-native";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { getBrandVoice, type BrandVoice } from "../services/brandMemory.service";
+import {
+  deleteBrand,
+  getBrand,
+} from "../../brand/services/brand.service";
+import { confirmAsync } from "../../../lib/confirm";
 
 export function BrandVoiceBlueprintScreen() {
   const { brandId } = useLocalSearchParams<{ brandId: string }>();
   const router = useRouter();
   const [voice, setVoice] = useState<BrandVoice | null>(null);
+  const [brandName, setBrandName] = useState("");
   const [loading, setLoading] = useState(true);
+  const [deleting, setDeleting] = useState(false);
   const [error, setError] = useState("");
 
   useEffect(() => {
@@ -17,11 +31,56 @@ export function BrandVoiceBlueprintScreen() {
       setLoading(false);
       return;
     }
-    getBrandVoice(brandId)
-      .then(setVoice)
-      .catch((e) => setError(e instanceof Error ? e.message : "Unable to load blueprint."))
+    Promise.all([getBrandVoice(brandId), getBrand(brandId)])
+      .then(([loadedVoice, brand]) => {
+        setVoice(loadedVoice);
+        setBrandName(brand.name);
+      })
+      .catch((e) =>
+        setError(e instanceof Error ? e.message : "Unable to load blueprint.")
+      )
       .finally(() => setLoading(false));
   }, [brandId]);
+
+  const deleteCurrentBrand = async () => {
+    if (!brandId || deleting) return;
+
+    const confirmed = await confirmAsync(
+      "Delete this brand?",
+      `"${brandName || "This brand"}" and its brand voice, content, approvals, schedules and notifications will be permanently deleted. This can't be undone.`,
+      {
+        confirmText: "Delete brand",
+        destructive: true,
+      }
+    );
+    if (!confirmed) return;
+
+    setDeleting(true);
+    setError("");
+    try {
+      await deleteBrand(brandId);
+      const deletedName = brandName || "Your brand";
+      setVoice(null);
+      setBrandName("");
+      Alert.alert(
+        "Brand deleted",
+        `"${deletedName}" and its brand-specific data were permanently deleted.`
+      );
+      router.dismissTo({
+        pathname: "/brand-memory",
+        params: { deleted: "1" },
+      });
+    } catch (e) {
+      Alert.alert(
+        "Couldn’t delete brand",
+        e instanceof Error
+          ? e.message
+          : "We couldn't delete this brand. Nothing was removed, so you can try again."
+      );
+    } finally {
+      setDeleting(false);
+    }
+  };
 
   const item = (title: string, value?: string) => (
     <View className="mb-4 rounded-2xl border border-[#EAE4DC] bg-white p-5" key={title}>
@@ -67,9 +126,23 @@ export function BrandVoiceBlueprintScreen() {
                   params: { brandId },
                 })
               }
-              className="mb-6 items-center rounded-full bg-[#FF6B5F] py-4"
+              className="mb-3 items-center rounded-full bg-[#FF6B5F] py-4"
             >
               <Text className="font-bold text-white">Edit brand voice</Text>
+            </Pressable>
+
+            <Pressable
+              disabled={deleting}
+              onPress={() => void deleteCurrentBrand()}
+              accessibilityRole="button"
+              accessibilityLabel="Delete current brand. Permanently delete this brand."
+              className={`mb-6 items-center rounded-full border border-[#E0B4AE] bg-white py-4 ${
+                deleting ? "opacity-60" : ""
+              }`}
+            >
+              <Text className="font-bold text-[#B04438]">
+                {deleting ? "Deleting brand..." : "Delete Current Brand"}
+              </Text>
             </Pressable>
           </>
         ) : null}

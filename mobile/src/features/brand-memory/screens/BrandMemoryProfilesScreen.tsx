@@ -1,6 +1,7 @@
 import { useCallback, useState } from "react";
 import {
   ActivityIndicator,
+  Alert,
   Pressable,
   RefreshControl,
   ScrollView,
@@ -17,14 +18,20 @@ import {
   type BrandMemoryProfile,
 } from "../services/brandMemory.service";
 import { BottomNavigation } from "../../../components/navigation/BottomNavigation";
+import { deleteAllBrands } from "../../brand/services/brand.service";
+import { confirmAsync } from "../../../lib/confirm";
 
 export function BrandMemoryProfilesScreen() {
   const router = useRouter();
-  const { created } = useLocalSearchParams<{ created?: string }>();
+  const { created, deleted } = useLocalSearchParams<{
+    created?: string;
+    deleted?: string;
+  }>();
   const [brands, setBrands] = useState<BrandMemoryProfile[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState("");
+  const [deleting, setDeleting] = useState(false);
 
   const load = useCallback(async (isRefresh = false) => {
     if (isRefresh) setRefreshing(true);
@@ -50,6 +57,42 @@ export function BrandMemoryProfilesScreen() {
       void load();
     }, [load])
   );
+  const deleteAll = async () => {
+          if (deleting) return;
+  
+          const confirmed = await confirmAsync(
+              "Delete all brands?",
+              "Every brand in your account and all of their brand-specific data — brand voices, content, approvals, schedules and notifications — will be permanently deleted. This can't be undone.",
+              {
+                  confirmText: "Delete all brands",
+                  destructive: true,
+              }
+          );
+          if (!confirmed) return;
+  
+          setDeleting(true);
+          setError("");
+          try {
+              await deleteAllBrands();
+              Alert.alert(
+                  "Brands deleted",
+                  "All of your brands and their brand-specific data were permanently deleted."
+              );
+              router.dismissTo({
+                  pathname: "/brand-memory",
+                  params: { deleted: "all" },
+              });
+          } catch (e) {
+              Alert.alert(
+                  "Couldn’t delete brands",
+                  e instanceof Error
+                      ? e.message
+                      : "We couldn't delete your brands. Nothing was removed, so you can try again."
+              );
+          } finally {
+              setDeleting(false);
+          }
+      };
 
   return (
     
@@ -103,6 +146,30 @@ export function BrandMemoryProfilesScreen() {
             </Text>
           </View>
         )}
+
+        {deleted && (
+          <View className="mb-6 rounded-2xl border border-[#BBD8C3] bg-[#EFF7F0] p-4">
+            <Text className="font-semibold text-[#287D54]">
+              {deleted === "all"
+                ? "All your brands were deleted successfully."
+                : "Brand deleted successfully."}
+            </Text>
+          </View>
+        )}
+
+         <Pressable
+                            disabled={deleting}
+                            onPress={() => void deleteAll()}
+                            accessibilityRole="button"
+                            accessibilityLabel="Delete all brands. Permanently delete every brand in your account."
+                            className={`mt-6 items-center rounded-full border border-[#E0B4AE] bg-white py-4 ${
+                                deleting ? "opacity-60" : ""
+                            }`}
+                        >
+                            <Text className="font-bold text-[#B04438]">
+                                {deleting ? "Deleting all brands..." : "Delete All Brands"}
+                            </Text>
+                        </Pressable>
 
         <Text className="mb-4 text-xl font-bold text-[#24221F]">
           Your brand voices

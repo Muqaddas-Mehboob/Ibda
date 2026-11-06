@@ -283,7 +283,10 @@ export function PricingScreen({ interval }: { interval: BillingInterval }) {
       } else if (returnStatus === "success") {
         router.replace({
           pathname: "/subscription",
-          params: { checkout: "success" },
+          params: {
+            checkout: "success",
+            session_id: checkout.session_id,
+          },
         });
       } else {
         router.replace("/subscription");

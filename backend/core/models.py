@@ -399,6 +399,13 @@ class PaymentTransaction(TimeStampedModel):
         FAILED = "failed", "Failed"
         REFUNDED = "refunded", "Refunded"
 
+    class TransactionType(models.TextChoices):
+        INITIAL_PAYMENT = "initial_payment", "Initial payment"
+        RENEWAL = "renewal", "Renewal"
+        PLAN_CHANGE = "plan_change", "Plan change"
+        REFUND = "refund", "Refund"
+        OTHER = "other", "Other"
+
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     subscription = models.ForeignKey(
         UserSubscription,
@@ -407,6 +414,36 @@ class PaymentTransaction(TimeStampedModel):
     )
     provider = models.CharField(max_length=40)
     provider_transaction_id = models.CharField(max_length=255)
+    provider_customer_id = models.CharField(max_length=255, blank=True)
+    checkout_session_id = models.CharField(
+        max_length=255,
+        blank=True,
+        db_index=True,
+    )
+    provider_payment_intent_id = models.CharField(
+        max_length=255,
+        blank=True,
+        db_index=True,
+    )
+    provider_invoice_id = models.CharField(
+        max_length=255,
+        blank=True,
+        db_index=True,
+    )
+    provider_subscription_id = models.CharField(max_length=255, blank=True)
+    provider_charge_id = models.CharField(max_length=255, blank=True)
+    plan_id = models.CharField(max_length=100, blank=True)
+    plan_name = models.CharField(max_length=100, blank=True)
+    billing_interval = models.CharField(
+        max_length=10,
+        choices=UserSubscription.BillingInterval.choices,
+        default=UserSubscription.BillingInterval.NONE,
+    )
+    transaction_type = models.CharField(
+        max_length=20,
+        choices=TransactionType.choices,
+        default=TransactionType.OTHER,
+    )
     status = models.CharField(
         max_length=20,
         choices=Status.choices,
@@ -416,6 +453,13 @@ class PaymentTransaction(TimeStampedModel):
     amount_minor = models.PositiveBigIntegerField(null=True, blank=True)
     currency = models.CharField(max_length=3, blank=True)
     occurred_at = models.DateTimeField(null=True, blank=True)
+    paid_at = models.DateTimeField(null=True, blank=True)
+    payment_method_type = models.CharField(max_length=32, blank=True)
+    payment_method_brand = models.CharField(max_length=32, blank=True)
+    payment_method_last4 = models.CharField(max_length=4, blank=True)
+    receipt_url = models.URLField(max_length=1000, blank=True)
+    provider_event_id = models.CharField(max_length=255, blank=True)
+    provider_event_created_at = models.DateTimeField(null=True, blank=True)
 
     class Meta:
         ordering = ["-created_at"]
@@ -423,7 +467,25 @@ class PaymentTransaction(TimeStampedModel):
             models.UniqueConstraint(
                 fields=["provider", "provider_transaction_id"],
                 name="unique_provider_payment_transaction",
-            )
+            ),
+            models.UniqueConstraint(
+                fields=["provider", "provider_invoice_id"],
+                condition=~models.Q(provider_invoice_id="")
+                & ~models.Q(transaction_type="refund"),
+                name="unique_provider_payment_invoice",
+            ),
+            models.UniqueConstraint(
+                fields=["provider", "provider_payment_intent_id"],
+                condition=~models.Q(provider_payment_intent_id="")
+                & ~models.Q(transaction_type="refund"),
+                name="unique_provider_payment_intent",
+            ),
+            models.UniqueConstraint(
+                fields=["provider", "checkout_session_id"],
+                condition=~models.Q(checkout_session_id="")
+                & ~models.Q(transaction_type="refund"),
+                name="unique_provider_checkout_payment",
+            ),
         ]
         indexes = [models.Index(fields=["subscription", "status"])]
 

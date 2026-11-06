@@ -6,7 +6,7 @@ from django.db import IntegrityError, transaction
 from django.utils import timezone
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
-from core.models import UserSubscription
+from core.models import StripeCheckoutAttempt, UserSubscription
 
 from .catalog import (
     get_checkout_redirect_urls,
@@ -34,6 +34,52 @@ class SubscriptionAlreadyExists(Exception):
         self.subscription = subscription
         self.checkout_session_id = checkout_session_id
         super().__init__(reason)
+
+
+def _save_checkout_attempt(
+    *,
+    session,
+    subscription,
+    customer_id,
+    price_id,
+    plan_id,
+    billing_interval,
+):
+    attempt, _ = StripeCheckoutAttempt.objects.get_or_create(
+        checkout_session_id=session.id,
+        defaults={
+            "owner_id": subscription.owner_id,
+            "subscription": subscription,
+            "customer_id": customer_id,
+            "plan_id": plan_id,
+            "price_id": price_id,
+            "billing_interval": billing_interval,
+            "stripe_created_at": (
+                datetime.fromtimestamp(
+                    session.created,
+                    tz=datetime_timezone.utc,
+                )
+                if getattr(session, "created", None)
+                else None
+            ),
+            "expires_at": (
+                datetime.fromtimestamp(
+                    session.expires_at,
+                    tz=datetime_timezone.utc,
+                )
+                if getattr(session, "expires_at", None)
+                else None
+            ),
+        },
+    )
+    if (
+        attempt.owner_id != subscription.owner_id
+        or attempt.subscription_id != subscription.id
+        or attempt.customer_id != customer_id
+        or attempt.plan_id != plan_id
+        or attempt.billing_interval != billing_interval
+    ):
+        raise CheckoutUnavailable("checkout_session_conflict")
 
 
 def start_stripe_checkout(
@@ -236,6 +282,14 @@ def start_stripe_checkout(
                                 "checkout_session_unavailable",
                                 subscription,
                             )
+                        _save_checkout_attempt(
+                            session=checkout_session,
+                            subscription=subscription,
+                            customer_id=subscription.provider_customer_id,
+                            price_id=price_id,
+                            plan_id=plan_id,
+                            billing_interval=billing_interval,
+                        )
                         return checkout_session
                 elif getattr(checkout_session, "status", None) == "complete":
                     raise SubscriptionAlreadyExists(
@@ -358,6 +412,14 @@ def start_stripe_checkout(
             "checkout_session_expires_at",
             "updated_at",
         ]
+    )
+    _save_checkout_attempt(
+        session=session,
+        subscription=subscription,
+        customer_id=customer_id,
+        price_id=price_id,
+        plan_id=plan_id,
+        billing_interval=billing_interval,
     )
     return session
 

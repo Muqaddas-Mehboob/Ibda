@@ -86,13 +86,29 @@ export type PaymentTransaction = {
   id: string;
   subscription_id: string;
   plan_id: string;
+  plan_name: string;
   billing_interval: "monthly" | "annual" | "none";
+  transaction_type:
+    | "initial_payment"
+    | "renewal"
+    | "plan_change"
+    | "refund"
+    | "other";
   subscription_status: UserSubscription["status"];
   status: "pending" | "succeeded" | "failed" | "refunded";
   amount_minor: number | null;
   currency: string;
+  checkout_session_id: string;
+  payment_intent_id: string;
+  invoice_id: string;
+  payment_method_type: string;
+  payment_method_brand: string;
+  payment_method_last4: string;
+  receipt_url: string;
   occurred_at: string | null;
+  paid_at: string | null;
   created_at: string;
+  updated_at: string;
 };
 
 export type UserSubscriptionResponse = {
@@ -290,6 +306,18 @@ export function getSubscriptionPlans(
 
 export function getUserSubscription(): Promise<UserSubscriptionResponse> {
   return request("/subscription/me/");
+}
+
+export type CheckoutVerificationResponse = {
+  status: "success" | "pending" | "failed";
+  payment_status: "succeeded" | "pending" | "failed" | "no_payment_required";
+};
+
+export function verifyCheckoutSession(
+  sessionId: string
+): Promise<CheckoutVerificationResponse> {
+  const query = new URLSearchParams({ session_id: sessionId });
+  return request(`/subscription/checkout/verify/?${query.toString()}`);
 }
 
 export function startSubscriptionCheckout(

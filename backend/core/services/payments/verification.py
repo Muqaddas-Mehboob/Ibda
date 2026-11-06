@@ -1,15 +1,16 @@
-from core.models import PaymentTransaction, UserSubscription
+from datetime import datetime, timezone as datetime_timezone
 
+from django.db.models import Q
+
+from core.models import PaymentTransaction, UserSubscription
+from core.models import StripeCheckoutAttempt
+
+from .catalog import PLAN_DEFINITIONS
 from .stripe_gateway import retrieve_checkout_session
+from .transactions import StripeTransactionConflict, upsert_stripe_transaction
 
 
 STRIPE_PROVIDER = "stripe"
-SUCCESS_SUBSCRIPTION_STATUSES = {
-    UserSubscription.Status.ACTIVE,
-    UserSubscription.Status.PAST_DUE,
-    UserSubscription.Status.CANCELED,
-    UserSubscription.Status.EXPIRED,
-}
 
 
 class CheckoutSessionNotFound(Exception):
@@ -37,8 +38,17 @@ def _metadata(value):
     return {}
 
 
+def _plan_name(plan_id):
+    return next(
+        (name for configured_id, name in PLAN_DEFINITIONS if configured_id == plan_id),
+        "",
+    )
+
+
 def verify_checkout_session(*, owner_id, session_id):
     session = retrieve_checkout_session(session_id)
+    if _identifier(session) != session_id:
+        raise CheckoutSessionNotFound
     metadata = _metadata(session)
     local_subscription_id = metadata.get("ibda_subscription_id")
 
@@ -74,28 +84,144 @@ def verify_checkout_session(*, owner_id, session_id):
     ):
         raise CheckoutSessionNotFound
 
+    attempt = StripeCheckoutAttempt.objects.filter(
+        checkout_session_id=session_id,
+        owner_id=owner_id,
+        subscription=subscription,
+    ).first()
+    if attempt is None:
+        if subscription.checkout_session_id and subscription.checkout_session_id != session_id:
+            raise CheckoutSessionNotFound
+        attempt, _ = StripeCheckoutAttempt.objects.get_or_create(
+            checkout_session_id=session_id,
+            defaults={
+                "owner_id": owner_id,
+                "subscription": subscription,
+                "customer_id": subscription.provider_customer_id,
+                "plan_id": subscription.plan_id,
+                "price_id": "",
+                "billing_interval": subscription.billing_interval,
+                "stripe_created_at": (
+                    datetime.fromtimestamp(
+                        _value(session, "created"),
+                        tz=datetime_timezone.utc,
+                    )
+                    if _value(session, "created")
+                    else None
+                ),
+                "expires_at": (
+                    datetime.fromtimestamp(
+                        _value(session, "expires_at"),
+                        tz=datetime_timezone.utc,
+                    )
+                    if _value(session, "expires_at")
+                    else None
+                ),
+            },
+        )
+        if (
+            attempt.owner_id != owner_id
+            or attempt.subscription_id != subscription.id
+            or attempt.customer_id != subscription.provider_customer_id
+            or attempt.plan_id != subscription.plan_id
+            or attempt.billing_interval != subscription.billing_interval
+        ):
+            raise CheckoutSessionNotFound
+    elif (
+        attempt.customer_id != subscription.provider_customer_id
+        or attempt.plan_id != subscription.plan_id
+        or attempt.billing_interval != subscription.billing_interval
+    ):
+        raise CheckoutSessionNotFound
+
+    if stripe_subscription_id and not subscription.provider_subscription_id:
+        subscription.provider_subscription_id = stripe_subscription_id
+        if not subscription.checkout_session_id:
+            subscription.checkout_session_id = session_id
+        subscription.save(
+            update_fields=[
+                "provider_subscription_id",
+                "checkout_session_id",
+                "updated_at",
+            ]
+        )
+
+    session_status = _value(session, "status")
+    payment_status = _value(session, "payment_status")
+    invoice_id = _identifier(_value(session, "invoice"))
+    payment_intent_id = _identifier(_value(session, "payment_intent"))
+    if session_status == "expired" or (
+        session_status == "complete" and payment_status in ("paid", "unpaid")
+    ):
+        transaction_id = invoice_id or payment_intent_id or session_id
+        transaction_status = (
+            PaymentTransaction.Status.FAILED
+            if session_status == "expired"
+            else (
+                PaymentTransaction.Status.SUCCEEDED
+                if payment_status == "paid"
+                else PaymentTransaction.Status.PENDING
+            )
+        )
+        try:
+            upsert_stripe_transaction(
+                subscription=subscription,
+                transaction_id=transaction_id,
+                values={
+                    "provider_customer_id": customer_id,
+                    "checkout_session_id": session_id,
+                    "provider_payment_intent_id": payment_intent_id or "",
+                    "provider_invoice_id": invoice_id or "",
+                    "provider_subscription_id": stripe_subscription_id or "",
+                    "plan_id": subscription.plan_id,
+                    "plan_name": _plan_name(subscription.plan_id),
+                    "billing_interval": subscription.billing_interval,
+                    "transaction_type": PaymentTransaction.TransactionType.INITIAL_PAYMENT,
+                    "status": transaction_status,
+                    "amount_minor": _value(session, "amount_total"),
+                    "currency": (_value(session, "currency") or "").upper(),
+                    "occurred_at": (
+                        datetime.fromtimestamp(
+                            _value(session, "created"),
+                            tz=datetime_timezone.utc,
+                        )
+                        if _value(session, "created")
+                        else None
+                    ),
+                },
+            )
+        except StripeTransactionConflict as error:
+            raise CheckoutSessionNotFound from error
+
     transactions = PaymentTransaction.objects.filter(
         subscription=subscription,
         provider=STRIPE_PROVIDER,
     )
-    successful_payment = (
-        transactions.filter(status=PaymentTransaction.Status.SUCCEEDED)
-        .order_by("-occurred_at", "-created_at")
-        .first()
+    matching_transactions = transactions.filter(
+        Q(checkout_session_id=session_id)
+        | Q(provider_transaction_id=session_id)
     )
+    if invoice_id:
+        matching_transactions = matching_transactions | transactions.filter(
+            provider_invoice_id=invoice_id
+        )
+    if payment_intent_id:
+        matching_transactions = matching_transactions | transactions.filter(
+            provider_payment_intent_id=payment_intent_id
+        )
+    successful_payment = matching_transactions.filter(
+        status=PaymentTransaction.Status.SUCCEEDED
+    ).order_by("-occurred_at", "-created_at").first()
     latest_transaction = (
-        transactions.order_by("-occurred_at", "-created_at").first()
+        matching_transactions.order_by("-occurred_at", "-created_at").first()
     )
 
-    session_status = _value(session, "status")
-    payment_status = _value(session, "payment_status")
     if session_status == "expired":
         verification_status = "failed"
     elif (
         session_status == "complete"
         and payment_status == "paid"
         and successful_payment is not None
-        and subscription.status in SUCCESS_SUBSCRIPTION_STATUSES
     ):
         verification_status = "success"
     elif (

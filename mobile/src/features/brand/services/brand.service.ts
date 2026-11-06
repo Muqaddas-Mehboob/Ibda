@@ -17,6 +17,11 @@ export type Brand = BrandInput & {
   updated_at: string;
 };
 
+export type BrandDeletionResult = {
+  deleted: number;
+  counts: Record<string, number>;
+};
+
 async function getAccessToken(refresh = false): Promise<string> {
   if (refresh) {
     const {
@@ -118,6 +123,61 @@ export async function createBrand(input: BrandInput): Promise<Brand> {
   });
 
   return parseResponse<Brand>(response);
+}
+
+export async function getBrand(brandId: string): Promise<Brand> {
+  const accessToken = await getAccessToken();
+
+  const response = await fetchWithAuth(`/brands/${brandId}/`, accessToken, {
+    method: "GET",
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+      Accept: "application/json",
+    },
+  });
+
+  return parseResponse<Brand>(response);
+}
+
+export async function deleteAllBrands(): Promise<BrandDeletionResult> {
+  const accessToken = await getAccessToken();
+
+  const response = await fetchWithAuth("/brands/", accessToken, {
+    method: "DELETE",
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+      Accept: "application/json",
+    },
+  });
+
+  return parseDeletionResponse(response);
+}
+
+export async function deleteBrand(
+  brandId: string
+): Promise<BrandDeletionResult> {
+  const accessToken = await getAccessToken();
+
+  const response = await fetchWithAuth(`/brands/${brandId}/`, accessToken, {
+    method: "DELETE",
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+      Accept: "application/json",
+    },
+  });
+
+  return parseDeletionResponse(response);
+}
+
+async function parseDeletionResponse(
+  response: Response
+): Promise<BrandDeletionResult> {
+  // A repeat delete of an already removed brand answers 204.
+  if (response.status === 204) {
+    return { deleted: 0, counts: {} };
+  }
+
+  return parseResponse<BrandDeletionResult>(response);
 }
 
 export async function getBrands(): Promise<Brand[]> {
