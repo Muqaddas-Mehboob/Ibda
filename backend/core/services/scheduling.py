@@ -4,8 +4,11 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 from django.db import IntegrityError, transaction
 from django.utils import timezone
 
-from ..models import ContentPost, ScheduledPost
+from ..models import ContentPost, ScheduledPost, SocialAccount
+from .facebook_publishing import publish_facebook_post
+from .instagram_publishing import publish_instagram_post
 from .notifications import notify_publishing_result
+from .publishing_errors import PublishingError
 from .social_platforms import (
     SCHEDULING_PLATFORM_LABELS,
     publishing_available,
@@ -15,7 +18,16 @@ from .social_platforms import (
 # A publisher must only be registered here once it really publishes to the
 # platform and returns the remote post identifier. Until then posts reach the
 # BLOCKED state instead of being reported as published.
-PUBLISHERS = {}
+PUBLISHERS = {
+    ContentPost.Platform.FACEBOOK: publish_facebook_post,
+    ContentPost.Platform.INSTAGRAM: publish_instagram_post,
+}
+
+# Platforms whose schedules must target one specific connected account.
+ACCOUNT_TARGETED_PLATFORMS = (
+    ContentPost.Platform.FACEBOOK,
+    ContentPost.Platform.INSTAGRAM,
+)
 
 MAX_PUBLISH_ATTEMPTS = 3
 RETRY_BACKOFF_MINUTES = 5
@@ -27,12 +39,6 @@ class SchedulingError(Exception):
         self.code = code
         self.message = message
         self.status_code = status_code
-        super().__init__(message)
-
-
-class PublishingError(Exception):
-    def __init__(self, message, transient=True):
-        self.transient = transient
         super().__init__(message)
 
 
@@ -103,7 +109,94 @@ def _validate_platforms(platforms):
     return unique
 
 
-def schedule_post(*, owner_id, post_id, platforms, scheduled_for, timezone_name):
+def _resolve_facebook_account(owner_id, platforms, social_account_id):
+    """Return the Page a Facebook schedule must publish to.
+
+    A single connected Page is selected automatically; when the user has more
+    than one, the caller has to name the intended Page explicitly so a post can
+    never land on the wrong Page.
+    """
+    if ContentPost.Platform.FACEBOOK not in platforms:
+        return None
+
+    accounts = SocialAccount.objects.filter(
+        owner_id=owner_id,
+        platform=SocialAccount.Platform.FACEBOOK_PAGES,
+        status=SocialAccount.Status.CONNECTED,
+    )
+    if social_account_id:
+        account = accounts.filter(id=social_account_id).first()
+        if account is None:
+            raise SchedulingError(
+                "facebook_page_not_found",
+                "The selected Facebook Page is not connected to this account.",
+                status_code=404,
+            )
+        return account
+
+    candidates = list(accounts[:2])
+    if not candidates:
+        raise SchedulingError(
+            "facebook_page_not_connected",
+            "Connect a Facebook Page before scheduling a Facebook post.",
+            status_code=409,
+        )
+    if len(candidates) > 1:
+        raise SchedulingError(
+            "facebook_page_required",
+            "Choose which Facebook Page should publish this post.",
+            status_code=409,
+        )
+    return candidates[0]
+
+
+def _resolve_instagram_account(owner_id, platforms, social_account_id):
+    """Return the Instagram account an Instagram schedule must publish to."""
+    if ContentPost.Platform.INSTAGRAM not in platforms:
+        return None
+
+    accounts = SocialAccount.objects.filter(
+        owner_id=owner_id,
+        platform=SocialAccount.Platform.INSTAGRAM,
+        status=SocialAccount.Status.CONNECTED,
+    )
+    if social_account_id:
+        account = accounts.filter(id=social_account_id).first()
+        if account is None:
+            raise SchedulingError(
+                "instagram_account_not_found",
+                "The selected Instagram account is not connected to this "
+                "account.",
+                status_code=404,
+            )
+        return account
+
+    candidates = list(accounts[:2])
+    if not candidates:
+        raise SchedulingError(
+            "instagram_account_not_connected",
+            "Connect an Instagram account before scheduling an Instagram post.",
+            status_code=409,
+        )
+    if len(candidates) > 1:
+        raise SchedulingError(
+            "instagram_account_required",
+            "Choose which Instagram account should publish this post.",
+            status_code=409,
+        )
+    return candidates[0]
+
+
+def schedule_post(
+    *,
+    owner_id,
+    post_id,
+    platforms,
+    scheduled_for,
+    timezone_name,
+    social_account_id=None,
+    social_account_ids=None,
+):
     platforms = _validate_platforms(platforms)
     timezone_name = resolve_timezone(timezone_name)
     scheduled_for = validate_scheduled_for(scheduled_for)
@@ -124,6 +217,17 @@ def schedule_post(*, owner_id, post_id, platforms, scheduled_for, timezone_name)
                 status_code=409,
             )
 
+        if (
+            ContentPost.Platform.INSTAGRAM in platforms
+            and not (post.image_url or "").startswith("https://")
+        ):
+            raise SchedulingError(
+                "instagram_image_required",
+                "Upload a public JPEG image before scheduling this Instagram "
+                "post.",
+                status_code=409,
+            )
+
         existing = list(
             ScheduledPost.objects.filter(
                 post=post,
@@ -141,12 +245,33 @@ def schedule_post(*, owner_id, post_id, platforms, scheduled_for, timezone_name)
                 status_code=409,
             )
 
+        account_ids = social_account_ids or {}
+        facebook_account = _resolve_facebook_account(
+            owner_id,
+            platforms,
+            account_ids.get("facebook", social_account_id),
+        )
+        instagram_account = _resolve_instagram_account(
+            owner_id,
+            platforms,
+            account_ids.get("instagram", social_account_id),
+        )
+
         try:
             with transaction.atomic():
                 created = [
                     ScheduledPost.objects.create(
                         post=post,
                         platform=platform,
+                        social_account=(
+                            facebook_account
+                            if platform == ContentPost.Platform.FACEBOOK
+                            else (
+                                instagram_account
+                                if platform == ContentPost.Platform.INSTAGRAM
+                                else None
+                            )
+                        ),
                         scheduled_for=scheduled_for,
                         timezone_name=timezone_name,
                     )
@@ -168,7 +293,12 @@ def schedule_post(*, owner_id, post_id, platforms, scheduled_for, timezone_name)
 
 
 def reschedule_scheduled_post(
-    *, owner_id, scheduled_id, scheduled_for=None, timezone_name=None
+    *,
+    owner_id,
+    scheduled_id,
+    scheduled_for=None,
+    timezone_name=None,
+    social_account_id=None,
 ):
     with transaction.atomic():
         try:
@@ -200,6 +330,20 @@ def reschedule_scheduled_post(
         if timezone_name is not None:
             scheduled.timezone_name = resolve_timezone(timezone_name)
 
+        if social_account_id is not None:
+            if scheduled.platform == ContentPost.Platform.FACEBOOK:
+                scheduled.social_account = _resolve_facebook_account(
+                    owner_id,
+                    [ContentPost.Platform.FACEBOOK],
+                    social_account_id,
+                )
+            elif scheduled.platform == ContentPost.Platform.INSTAGRAM:
+                scheduled.social_account = _resolve_instagram_account(
+                    owner_id,
+                    [ContentPost.Platform.INSTAGRAM],
+                    social_account_id,
+                )
+
         # Blocked or failed schedules are revived when the user reschedules.
         # A failed schedule gets a fresh retry budget only after a human edit.
         if scheduled.status in (
@@ -215,6 +359,7 @@ def reschedule_scheduled_post(
             update_fields=[
                 "scheduled_for",
                 "timezone_name",
+                "social_account",
                 "status",
                 "error_message",
                 "attempts",
@@ -336,6 +481,23 @@ def _publish_one(scheduled, now):
         _publish_blocked(
             scheduled,
             publishing_unavailable_reason(scheduled.platform),
+        )
+        return "blocked"
+
+    if (
+        scheduled.platform in ACCOUNT_TARGETED_PLATFORMS
+        and not scheduled.social_account_id
+    ):
+        target = (
+            "Facebook Page"
+            if scheduled.platform == ContentPost.Platform.FACEBOOK
+            else "Instagram account"
+        )
+        target_article = "a" if target == "Facebook Page" else "an"
+        _publish_blocked(
+            scheduled,
+            f"This post is not linked to {target_article} {target}. "
+            f"Reschedule it and choose {'a Page' if target == 'Facebook Page' else 'an account'}.",
         )
         return "blocked"
 

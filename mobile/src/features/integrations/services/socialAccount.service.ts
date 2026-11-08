@@ -97,9 +97,19 @@ export function getConnectedAccounts(): Promise<ConnectedAccountsResponse> {
 }
 
 export function startSocialConnection(
-  platform: SocialPlatform
+  platform: SocialPlatform,
+  responseMode?: "native" | "web"
 ): Promise<{ authorization_url: string }> {
-  return request(`/social/accounts/${platform}/connect/`, { method: "POST" });
+  return request<{ authorization_url: string }>(
+    `/social/accounts/${platform}/connect/`,
+    responseMode
+      ? {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ response_mode: responseMode }),
+        }
+      : { method: "POST" }
+  );
 }
 
 export function disconnectSocialAccount(accountId: string): Promise<void> {

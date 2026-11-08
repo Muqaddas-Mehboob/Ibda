@@ -9,6 +9,7 @@ from .views import (
     AnalyticsView,
     ContentGenerateView,
     ContentPostDetailView,
+    ContentPostImageUploadView,
     ContentPostListCreateView,
     ContentPostSubmitApprovalView,
     NotificationListView,
@@ -87,6 +88,11 @@ urlpatterns = [
         "content/posts/<uuid:post_id>/submit-for-approval/",
         ContentPostSubmitApprovalView.as_view(),
         name="content-post-submit-for-approval",
+    ),
+    path(
+        "content/posts/<uuid:post_id>/image/",
+        ContentPostImageUploadView.as_view(),
+        name="content-post-image-upload",
     ),
     path(
         "calendar/scheduled-posts/",

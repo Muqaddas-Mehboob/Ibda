@@ -95,6 +95,9 @@ class ContentPost(TimeStampedModel):
     )
 
     ai_generated = models.BooleanField(default=False)
+    # Public HTTPS URL of the attached image, uploaded to Supabase Storage.
+    # Instagram requires Meta to fetch the image from a public URL.
+    image_url = models.URLField(max_length=500, blank=True)
     hashtags = models.JSONField(default=list, blank=True)
 
     class Meta:
@@ -157,6 +160,14 @@ class ScheduledPost(TimeStampedModel):
         max_length=20,
         choices=ContentPost.Platform.choices,
         default=ContentPost.Platform.INSTAGRAM,
+    )
+    # The exact connected Page or Instagram account this schedule targets.
+    social_account = models.ForeignKey(
+        "SocialAccount",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="scheduled_posts",
     )
     # Stored in UTC; the user's zone is kept separately for display and auditing.
     scheduled_for = models.DateTimeField(db_index=True)
@@ -294,6 +305,35 @@ class SocialAccount(TimeStampedModel):
 
     def __str__(self):
         return f"{self.platform} account for {self.owner_id}"
+
+
+class SocialOAuthState(models.Model):
+    class ResponseMode(models.TextChoices):
+        NATIVE = "native", "Native app"
+        WEB = "web", "Web app"
+
+    state_digest = models.CharField(max_length=64, unique=True)
+    owner_id = models.UUIDField(db_index=True)
+    platform = models.CharField(
+        max_length=24,
+        choices=SocialAccount.Platform.choices,
+    )
+    response_mode = models.CharField(
+        max_length=8,
+        choices=ResponseMode.choices,
+        default=ResponseMode.NATIVE,
+    )
+    expires_at = models.DateTimeField(db_index=True)
+    consumed_at = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        indexes = [
+            models.Index(
+                fields=["platform", "expires_at"],
+                name="social_oauth_platform_exp_idx",
+            )
+        ]
 
 
 class UserSubscription(TimeStampedModel):

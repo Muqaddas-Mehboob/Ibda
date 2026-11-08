@@ -8,15 +8,19 @@ from io import BytesIO
 from unittest.mock import patch
 from uuid import uuid4
 from urllib.error import HTTPError
+from urllib.parse import parse_qs, urlsplit
 
 import requests
 import stripe
+from django.db import IntegrityError
 from django.test import SimpleTestCase, override_settings
+from django.utils import timezone
 from rest_framework.exceptions import AuthenticationFailed
 from rest_framework import status
 from rest_framework.test import APIRequestFactory, APITestCase
 from cryptography.fernet import Fernet
 
+from .apps import OAuthCallbackLogFilter
 from .authentication import SupabaseAuthentication
 from .models import (
     Approval,
@@ -30,8 +34,10 @@ from .models import (
     ProviderWebhookEvent,
     ScheduledPost,
     SocialAccount,
+    SocialOAuthState,
     SupportRequest,
 )
+from .services import facebook_oauth
 from .services.brand_deletion import BrandDeletionError
 from .services.payments.catalog import (
     checkout_configuration_present,
@@ -1047,6 +1053,12 @@ class SchedulingWorkflowApiTests(APITestCase):
         self.user = SimpleNamespace(id=uuid4(), is_authenticated=True)
         self.client.force_authenticate(user=self.user)
         self.brand = Brand.objects.create(owner_id=self.user.id, name="Scheduling")
+        SocialAccount.objects.create(
+            owner_id=self.user.id,
+            platform=SocialAccount.Platform.INSTAGRAM,
+            platform_account_id="instagram-account",
+            display_name="Instagram",
+        )
 
     def create_post(self, status_value=ContentPost.Status.APPROVED, owner_id=None):
         brand = self.brand
@@ -1058,6 +1070,7 @@ class SchedulingWorkflowApiTests(APITestCase):
             body="Body copy",
             platform=ContentPost.Platform.INSTAGRAM,
             status=status_value,
+            image_url="https://cdn.example/post.jpg",
         )
 
     def schedule(self, post, scheduled_for="2030-01-15T09:30:00+05:00"):
@@ -1199,7 +1212,10 @@ class SchedulingWorkflowApiTests(APITestCase):
         self.assertEqual(scheduled.status, ScheduledPost.Status.BLOCKED)
         self.assertEqual(scheduled.attempts, 1)
         self.assertIsNone(scheduled.published_at)
-        self.assertIn("No Instagram publishing integration", scheduled.error_message)
+        self.assertIn(
+            "Instagram publishing is not configured",
+            scheduled.error_message,
+        )
         post.refresh_from_db()
         self.assertEqual(post.status, ContentPost.Status.SCHEDULED)
         self.assertTrue(
@@ -1526,6 +1542,29 @@ class SocialAccountApiTests(APITestCase):
         self.other_user_id = uuid4()
         self.client.force_authenticate(user=self.user)
 
+    def test_django_server_log_filter_redacts_oauth_callback_query(self):
+        import logging
+
+        record = logging.LogRecord(
+            "django.server",
+            logging.INFO,
+            __file__,
+            1,
+            '"GET /api/social/oauth/facebook_pages/callback/'
+            '?code=private-code&state=private-state HTTP/1.1" 302',
+            (),
+            None,
+        )
+
+        self.assertTrue(OAuthCallbackLogFilter().filter(record))
+        redacted_message = record.getMessage()
+        self.assertIn(
+            "/api/social/oauth/facebook_pages/callback/?[redacted]",
+            redacted_message,
+        )
+        self.assertNotIn("private-code", redacted_message)
+        self.assertNotIn("private-state", redacted_message)
+
     def create_account(self, owner_id, platform_id):
         return SocialAccount.objects.create(
             owner_id=owner_id,
@@ -1536,31 +1575,1858 @@ class SocialAccountApiTests(APITestCase):
             refresh_token_encrypted="encrypted-refresh-token",
         )
 
-    def test_account_list_reports_unconfigured_platforms_and_hides_tokens(self):
-        account = self.create_account(self.user.id, "own-page")
-        self.create_account(self.other_user_id, "private-page")
+    def facebook_token_response(self, token, expires_in=None):
+        payload = {"access_token": token}
+        if expires_in is not None:
+            payload["expires_in"] = expires_in
+        return SimpleNamespace(status_code=200, json=lambda: payload)
 
-        response = self.client.get("/api/social/accounts/")
+    def facebook_debug_response(
+        self,
+        *,
+        expires_at=0,
+        data_access_expires_at=0,
+        **overrides
+    ):
+        data = {
+            "app_id": "test-app-id",
+            "type": "PAGE",
+            "is_valid": True,
+            "expires_at": expires_at,
+            "data_access_expires_at": data_access_expires_at,
+        }
+        data.update(overrides)
+        return SimpleNamespace(status_code=200, json=lambda: {"data": data})
 
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+    @override_settings(
+        SOCIAL_FACEBOOK_CLIENT_ID="test-app-id",
+        SOCIAL_FACEBOOK_CLIENT_SECRET="test-app-secret",
+        SOCIAL_FACEBOOK_CONFIG_ID="test-config-id",
+        SOCIAL_FACEBOOK_REDIRECT_URI=(
+            "https://social.example/api/social/oauth/facebook_pages/callback/"
+        ),
+        SOCIAL_FACEBOOK_GRAPH_API_VERSION="v27.0",
+        SOCIAL_TOKEN_ENCRYPTION_KEY=Fernet.generate_key().decode("ascii"),
+    )
+    @patch("core.services.facebook_oauth.requests.get")
+    @patch("core.services.facebook_oauth.requests.post")
+    def test_facebook_callback_saves_encrypted_owner_scoped_page_tokens(
+        self,
+        mock_post,
+        mock_get,
+    ):
+        state = "valid-facebook-state"
+        state_hash = hashlib.sha256(state.encode("ascii")).hexdigest()
+        SocialOAuthState.objects.create(
+            state_digest=state_hash,
+            owner_id=self.user.id,
+            platform=SocialAccount.Platform.FACEBOOK_PAGES,
+            expires_at=timezone.now() + timedelta(minutes=5),
+        )
+        foreign_page = SocialAccount.objects.create(
+            owner_id=self.other_user_id,
+            platform=SocialAccount.Platform.FACEBOOK_PAGES,
+            platform_account_id="page-1",
+            display_name="Other user's page",
+            access_token_encrypted="foreign-encrypted-token",
+        )
+        page_one_expires_at = int(time.time()) + 3600
+        page_two_data_access_expires_at = int(time.time()) + 90 * 24 * 3600
+        mock_post.return_value = self.facebook_token_response(
+            "long-lived-user-token",
+            expires_in=5184000,
+        )
+        mock_get.side_effect = [
+            self.facebook_token_response("short-lived-user-token"),
+            SimpleNamespace(
+                status_code=200,
+                json=lambda: {
+                    "data": [
+                        {
+                            "id": "page-1",
+                            "name": "Customer page",
+                            "access_token": "customer-page-token",
+                        },
+                        {
+                            "id": "page-2",
+                            "name": "Second page",
+                            "access_token": "second-page-token",
+                        },
+                    ]
+                },
+            ),
+            self.facebook_debug_response(
+                expires_at=page_one_expires_at,
+                profile_id="page-1",
+            ),
+            self.facebook_debug_response(
+                data_access_expires_at=page_two_data_access_expires_at,
+                profile_id="page-2",
+            ),
+        ]
+
+        response = self.client.get(
+            "/api/social/oauth/facebook_pages/callback/",
+            {"state": state, "code": "one-time-authorization-code"},
+        )
+
+        self.assertEqual(response.status_code, 302)
         self.assertEqual(
-            {provider["platform"] for provider in response.data["providers"]},
-            {
-                SocialAccount.Platform.INSTAGRAM,
-                SocialAccount.Platform.FACEBOOK_PAGES,
-                SocialAccount.Platform.LINKEDIN,
-                SocialAccount.Platform.TIKTOK,
-            },
+            response["Location"],
+            "ibda://social-accounts?status=connected",
+        )
+        self.assertEqual(response["Cache-Control"], "no-store")
+        self.assertEqual(response["Referrer-Policy"], "no-referrer")
+        self.assertNotIn("one-time-authorization-code", response["Location"])
+        self.assertNotIn("customer-page-token", response["Location"])
+
+        mock_post.assert_called_once()
+        self.assertEqual(
+            mock_post.call_args.args[0],
+            "https://graph.facebook.com/v27.0/oauth/access_token",
+        )
+        self.assertNotIn("?", mock_post.call_args.args[0])
+        self.assertEqual(
+            mock_post.call_args.kwargs["data"]["grant_type"],
+            "fb_exchange_token",
+        )
+        self.assertEqual(
+            mock_post.call_args.kwargs["data"]["fb_exchange_token"],
+            "short-lived-user-token",
+        )
+        self.assertEqual(
+            mock_post.call_args.kwargs["data"]["client_id"],
+            "test-app-id",
+        )
+
+        self.assertEqual(mock_get.call_count, 4)
+        accounts_call = mock_get.call_args_list[1]
+        self.assertEqual(
+            accounts_call.args[0],
+            "https://graph.facebook.com/v27.0/me/accounts",
+        )
+        self.assertEqual(
+            accounts_call.kwargs["headers"]["Authorization"],
+            "Bearer long-lived-user-token",
+        )
+        for call in mock_get.call_args_list:
+            self.assertNotEqual(
+                call.kwargs.get("headers", {}).get("Authorization"),
+                "Bearer short-lived-user-token",
+            )
+
+        from core.services.social_tokens import decrypt_social_token
+
+        connected_pages = SocialAccount.objects.filter(
+            owner_id=self.user.id,
+            platform=SocialAccount.Platform.FACEBOOK_PAGES,
+        ).order_by("platform_account_id")
+        self.assertEqual(connected_pages.count(), 2)
+        page_one = connected_pages.get(platform_account_id="page-1")
+        page_two = connected_pages.get(platform_account_id="page-2")
+        self.assertEqual(
+            decrypt_social_token(page_one.access_token_encrypted),
+            "customer-page-token",
+        )
+        self.assertEqual(page_one.display_name, "Customer page")
+        self.assertEqual(page_one.scopes, ["pages_show_list"])
+        self.assertEqual(
+            page_one.token_expires_at,
+            datetime.fromtimestamp(page_one_expires_at, tz=datetime_timezone.utc),
+        )
+        self.assertEqual(
+            page_two.token_expires_at,
+            datetime.fromtimestamp(
+                page_two_data_access_expires_at,
+                tz=datetime_timezone.utc,
+            ),
+        )
+
+        debug_call = mock_get.call_args_list[2]
+        self.assertEqual(
+            debug_call.args[0],
+            "https://graph.facebook.com/v27.0/debug_token",
+        )
+        self.assertEqual(
+            debug_call.kwargs["params"]["input_token"],
+            "customer-page-token",
+        )
+        self.assertEqual(
+            mock_get.call_args_list[3].kwargs["params"]["input_token"],
+            "second-page-token",
+        )
+
+        self.assertEqual(
+            SocialAccount.objects.get(id=foreign_page.id).display_name,
+            "Other user's page",
+        )
+        self.assertNotEqual(
+            SocialAccount.objects.get(id=foreign_page.id).access_token_encrypted,
+            page_one.access_token_encrypted,
         )
         self.assertTrue(
-            all(not provider["configured"] for provider in response.data["providers"])
+            SocialOAuthState.objects.get(state_digest=state_hash).consumed_at
+        )
+
+    @override_settings(
+        SOCIAL_FACEBOOK_CLIENT_ID="test-app-id",
+        SOCIAL_FACEBOOK_CLIENT_SECRET="test-app-secret",
+        SOCIAL_FACEBOOK_CONFIG_ID="test-config-id",
+        SOCIAL_FACEBOOK_REDIRECT_URI=(
+            "https://social.example/api/social/oauth/facebook_pages/callback/"
+        ),
+        SOCIAL_FACEBOOK_GRAPH_API_VERSION="v27.0",
+        SOCIAL_TOKEN_ENCRYPTION_KEY=Fernet.generate_key().decode("ascii"),
+    )
+    @patch("core.services.facebook_oauth.requests.get")
+    @patch("core.services.facebook_oauth.requests.post")
+    def test_facebook_callback_handles_pagination_and_no_pages(
+        self,
+        mock_post,
+        mock_get,
+    ):
+        state = "empty-pages-state"
+        SocialOAuthState.objects.create(
+            state_digest=hashlib.sha256(state.encode("ascii")).hexdigest(),
+            owner_id=self.user.id,
+            platform=SocialAccount.Platform.FACEBOOK_PAGES,
+            expires_at=timezone.now() + timedelta(minutes=5),
+        )
+        mock_post.return_value = self.facebook_token_response(
+            "long-lived-user-token",
+            expires_in=5184000,
+        )
+        mock_get.side_effect = [
+            self.facebook_token_response("short-lived-user-token"),
+            SimpleNamespace(
+                status_code=200,
+                json=lambda: {
+                    "data": [],
+                    "paging": {
+                        "next": "https://graph.facebook.com/untrusted-url",
+                        "cursors": {"after": "next-cursor"},
+                    },
+                },
+            ),
+            SimpleNamespace(
+                status_code=200,
+                json=lambda: {"data": []},
+            ),
+        ]
+
+        response = self.client.get(
+            "/api/social/oauth/facebook_pages/callback/",
+            {"state": state, "code": "one-time-authorization-code"},
+        )
+
+        self.assertEqual(
+            response["Location"],
+            "ibda://social-accounts?status=no_pages",
+        )
+        self.assertFalse(SocialAccount.objects.exists())
+        self.assertEqual(mock_get.call_count, 3)
+        self.assertEqual(mock_post.call_count, 1)
+        self.assertEqual(
+            mock_get.call_args_list[2].kwargs["params"]["after"],
+            "next-cursor",
         )
         self.assertEqual(
-            [item["id"] for item in response.data["accounts"]],
-            [str(account.id)],
+            mock_get.call_args_list[2].args[0],
+            "https://graph.facebook.com/v27.0/me/accounts",
         )
-        self.assertNotIn("access_token_encrypted", response.data["accounts"][0])
-        self.assertNotIn("refresh_token_encrypted", response.data["accounts"][0])
+
+    def test_facebook_callback_rejects_missing_expired_wrong_platform_and_replayed_state(
+        self,
+    ):
+        expired_state = "expired-state"
+        wrong_platform_state = "wrong-platform-state"
+        valid_state = "single-use-state"
+        SocialOAuthState.objects.create(
+            state_digest=hashlib.sha256(expired_state.encode("ascii")).hexdigest(),
+            owner_id=self.user.id,
+            platform=SocialAccount.Platform.FACEBOOK_PAGES,
+            expires_at=timezone.now() - timedelta(seconds=1),
+        )
+        SocialOAuthState.objects.create(
+            state_digest=hashlib.sha256(
+                wrong_platform_state.encode("ascii")
+            ).hexdigest(),
+            owner_id=self.user.id,
+            platform=SocialAccount.Platform.INSTAGRAM,
+            expires_at=timezone.now() + timedelta(minutes=5),
+        )
+        SocialOAuthState.objects.create(
+            state_digest=hashlib.sha256(valid_state.encode("ascii")).hexdigest(),
+            owner_id=self.user.id,
+            platform=SocialAccount.Platform.FACEBOOK_PAGES,
+            expires_at=timezone.now() + timedelta(minutes=5),
+        )
+
+        for invalid_state in ("", "unknown-state", expired_state, wrong_platform_state):
+            with self.subTest(state=invalid_state):
+                response = self.client.get(
+                    "/api/social/oauth/facebook_pages/callback/",
+                    {"state": invalid_state, "code": "untrusted-code"},
+                )
+                self.assertEqual(
+                    response["Location"],
+                    "ibda://social-accounts?status=failed",
+                )
+        self.assertIsNone(
+            SocialOAuthState.objects.get(
+                state_digest=hashlib.sha256(
+                    wrong_platform_state.encode("ascii")
+                ).hexdigest()
+            ).consumed_at
+        )
+
+        first_response = self.client.get(
+            "/api/social/oauth/facebook_pages/callback/",
+            {"state": valid_state, "error": "access_denied"},
+        )
+        replay_response = self.client.get(
+            "/api/social/oauth/facebook_pages/callback/",
+            {"state": valid_state, "code": "untrusted-code"},
+        )
+        self.assertEqual(
+            first_response["Location"],
+            "ibda://social-accounts?status=cancelled",
+        )
+        self.assertEqual(
+            replay_response["Location"],
+            "ibda://social-accounts?status=failed",
+        )
+        self.assertFalse(SocialAccount.objects.exists())
+
+    @override_settings(
+        SOCIAL_FACEBOOK_CLIENT_ID="test-app-id",
+        SOCIAL_FACEBOOK_CLIENT_SECRET="test-app-secret",
+        SOCIAL_FACEBOOK_CONFIG_ID="test-config-id",
+        SOCIAL_FACEBOOK_REDIRECT_URI=(
+            "https://social.example/api/social/oauth/facebook_pages/callback/"
+        ),
+        SOCIAL_FACEBOOK_GRAPH_API_VERSION="v27.0",
+        SOCIAL_TOKEN_ENCRYPTION_KEY=Fernet.generate_key().decode("ascii"),
+    )
+    @patch("core.services.facebook_oauth.requests.get")
+    def test_facebook_callback_meta_failures_do_not_leak_codes_or_tokens(
+        self,
+        mock_get,
+    ):
+        state = "failed-meta-state"
+        SocialOAuthState.objects.create(
+            state_digest=hashlib.sha256(state.encode("ascii")).hexdigest(),
+            owner_id=self.user.id,
+            platform=SocialAccount.Platform.FACEBOOK_PAGES,
+            expires_at=timezone.now() + timedelta(minutes=5),
+        )
+        mock_get.return_value = SimpleNamespace(
+            status_code=400,
+            json=lambda: {
+                "error": {
+                    "message": "Sensitive provider error text",
+                    "access_token": "must-not-leak",
+                }
+            },
+        )
+
+        response = self.client.get(
+            "/api/social/oauth/facebook_pages/callback/",
+            {"state": state, "code": "private-authorization-code"},
+        )
+
+        self.assertEqual(
+            response["Location"],
+            "ibda://social-accounts?status=failed",
+        )
+        self.assertNotIn("private-authorization-code", response["Location"])
+        self.assertNotIn("must-not-leak", response["Location"])
+        self.assertNotIn("Sensitive provider error text", response["Location"])
+        self.assertFalse(SocialAccount.objects.exists())
+
+    @override_settings(
+        SOCIAL_FACEBOOK_CLIENT_ID="test-app-id",
+        SOCIAL_FACEBOOK_CLIENT_SECRET="test-app-secret",
+        SOCIAL_FACEBOOK_CONFIG_ID="test-config-id",
+        SOCIAL_FACEBOOK_REDIRECT_URI=(
+            "https://social.example/api/social/oauth/facebook_pages/callback/"
+        ),
+        SOCIAL_FACEBOOK_GRAPH_API_VERSION="v27.0",
+        SOCIAL_TOKEN_ENCRYPTION_KEY=Fernet.generate_key().decode("ascii"),
+    )
+    @patch("core.services.facebook_oauth.requests.get")
+    @patch("core.services.facebook_oauth.requests.post")
+    def test_facebook_callback_handles_non_expiring_page_token(
+        self,
+        mock_post,
+        mock_get,
+    ):
+        state = "non-expiring-page-state"
+        SocialOAuthState.objects.create(
+            state_digest=hashlib.sha256(state.encode("ascii")).hexdigest(),
+            owner_id=self.user.id,
+            platform=SocialAccount.Platform.FACEBOOK_PAGES,
+            expires_at=timezone.now() + timedelta(minutes=5),
+        )
+        mock_post.return_value = self.facebook_token_response(
+            "long-lived-user-token",
+            expires_in=5184000,
+        )
+        mock_get.side_effect = [
+            self.facebook_token_response("short-lived-user-token"),
+            SimpleNamespace(
+                status_code=200,
+                json=lambda: {
+                    "data": [
+                        {
+                            "id": "page-1",
+                            "name": "Never expiring",
+                            "access_token": "page-token",
+                        }
+                    ]
+                },
+            ),
+            self.facebook_debug_response(
+                expires_at=0,
+                data_access_expires_at=0,
+                profile_id="page-1",
+            ),
+        ]
+
+        response = self.client.get(
+            "/api/social/oauth/facebook_pages/callback/",
+            {"state": state, "code": "one-time-authorization-code"},
+        )
+
+        self.assertEqual(
+            response["Location"],
+            "ibda://social-accounts?status=connected",
+        )
+        account = SocialAccount.objects.get(
+            owner_id=self.user.id,
+            platform=SocialAccount.Platform.FACEBOOK_PAGES,
+        )
+        self.assertEqual(account.status, SocialAccount.Status.CONNECTED)
+        self.assertIsNone(account.token_expires_at)
+
+    @override_settings(
+        SOCIAL_FACEBOOK_CLIENT_ID="test-app-id",
+        SOCIAL_FACEBOOK_CLIENT_SECRET="test-app-secret",
+        SOCIAL_FACEBOOK_CONFIG_ID="test-config-id",
+        SOCIAL_FACEBOOK_REDIRECT_URI=(
+            "https://social.example/api/social/oauth/facebook_pages/callback/"
+        ),
+        SOCIAL_FACEBOOK_GRAPH_API_VERSION="v27.0",
+        SOCIAL_TOKEN_ENCRYPTION_KEY=Fernet.generate_key().decode("ascii"),
+    )
+    @patch("core.services.facebook_oauth.requests.get")
+    @patch("core.services.facebook_oauth.requests.post")
+    def test_facebook_callback_fails_when_long_lived_exchange_fails(
+        self,
+        mock_post,
+        mock_get,
+    ):
+        cases = (
+            (
+                "http-error",
+                SimpleNamespace(
+                    status_code=400,
+                    json=lambda: {"error": {"message": "denied"}},
+                ),
+            ),
+            (
+                "missing-token",
+                SimpleNamespace(
+                    status_code=200,
+                    json=lambda: {"expires_in": 5184000},
+                ),
+            ),
+        )
+        for label, post_response in cases:
+            with self.subTest(response=label):
+                mock_get.reset_mock()
+                mock_post.reset_mock()
+                mock_get.return_value = self.facebook_token_response(
+                    "short-lived-user-token"
+                )
+                mock_post.return_value = post_response
+                state = "long-lived-failure-" + label
+                SocialOAuthState.objects.create(
+                    state_digest=hashlib.sha256(state.encode("ascii")).hexdigest(),
+                    owner_id=self.user.id,
+                    platform=SocialAccount.Platform.FACEBOOK_PAGES,
+                    expires_at=timezone.now() + timedelta(minutes=5),
+                )
+
+                response = self.client.get(
+                    "/api/social/oauth/facebook_pages/callback/",
+                    {"state": state, "code": "one-time-authorization-code"},
+                )
+
+                self.assertEqual(
+                    response["Location"],
+                    "ibda://social-accounts?status=failed",
+                )
+                self.assertFalse(SocialAccount.objects.exists())
+                self.assertEqual(mock_get.call_count, 1)
+                self.assertEqual(mock_post.call_count, 1)
+
+    @override_settings(
+        SOCIAL_FACEBOOK_CLIENT_ID="test-app-id",
+        SOCIAL_FACEBOOK_CLIENT_SECRET="test-app-secret",
+        SOCIAL_FACEBOOK_CONFIG_ID="test-config-id",
+        SOCIAL_FACEBOOK_REDIRECT_URI=(
+            "https://social.example/api/social/oauth/facebook_pages/callback/"
+        ),
+        SOCIAL_FACEBOOK_GRAPH_API_VERSION="v27.0",
+        SOCIAL_TOKEN_ENCRYPTION_KEY=Fernet.generate_key().decode("ascii"),
+    )
+    @patch("core.services.facebook_oauth.requests.get")
+    @patch("core.services.facebook_oauth.requests.post")
+    def test_facebook_callback_fails_when_token_debug_is_invalid(
+        self,
+        mock_post,
+        mock_get,
+    ):
+        state = "invalid-debug-state"
+        SocialOAuthState.objects.create(
+            state_digest=hashlib.sha256(state.encode("ascii")).hexdigest(),
+            owner_id=self.user.id,
+            platform=SocialAccount.Platform.FACEBOOK_PAGES,
+            expires_at=timezone.now() + timedelta(minutes=5),
+        )
+        mock_post.return_value = self.facebook_token_response(
+            "long-lived-user-token",
+            expires_in=5184000,
+        )
+        mock_get.side_effect = [
+            self.facebook_token_response("short-lived-user-token"),
+            SimpleNamespace(
+                status_code=200,
+                json=lambda: {
+                    "data": [
+                        {
+                            "id": "page-1",
+                            "name": "Valid page",
+                            "access_token": "valid-page-token",
+                        },
+                        {
+                            "id": "page-2",
+                            "name": "Invalid page",
+                            "access_token": "invalid-page-token",
+                        },
+                    ]
+                },
+            ),
+            self.facebook_debug_response(
+                expires_at=int(time.time()) + 3600,
+                profile_id="page-1",
+            ),
+            SimpleNamespace(
+                status_code=200,
+                json=lambda: {
+                    "data": {
+                        "app_id": "test-app-id",
+                        "type": "PAGE",
+                        "is_valid": False,
+                        "expires_at": int(time.time()) + 3600,
+                        "data_access_expires_at": 0,
+                    }
+                },
+            ),
+        ]
+
+        response = self.client.get(
+            "/api/social/oauth/facebook_pages/callback/",
+            {"state": state, "code": "one-time-authorization-code"},
+        )
+
+        self.assertEqual(
+            response["Location"],
+            "ibda://social-accounts?status=failed",
+        )
+        # The first Page validated correctly, but nothing may be saved.
+        self.assertFalse(SocialAccount.objects.exists())
+
+    @override_settings(
+        SOCIAL_FACEBOOK_CLIENT_ID="test-app-id",
+        SOCIAL_FACEBOOK_CLIENT_SECRET="test-app-secret",
+        SOCIAL_FACEBOOK_CONFIG_ID="test-config-id",
+        SOCIAL_FACEBOOK_REDIRECT_URI=(
+            "https://social.example/api/social/oauth/facebook_pages/callback/"
+        ),
+        SOCIAL_FACEBOOK_GRAPH_API_VERSION="v27.0",
+        SOCIAL_TOKEN_ENCRYPTION_KEY=Fernet.generate_key().decode("ascii"),
+    )
+    @patch("core.services.facebook_oauth.requests.get")
+    @patch("core.services.facebook_oauth.requests.post")
+    def test_facebook_callback_fails_when_token_debug_expiry_is_missing(
+        self,
+        mock_post,
+        mock_get,
+    ):
+        cases = (
+            (
+                "missing-expires-at",
+                {
+                    "app_id": "test-app-id",
+                    "type": "PAGE",
+                    "is_valid": True,
+                    "data_access_expires_at": 0,
+                },
+            ),
+            (
+                "unknown-data-access",
+                {
+                    "app_id": "test-app-id",
+                    "type": "PAGE",
+                    "is_valid": True,
+                    "expires_at": 0,
+                },
+            ),
+        )
+        for label, debug_data in cases:
+            with self.subTest(response=label):
+                mock_get.reset_mock()
+                mock_post.reset_mock()
+                mock_post.return_value = self.facebook_token_response(
+                    "long-lived-user-token",
+                    expires_in=5184000,
+                )
+                mock_get.side_effect = [
+                    self.facebook_token_response("short-lived-user-token"),
+                    SimpleNamespace(
+                        status_code=200,
+                        json=lambda: {
+                            "data": [
+                                {
+                                    "id": "page-1",
+                                    "name": "Unverified page",
+                                    "access_token": "page-token",
+                                }
+                            ]
+                        },
+                    ),
+                    SimpleNamespace(
+                        status_code=200,
+                        json=lambda: {"data": debug_data},
+                    ),
+                ]
+                state = "missing-expiry-" + label
+                SocialOAuthState.objects.create(
+                    state_digest=hashlib.sha256(state.encode("ascii")).hexdigest(),
+                    owner_id=self.user.id,
+                    platform=SocialAccount.Platform.FACEBOOK_PAGES,
+                    expires_at=timezone.now() + timedelta(minutes=5),
+                )
+
+                response = self.client.get(
+                    "/api/social/oauth/facebook_pages/callback/",
+                    {"state": state, "code": "one-time-authorization-code"},
+                )
+
+                self.assertEqual(
+                    response["Location"],
+                    "ibda://social-accounts?status=failed",
+                )
+                self.assertFalse(SocialAccount.objects.exists())
+
+
+    @override_settings(
+        SOCIAL_FACEBOOK_CLIENT_ID="test-app-id",
+        SOCIAL_FACEBOOK_CLIENT_SECRET="test-app-secret",
+        SOCIAL_FACEBOOK_CONFIG_ID="test-config-id",
+        SOCIAL_FACEBOOK_REDIRECT_URI=(
+            "https://social.example/api/social/oauth/facebook_pages/callback/"
+        ),
+        SOCIAL_FACEBOOK_GRAPH_API_VERSION="v27.0",
+        SOCIAL_TOKEN_ENCRYPTION_KEY=Fernet.generate_key().decode("ascii"),
+    )
+    @patch("core.services.facebook_oauth.requests.get")
+    def test_facebook_code_exchange_keeps_documented_get_parameters(
+        self,
+        mock_get,
+    ):
+        mock_get.return_value = self.facebook_token_response(
+            "short-lived-user-token"
+        )
+
+        token = facebook_oauth._exchange_code("one-time-authorization-code")
+
+        self.assertEqual(token, "short-lived-user-token")
+        mock_get.assert_called_once()
+        self.assertEqual(
+            mock_get.call_args.args[0],
+            "https://graph.facebook.com/v27.0/oauth/access_token",
+        )
+        params = mock_get.call_args.kwargs["params"]
+        self.assertEqual(params["client_id"], "test-app-id")
+        self.assertEqual(
+            params["redirect_uri"],
+            "https://social.example/api/social/oauth/facebook_pages/callback/",
+        )
+        self.assertEqual(params["code"], "one-time-authorization-code")
+        # Meta requires the app secret on this documented GET request.
+        self.assertIn("client_secret", params)
+        self.assertEqual(mock_get.call_args.kwargs["timeout"], (5, 20))
+        self.assertFalse(mock_get.call_args.kwargs["allow_redirects"])
+
+    @override_settings(
+        SOCIAL_FACEBOOK_CLIENT_ID="test-app-id",
+        SOCIAL_FACEBOOK_CLIENT_SECRET="test-app-secret",
+        SOCIAL_FACEBOOK_CONFIG_ID="test-config-id",
+        SOCIAL_FACEBOOK_REDIRECT_URI=(
+            "https://social.example/api/social/oauth/facebook_pages/callback/"
+        ),
+        SOCIAL_FACEBOOK_GRAPH_API_VERSION="v27.0",
+        SOCIAL_TOKEN_ENCRYPTION_KEY=Fernet.generate_key().decode("ascii"),
+    )
+    @patch("core.services.facebook_oauth.requests.get")
+    def test_facebook_code_exchange_failure_does_not_expose_request_url(
+        self,
+        mock_get,
+    ):
+        mock_get.side_effect = requests.ConnectionError(
+            "https://graph.facebook.com/v27.0/oauth/access_token"
+            "?client_id=test-app-id&client_secret=test-app-secret"
+            "&code=private-authorization-code"
+        )
+
+        with self.assertRaisesMessage(
+            facebook_oauth.FacebookOAuthError,
+            "Unable to exchange the Facebook authorization.",
+        ) as raised:
+            facebook_oauth._exchange_code("private-authorization-code")
+
+        error = raised.exception
+        self.assertIsNone(error.__cause__)
+        self.assertIsNone(error.__context__)
+        message = str(error)
+        self.assertNotIn("test-app-secret", message)
+        self.assertNotIn("private-authorization-code", message)
+        self.assertNotIn("graph.facebook.com", message)
+
+    @override_settings(
+        SOCIAL_FACEBOOK_CLIENT_ID="test-app-id",
+        SOCIAL_FACEBOOK_CLIENT_SECRET="test-app-secret",
+        SOCIAL_FACEBOOK_CONFIG_ID="test-config-id",
+        SOCIAL_FACEBOOK_REDIRECT_URI=(
+            "https://social.example/api/social/oauth/facebook_pages/callback/"
+        ),
+        SOCIAL_FACEBOOK_GRAPH_API_VERSION="v27.0",
+        SOCIAL_TOKEN_ENCRYPTION_KEY=Fernet.generate_key().decode("ascii"),
+    )
+    @patch("core.services.facebook_oauth.requests.get")
+    @patch("core.services.facebook_oauth.requests.post")
+    def test_facebook_callback_skips_malformed_pages_and_keeps_valid_ones(
+        self,
+        mock_post,
+        mock_get,
+    ):
+        state = "mixed-pages-state"
+        SocialOAuthState.objects.create(
+            state_digest=hashlib.sha256(state.encode("ascii")).hexdigest(),
+            owner_id=self.user.id,
+            platform=SocialAccount.Platform.FACEBOOK_PAGES,
+            expires_at=timezone.now() + timedelta(minutes=5),
+        )
+        mock_post.return_value = self.facebook_token_response(
+            "long-lived-user-token",
+            expires_in=5184000,
+        )
+        mock_get.side_effect = [
+            self.facebook_token_response("short-lived-user-token"),
+            SimpleNamespace(
+                status_code=200,
+                json=lambda: {
+                    "data": [
+                        {
+                            "id": "page-1",
+                            "name": "Valid page",
+                            "access_token": "valid-page-token",
+                        },
+                        {"id": "page-2", "name": "Missing token"},
+                        {"name": "Missing id", "access_token": "orphan-token"},
+                        {"id": "page-3", "access_token": "nameless-token"},
+                        "not-a-page",
+                        {
+                            "id": "page-4",
+                            "name": "   ",
+                            "access_token": "blank-name-token",
+                        },
+                        {
+                            "id": "page-5",
+                            "name": "Second valid page",
+                            "access_token": "second-valid-token",
+                        },
+                    ]
+                },
+            ),
+            self.facebook_debug_response(
+                expires_at=int(time.time()) + 3600,
+                profile_id="page-1",
+            ),
+            self.facebook_debug_response(
+                expires_at=int(time.time()) + 7200,
+                profile_id="page-5",
+            ),
+        ]
+
+        response = self.client.get(
+            "/api/social/oauth/facebook_pages/callback/",
+            {"state": state, "code": "one-time-authorization-code"},
+        )
+
+        self.assertEqual(
+            response["Location"],
+            "ibda://social-accounts?status=connected",
+        )
+        self.assertEqual(mock_get.call_count, 4)
+        self.assertEqual(mock_post.call_count, 1)
+        debug_tokens = [
+            call.kwargs["params"]["input_token"]
+            for call in mock_get.call_args_list[2:]
+        ]
+        self.assertEqual(debug_tokens, ["valid-page-token", "second-valid-token"])
+
+        accounts = SocialAccount.objects.filter(owner_id=self.user.id)
+        self.assertEqual(
+            sorted(
+                accounts.values_list("platform_account_id", flat=True)
+            ),
+            ["page-1", "page-5"],
+        )
+        for account in accounts:
+            self.assertTrue(account.display_name.strip())
+            self.assertTrue(account.access_token_encrypted)
+            self.assertNotIn(
+                account.access_token_encrypted,
+                {"valid-page-token", "second-valid-token"},
+            )
+
+    @override_settings(
+        SOCIAL_FACEBOOK_CLIENT_ID="test-app-id",
+        SOCIAL_FACEBOOK_CLIENT_SECRET="test-app-secret",
+        SOCIAL_FACEBOOK_CONFIG_ID="test-config-id",
+        SOCIAL_FACEBOOK_REDIRECT_URI=(
+            "https://social.example/api/social/oauth/facebook_pages/callback/"
+        ),
+        SOCIAL_FACEBOOK_GRAPH_API_VERSION="v27.0",
+        SOCIAL_TOKEN_ENCRYPTION_KEY=Fernet.generate_key().decode("ascii"),
+    )
+    @patch("core.services.facebook_oauth.requests.get")
+    @patch("core.services.facebook_oauth.requests.post")
+    def test_facebook_callback_returns_no_pages_when_all_entries_are_malformed(
+        self,
+        mock_post,
+        mock_get,
+    ):
+        state = "malformed-pages-state"
+        state_hash = hashlib.sha256(state.encode("ascii")).hexdigest()
+        SocialOAuthState.objects.create(
+            state_digest=state_hash,
+            owner_id=self.user.id,
+            platform=SocialAccount.Platform.FACEBOOK_PAGES,
+            expires_at=timezone.now() + timedelta(minutes=5),
+        )
+        mock_post.return_value = self.facebook_token_response(
+            "long-lived-user-token",
+            expires_in=5184000,
+        )
+        mock_get.side_effect = [
+            self.facebook_token_response("short-lived-user-token"),
+            SimpleNamespace(
+                status_code=200,
+                json=lambda: {
+                    "data": [
+                        {"id": "page-1"},
+                        {"name": "Missing id", "access_token": "orphan-token"},
+                        {"id": "page-2", "name": "Missing token"},
+                        {
+                            "id": "page-3",
+                            "name": "   ",
+                            "access_token": "blank-name-token",
+                        },
+                        "not-a-page",
+                        None,
+                    ]
+                },
+            ),
+        ]
+
+        response = self.client.get(
+            "/api/social/oauth/facebook_pages/callback/",
+            {"state": state, "code": "one-time-authorization-code"},
+        )
+
+        self.assertEqual(
+            response["Location"],
+            "ibda://social-accounts?status=no_pages",
+        )
+        self.assertEqual(mock_get.call_count, 2)
+        self.assertEqual(mock_post.call_count, 1)
+        self.assertFalse(SocialAccount.objects.exists())
+        self.assertTrue(
+            SocialOAuthState.objects.get(state_digest=state_hash).consumed_at
+        )
+
+    @override_settings(
+        SOCIAL_FACEBOOK_CLIENT_ID="test-app-id",
+        SOCIAL_FACEBOOK_CLIENT_SECRET="test-app-secret",
+        SOCIAL_FACEBOOK_CONFIG_ID="test-config-id",
+        SOCIAL_FACEBOOK_REDIRECT_URI=(
+            "https://social.example/api/social/oauth/facebook_pages/callback/"
+        ),
+        SOCIAL_FACEBOOK_GRAPH_API_VERSION="v27.0",
+        SOCIAL_TOKEN_ENCRYPTION_KEY=Fernet.generate_key().decode("ascii"),
+    )
+    @patch("core.services.facebook_oauth.requests.get")
+    @patch("core.services.facebook_oauth.requests.post")
+    def test_facebook_callback_stops_pagination_when_cursor_is_missing(
+        self,
+        mock_post,
+        mock_get,
+    ):
+        state = "missing-cursor-state"
+        SocialOAuthState.objects.create(
+            state_digest=hashlib.sha256(state.encode("ascii")).hexdigest(),
+            owner_id=self.user.id,
+            platform=SocialAccount.Platform.FACEBOOK_PAGES,
+            expires_at=timezone.now() + timedelta(minutes=5),
+        )
+        mock_post.return_value = self.facebook_token_response(
+            "long-lived-user-token",
+            expires_in=5184000,
+        )
+        mock_get.side_effect = [
+            self.facebook_token_response("short-lived-user-token"),
+            SimpleNamespace(
+                status_code=200,
+                json=lambda: {
+                    "data": [
+                        {
+                            "id": "page-1",
+                            "name": "First page",
+                            "access_token": "first-page-token",
+                        }
+                    ],
+                    "paging": {
+                        "next": "https://graph.facebook.com/v27.0/me/accounts?after=opaque"
+                    },
+                },
+            ),
+            self.facebook_debug_response(
+                expires_at=int(time.time()) + 3600,
+                profile_id="page-1",
+            ),
+        ]
+
+        response = self.client.get(
+            "/api/social/oauth/facebook_pages/callback/",
+            {"state": state, "code": "one-time-authorization-code"},
+        )
+
+        self.assertEqual(
+            response["Location"],
+            "ibda://social-accounts?status=connected",
+        )
+        self.assertEqual(mock_get.call_count, 3)
+        self.assertEqual(mock_post.call_count, 1)
+        for call in mock_get.call_args_list:
+            self.assertTrue(
+                call.args[0].startswith("https://graph.facebook.com/v27.0/")
+            )
+        self.assertNotIn("after", mock_get.call_args_list[1].kwargs["params"])
+        self.assertTrue(
+            SocialAccount.objects.filter(
+                owner_id=self.user.id,
+                platform_account_id="page-1",
+            ).exists()
+        )
+
+    @override_settings(
+        SOCIAL_FACEBOOK_CLIENT_ID="test-app-id",
+        SOCIAL_FACEBOOK_CLIENT_SECRET="test-app-secret",
+        SOCIAL_FACEBOOK_CONFIG_ID="test-config-id",
+        SOCIAL_FACEBOOK_REDIRECT_URI=(
+            "https://social.example/api/social/oauth/facebook_pages/callback/"
+        ),
+        SOCIAL_FACEBOOK_GRAPH_API_VERSION="v27.0",
+        SOCIAL_TOKEN_ENCRYPTION_KEY=Fernet.generate_key().decode("ascii"),
+    )
+    @patch("core.services.facebook_oauth.requests.get")
+    @patch("core.services.facebook_oauth.requests.post")
+    def test_facebook_callback_stops_pagination_when_cursor_is_empty(
+        self,
+        mock_post,
+        mock_get,
+    ):
+        state = "empty-cursor-state"
+        SocialOAuthState.objects.create(
+            state_digest=hashlib.sha256(state.encode("ascii")).hexdigest(),
+            owner_id=self.user.id,
+            platform=SocialAccount.Platform.FACEBOOK_PAGES,
+            expires_at=timezone.now() + timedelta(minutes=5),
+        )
+        mock_post.return_value = self.facebook_token_response(
+            "long-lived-user-token",
+            expires_in=5184000,
+        )
+        mock_get.side_effect = [
+            self.facebook_token_response("short-lived-user-token"),
+            SimpleNamespace(
+                status_code=200,
+                json=lambda: {
+                    "data": [
+                        {
+                            "id": "page-1",
+                            "name": "First page",
+                            "access_token": "first-page-token",
+                        }
+                    ],
+                    "paging": {
+                        "next": "https://graph.facebook.com/v27.0/me/accounts?after=",
+                        "cursors": {"after": ""},
+                    },
+                },
+            ),
+            self.facebook_debug_response(
+                expires_at=int(time.time()) + 3600,
+                profile_id="page-1",
+            ),
+        ]
+
+        response = self.client.get(
+            "/api/social/oauth/facebook_pages/callback/",
+            {"state": state, "code": "one-time-authorization-code"},
+        )
+
+        self.assertEqual(
+            response["Location"],
+            "ibda://social-accounts?status=connected",
+        )
+        self.assertEqual(mock_get.call_count, 3)
+        self.assertEqual(mock_post.call_count, 1)
+        self.assertNotIn("after", mock_get.call_args_list[1].kwargs["params"])
+        self.assertTrue(
+            SocialAccount.objects.filter(
+                owner_id=self.user.id,
+                platform_account_id="page-1",
+            ).exists()
+        )
+
+    @override_settings(
+        SOCIAL_FACEBOOK_CLIENT_ID="test-app-id",
+        SOCIAL_FACEBOOK_CLIENT_SECRET="test-app-secret",
+        SOCIAL_FACEBOOK_CONFIG_ID="test-config-id",
+        SOCIAL_FACEBOOK_REDIRECT_URI=(
+            "https://social.example/api/social/oauth/facebook_pages/callback/"
+        ),
+        SOCIAL_FACEBOOK_GRAPH_API_VERSION="v27.0",
+        SOCIAL_TOKEN_ENCRYPTION_KEY=Fernet.generate_key().decode("ascii"),
+    )
+    @patch("core.services.facebook_oauth.requests.get")
+    @patch("core.services.facebook_oauth.requests.post")
+    def test_facebook_callback_stops_pagination_on_repeated_cursor(
+        self,
+        mock_post,
+        mock_get,
+    ):
+        state = "repeated-cursor-state"
+        SocialOAuthState.objects.create(
+            state_digest=hashlib.sha256(state.encode("ascii")).hexdigest(),
+            owner_id=self.user.id,
+            platform=SocialAccount.Platform.FACEBOOK_PAGES,
+            expires_at=timezone.now() + timedelta(minutes=5),
+        )
+        mock_post.return_value = self.facebook_token_response(
+            "long-lived-user-token",
+            expires_in=5184000,
+        )
+        mock_get.side_effect = [
+            self.facebook_token_response("short-lived-user-token"),
+            SimpleNamespace(
+                status_code=200,
+                json=lambda: {
+                    "data": [
+                        {
+                            "id": "page-1",
+                            "name": "First page",
+                            "access_token": "first-page-token",
+                        }
+                    ],
+                    "paging": {
+                        "next": "https://graph.facebook.com/v27.0/me/accounts?after=cursor-1",
+                        "cursors": {"after": "cursor-1"},
+                    },
+                },
+            ),
+            SimpleNamespace(
+                status_code=200,
+                json=lambda: {
+                    "data": [
+                        {
+                            "id": "page-2",
+                            "name": "Second page",
+                            "access_token": "second-page-token",
+                        }
+                    ],
+                    "paging": {
+                        "next": "https://graph.facebook.com/v27.0/me/accounts?after=cursor-1",
+                        "cursors": {"after": "cursor-1"},
+                    },
+                },
+            ),
+            self.facebook_debug_response(
+                expires_at=int(time.time()) + 3600,
+                profile_id="page-1",
+            ),
+            self.facebook_debug_response(
+                expires_at=int(time.time()) + 7200,
+                profile_id="page-2",
+            ),
+        ]
+
+        response = self.client.get(
+            "/api/social/oauth/facebook_pages/callback/",
+            {"state": state, "code": "one-time-authorization-code"},
+        )
+
+        self.assertEqual(
+            response["Location"],
+            "ibda://social-accounts?status=connected",
+        )
+        self.assertEqual(mock_get.call_count, 5)
+        self.assertEqual(mock_post.call_count, 1)
+        self.assertEqual(
+            mock_get.call_args_list[2].kwargs["params"]["after"],
+            "cursor-1",
+        )
+        self.assertEqual(
+            mock_get.call_args_list[2].args[0],
+            "https://graph.facebook.com/v27.0/me/accounts",
+        )
+        self.assertEqual(
+            sorted(
+                SocialAccount.objects.filter(
+                    owner_id=self.user.id
+                ).values_list("platform_account_id", flat=True)
+            ),
+            ["page-1", "page-2"],
+        )
+
+    @override_settings(
+        SOCIAL_FACEBOOK_CLIENT_ID="test-app-id",
+        SOCIAL_FACEBOOK_CLIENT_SECRET="test-app-secret",
+        SOCIAL_FACEBOOK_CONFIG_ID="test-config-id",
+        SOCIAL_FACEBOOK_REDIRECT_URI=(
+            "https://social.example/api/social/oauth/facebook_pages/callback/"
+        ),
+        SOCIAL_FACEBOOK_GRAPH_API_VERSION="v27.0",
+        SOCIAL_TOKEN_ENCRYPTION_KEY=Fernet.generate_key().decode("ascii"),
+    )
+    @patch("core.services.facebook_oauth.requests.get")
+    @patch("core.services.facebook_oauth.requests.post")
+    def test_facebook_callback_follows_pagination_until_last_page(
+        self,
+        mock_post,
+        mock_get,
+    ):
+        state = "multi-page-state"
+        SocialOAuthState.objects.create(
+            state_digest=hashlib.sha256(state.encode("ascii")).hexdigest(),
+            owner_id=self.user.id,
+            platform=SocialAccount.Platform.FACEBOOK_PAGES,
+            expires_at=timezone.now() + timedelta(minutes=5),
+        )
+        mock_post.return_value = self.facebook_token_response(
+            "long-lived-user-token",
+            expires_in=5184000,
+        )
+        mock_get.side_effect = [
+            self.facebook_token_response("short-lived-user-token"),
+            SimpleNamespace(
+                status_code=200,
+                json=lambda: {
+                    "data": [
+                        {
+                            "id": "page-1",
+                            "name": "First page",
+                            "access_token": "first-page-token",
+                        }
+                    ],
+                    "paging": {
+                        "next": "https://graph.facebook.com/v27.0/me/accounts?after=cursor-1",
+                        "cursors": {"after": "cursor-1"},
+                    },
+                },
+            ),
+            SimpleNamespace(
+                status_code=200,
+                json=lambda: {
+                    "data": [
+                        {
+                            "id": "page-2",
+                            "name": "Second page",
+                            "access_token": "second-page-token",
+                        }
+                    ]
+                },
+            ),
+            self.facebook_debug_response(
+                expires_at=int(time.time()) + 3600,
+                profile_id="page-1",
+            ),
+            self.facebook_debug_response(
+                expires_at=int(time.time()) + 7200,
+                profile_id="page-2",
+            ),
+        ]
+
+        response = self.client.get(
+            "/api/social/oauth/facebook_pages/callback/",
+            {"state": state, "code": "one-time-authorization-code"},
+        )
+
+        self.assertEqual(
+            response["Location"],
+            "ibda://social-accounts?status=connected",
+        )
+        self.assertEqual(mock_get.call_count, 5)
+        self.assertEqual(mock_post.call_count, 1)
+        self.assertEqual(
+            mock_get.call_args_list[2].kwargs["params"]["after"],
+            "cursor-1",
+        )
+        self.assertEqual(
+            sorted(
+                SocialAccount.objects.filter(
+                    owner_id=self.user.id
+                ).values_list("platform_account_id", flat=True)
+            ),
+            ["page-1", "page-2"],
+        )
+
+    @patch("core.services.facebook_oauth.MAX_PAGE_REQUESTS", 2)
+    @override_settings(
+        SOCIAL_FACEBOOK_CLIENT_ID="test-app-id",
+        SOCIAL_FACEBOOK_CLIENT_SECRET="test-app-secret",
+        SOCIAL_FACEBOOK_CONFIG_ID="test-config-id",
+        SOCIAL_FACEBOOK_REDIRECT_URI=(
+            "https://social.example/api/social/oauth/facebook_pages/callback/"
+        ),
+        SOCIAL_FACEBOOK_GRAPH_API_VERSION="v27.0",
+        SOCIAL_TOKEN_ENCRYPTION_KEY=Fernet.generate_key().decode("ascii"),
+    )
+    @patch("core.services.facebook_oauth.requests.get")
+    @patch("core.services.facebook_oauth.requests.post")
+    def test_facebook_callback_stops_pagination_at_request_cap(
+        self,
+        mock_post,
+        mock_get,
+    ):
+        state = "pagination-cap-state"
+        SocialOAuthState.objects.create(
+            state_digest=hashlib.sha256(state.encode("ascii")).hexdigest(),
+            owner_id=self.user.id,
+            platform=SocialAccount.Platform.FACEBOOK_PAGES,
+            expires_at=timezone.now() + timedelta(minutes=5),
+        )
+        mock_post.return_value = self.facebook_token_response(
+            "long-lived-user-token",
+            expires_in=5184000,
+        )
+        mock_get.side_effect = [
+            self.facebook_token_response("short-lived-user-token"),
+            SimpleNamespace(
+                status_code=200,
+                json=lambda: {
+                    "data": [
+                        {
+                            "id": "page-1",
+                            "name": "First page",
+                            "access_token": "first-page-token",
+                        }
+                    ],
+                    "paging": {
+                        "next": "https://graph.facebook.com/v27.0/me/accounts?after=cursor-1",
+                        "cursors": {"after": "cursor-1"},
+                    },
+                },
+            ),
+            SimpleNamespace(
+                status_code=200,
+                json=lambda: {
+                    "data": [
+                        {
+                            "id": "page-2",
+                            "name": "Second page",
+                            "access_token": "second-page-token",
+                        }
+                    ],
+                    "paging": {
+                        "next": "https://graph.facebook.com/v27.0/me/accounts?after=cursor-2",
+                        "cursors": {"after": "cursor-2"},
+                    },
+                },
+            ),
+            self.facebook_debug_response(
+                expires_at=int(time.time()) + 3600,
+                profile_id="page-1",
+            ),
+            self.facebook_debug_response(
+                expires_at=int(time.time()) + 7200,
+                profile_id="page-2",
+            ),
+        ]
+
+        response = self.client.get(
+            "/api/social/oauth/facebook_pages/callback/",
+            {"state": state, "code": "one-time-authorization-code"},
+        )
+
+        self.assertEqual(
+            response["Location"],
+            "ibda://social-accounts?status=connected",
+        )
+        self.assertEqual(mock_get.call_count, 5)
+        self.assertEqual(mock_post.call_count, 1)
+        self.assertEqual(
+            sorted(
+                SocialAccount.objects.filter(
+                    owner_id=self.user.id
+                ).values_list("platform_account_id", flat=True)
+            ),
+            ["page-1", "page-2"],
+        )
+
+    @patch(
+        "core.views.connect_authorized_facebook_pages",
+        side_effect=RuntimeError("unexpected internal failure"),
+    )
+    def test_facebook_callback_redirects_on_unexpected_error(
+        self,
+        mock_connect,
+    ):
+        state = "unexpected-error-state"
+        state_hash = hashlib.sha256(state.encode("ascii")).hexdigest()
+        SocialOAuthState.objects.create(
+            state_digest=state_hash,
+            owner_id=self.user.id,
+            platform=SocialAccount.Platform.FACEBOOK_PAGES,
+            expires_at=timezone.now() + timedelta(minutes=5),
+        )
+
+        response = self.client.get(
+            "/api/social/oauth/facebook_pages/callback/",
+            {"state": state, "code": "one-time-authorization-code"},
+        )
+
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(
+            response["Location"],
+            "ibda://social-accounts?status=failed",
+        )
+        body = response.content.decode("utf-8")
+        self.assertNotIn("unexpected internal failure", body)
+        self.assertNotIn("Traceback", body)
+        self.assertFalse(SocialAccount.objects.exists())
+        self.assertIsNotNone(
+            SocialOAuthState.objects.get(state_digest=state_hash).consumed_at
+        )
+        mock_connect.assert_called_once()
+
+    @patch(
+        "core.views.connect_authorized_facebook_pages",
+        side_effect=IntegrityError(
+            "duplicate key value violates unique constraint"
+        ),
+    )
+    def test_facebook_callback_redirects_on_database_integrity_error(
+        self,
+        mock_connect,
+    ):
+        state = "integrity-error-state"
+        SocialOAuthState.objects.create(
+            state_digest=hashlib.sha256(state.encode("ascii")).hexdigest(),
+            owner_id=self.user.id,
+            platform=SocialAccount.Platform.FACEBOOK_PAGES,
+            expires_at=timezone.now() + timedelta(minutes=5),
+        )
+
+        response = self.client.get(
+            "/api/social/oauth/facebook_pages/callback/",
+            {"state": state, "code": "one-time-authorization-code"},
+        )
+
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(
+            response["Location"],
+            "ibda://social-accounts?status=failed",
+        )
+        body = response.content.decode("utf-8")
+        self.assertNotIn("duplicate key", body)
+        self.assertNotIn("IntegrityError", body)
+        self.assertFalse(SocialAccount.objects.exists())
+        mock_connect.assert_called_once()
+
+    @patch(
+        "core.views.consume_facebook_oauth_state",
+        side_effect=IntegrityError("state lookup failed"),
+    )
+    def test_facebook_callback_redirects_when_state_lookup_fails(
+        self,
+        mock_consume,
+    ):
+        response = self.client.get(
+            "/api/social/oauth/facebook_pages/callback/",
+            {"state": "any-state", "code": "one-time-authorization-code"},
+        )
+
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(
+            response["Location"],
+            "ibda://social-accounts?status=failed",
+        )
+        body = response.content.decode("utf-8")
+        self.assertNotIn("state lookup failed", body)
+        self.assertNotIn("Traceback", body)
+        self.assertFalse(SocialAccount.objects.exists())
+        mock_consume.assert_called_once()
+
+    @override_settings(
+        SOCIAL_FACEBOOK_CLIENT_ID="test-app-id",
+        SOCIAL_FACEBOOK_CLIENT_SECRET="test-app-secret",
+        SOCIAL_FACEBOOK_CONFIG_ID="test-config-id",
+        SOCIAL_FACEBOOK_REDIRECT_URI=(
+            "https://social.example/api/social/oauth/facebook_pages/callback/"
+        ),
+        SOCIAL_FACEBOOK_GRAPH_API_VERSION="v27.0",
+        SOCIAL_TOKEN_ENCRYPTION_KEY=Fernet.generate_key().decode("ascii"),
+    )
+    @patch("core.services.facebook_oauth.requests.get")
+    @patch("core.services.facebook_oauth.requests.post")
+    def test_facebook_callback_rolls_back_pages_when_save_fails(
+        self,
+        mock_post,
+        mock_get,
+    ):
+        state = "rollback-state"
+        state_hash = hashlib.sha256(state.encode("ascii")).hexdigest()
+        SocialOAuthState.objects.create(
+            state_digest=state_hash,
+            owner_id=self.user.id,
+            platform=SocialAccount.Platform.FACEBOOK_PAGES,
+            expires_at=timezone.now() + timedelta(minutes=5),
+        )
+        mock_post.return_value = self.facebook_token_response(
+            "long-lived-user-token",
+            expires_in=5184000,
+        )
+        mock_get.side_effect = [
+            self.facebook_token_response("short-lived-user-token"),
+            SimpleNamespace(
+                status_code=200,
+                json=lambda: {
+                    "data": [
+                        {
+                            "id": "page-1",
+                            "name": "First page",
+                            "access_token": "first-page-token",
+                        },
+                        {
+                            "id": "page-2",
+                            "name": "Second page",
+                            "access_token": "second-page-token",
+                        },
+                    ]
+                },
+            ),
+            self.facebook_debug_response(
+                expires_at=int(time.time()) + 3600,
+                profile_id="page-1",
+            ),
+            self.facebook_debug_response(
+                expires_at=int(time.time()) + 7200,
+                profile_id="page-2",
+            ),
+        ]
+        original_update = SocialAccount.objects.update_or_create
+        saved = {"count": 0}
+
+        def update_then_fail(*args, **kwargs):
+            saved["count"] += 1
+            if saved["count"] > 1:
+                raise IntegrityError(
+                    "duplicate key value violates unique constraint"
+                )
+            return original_update(*args, **kwargs)
+
+        with patch(
+            "core.services.facebook_oauth.SocialAccount.objects.update_or_create",
+            side_effect=update_then_fail,
+        ):
+            response = self.client.get(
+                "/api/social/oauth/facebook_pages/callback/",
+                {"state": state, "code": "one-time-authorization-code"},
+            )
+
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(
+            response["Location"],
+            "ibda://social-accounts?status=failed",
+        )
+        # The first Page was written inside the atomic block, so it must be
+        # rolled back together with the failure.
+        self.assertEqual(saved["count"], 2)
+        self.assertFalse(
+            SocialAccount.objects.filter(owner_id=self.user.id).exists()
+        )
+        self.assertIsNotNone(
+            SocialOAuthState.objects.get(state_digest=state_hash).consumed_at
+        )
+
+    @override_settings(
+        SOCIAL_FACEBOOK_CLIENT_ID="test-app-id",
+        SOCIAL_FACEBOOK_CLIENT_SECRET="test-app-secret",
+        SOCIAL_FACEBOOK_CONFIG_ID="test-config-id",
+        SOCIAL_FACEBOOK_REDIRECT_URI=(
+            "https://social.example/api/social/oauth/facebook_pages/callback/"
+        ),
+        SOCIAL_FACEBOOK_GRAPH_API_VERSION="v27.0",
+        SOCIAL_TOKEN_ENCRYPTION_KEY=Fernet.generate_key().decode("ascii"),
+    )
+    @patch("core.services.facebook_oauth.requests.get")
+    @patch("core.services.facebook_oauth.requests.post")
+    def test_facebook_oauth_logs_skipped_pages_without_page_data(
+        self,
+        mock_post,
+        mock_get,
+    ):
+        state = "log-skipped-pages-state"
+        SocialOAuthState.objects.create(
+            state_digest=hashlib.sha256(state.encode("ascii")).hexdigest(),
+            owner_id=self.user.id,
+            platform=SocialAccount.Platform.FACEBOOK_PAGES,
+            expires_at=timezone.now() + timedelta(minutes=5),
+        )
+        mock_post.return_value = self.facebook_token_response(
+            "long-lived-user-token",
+            expires_in=5184000,
+        )
+        mock_get.side_effect = [
+            self.facebook_token_response("short-lived-user-token"),
+            SimpleNamespace(
+                status_code=200,
+                json=lambda: {
+                    "data": [
+                        {
+                            "id": "page-1",
+                            "name": "Valid page",
+                            "access_token": "valid-page-token",
+                        },
+                        {"id": "page-2", "name": "Missing token"},
+                        {"id": "page-3", "access_token": "nameless-token"},
+                        {"name": "Missing id", "access_token": "orphan-token"},
+                    ]
+                },
+            ),
+            self.facebook_debug_response(
+                expires_at=int(time.time()) + 3600,
+                profile_id="page-1",
+            ),
+        ]
+
+        with self.assertLogs(level="WARNING") as captured:
+            response = self.client.get(
+                "/api/social/oauth/facebook_pages/callback/",
+                {"state": state, "code": "private-authorization-code"},
+            )
+
+        self.assertEqual(
+            response["Location"],
+            "ibda://social-accounts?status=connected",
+        )
+        skipped = [
+            record
+            for record in captured.records
+            if getattr(record, "event", "") == "facebook_oauth.page_skipped"
+        ]
+        self.assertEqual(
+            [record.reason for record in skipped],
+            ["missing_access_token", "missing_name", "missing_id"],
+        )
+        payload = " ".join(str(record.__dict__) for record in captured.records)
+        self.assertNotIn("valid-page-token", payload)
+        self.assertNotIn("nameless-token", payload)
+        self.assertNotIn("orphan-token", payload)
+        self.assertNotIn("private-authorization-code", payload)
+        self.assertNotIn("test-app-secret", payload)
+        for record in captured.records:
+            self.assertIsNone(record.exc_info)
+
+    @override_settings(
+        SOCIAL_FACEBOOK_CLIENT_ID="test-app-id",
+        SOCIAL_FACEBOOK_CLIENT_SECRET="test-app-secret",
+        SOCIAL_FACEBOOK_CONFIG_ID="test-config-id",
+        SOCIAL_FACEBOOK_REDIRECT_URI=(
+            "https://social.example/api/social/oauth/facebook_pages/callback/"
+        ),
+        SOCIAL_FACEBOOK_GRAPH_API_VERSION="v27.0",
+        SOCIAL_TOKEN_ENCRYPTION_KEY=Fernet.generate_key().decode("ascii"),
+    )
+    @patch("core.services.facebook_oauth.requests.get")
+    @patch("core.services.facebook_oauth.requests.post")
+    def test_facebook_oauth_logs_pagination_stop_reasons(
+        self,
+        mock_post,
+        mock_get,
+    ):
+        def accounts_page(*, page_id, cursor, next_cursor=None):
+            paging = {"next": "https://graph.facebook.com/v27.0/me/accounts"}
+            if next_cursor is None:
+                paging["cursors"] = {"after": cursor}
+            else:
+                paging["cursors"] = {"after": next_cursor}
+            return SimpleNamespace(
+                status_code=200,
+                json=lambda: {
+                    "data": [
+                        {
+                            "id": page_id,
+                            "name": "Logged page",
+                            "access_token": page_id + "-token",
+                        }
+                    ],
+                    "paging": paging,
+                },
+            )
+
+        scenarios = {
+            "missing_cursor": [
+                self.facebook_token_response("short-lived-user-token"),
+                SimpleNamespace(
+                    status_code=200,
+                    json=lambda: {
+                        "data": [
+                            {
+                                "id": "page-1",
+                                "name": "Logged page",
+                                "access_token": "page-1-token",
+                            }
+                        ],
+                        "paging": {
+                            "next": "https://graph.facebook.com/v27.0/me/accounts"
+                        },
+                    },
+                ),
+                self.facebook_debug_response(
+                    expires_at=int(time.time()) + 3600,
+                    profile_id="page-1",
+                ),
+            ],
+            "invalid_cursor": [
+                self.facebook_token_response("short-lived-user-token"),
+                SimpleNamespace(
+                    status_code=200,
+                    json=lambda: {
+                        "data": [
+                            {
+                                "id": "page-1",
+                                "name": "Logged page",
+                                "access_token": "page-1-token",
+                            }
+                        ],
+                        "paging": {
+                            "next": "https://graph.facebook.com/v27.0/me/accounts",
+                            "cursors": {"after": "   "},
+                        },
+                    },
+                ),
+                self.facebook_debug_response(
+                    expires_at=int(time.time()) + 3600,
+                    profile_id="page-1",
+                ),
+            ],
+            "duplicate_cursor": [
+                self.facebook_token_response("short-lived-user-token"),
+                accounts_page(page_id="page-1", cursor=None, next_cursor="cursor-1"),
+                accounts_page(page_id="page-2", cursor=None, next_cursor="cursor-1"),
+                self.facebook_debug_response(
+                    expires_at=int(time.time()) + 3600,
+                    profile_id="page-1",
+                ),
+                self.facebook_debug_response(
+                    expires_at=int(time.time()) + 7200,
+                    profile_id="page-2",
+                ),
+            ],
+            "request_cap": [
+                self.facebook_token_response("short-lived-user-token"),
+                accounts_page(page_id="page-1", cursor=None, next_cursor="cursor-1"),
+                self.facebook_debug_response(
+                    expires_at=int(time.time()) + 3600,
+                    profile_id="page-1",
+                ),
+            ],
+        }
+
+        for reason, responses in scenarios.items():
+            with self.subTest(reason=reason):
+                mock_get.reset_mock()
+                mock_post.reset_mock()
+                mock_post.return_value = self.facebook_token_response(
+                    "long-lived-user-token",
+                    expires_in=5184000,
+                )
+                mock_get.side_effect = responses
+                state = "pagination-log-" + reason
+                SocialOAuthState.objects.create(
+                    state_digest=hashlib.sha256(
+                        state.encode("ascii")
+                    ).hexdigest(),
+                    owner_id=self.user.id,
+                    platform=SocialAccount.Platform.FACEBOOK_PAGES,
+                    expires_at=timezone.now() + timedelta(minutes=5),
+                )
+                cap = 1 if reason == "request_cap" else 100
+                with patch("core.services.facebook_oauth.MAX_PAGE_REQUESTS", cap):
+                    with self.assertLogs(level="WARNING") as captured:
+                        response = self.client.get(
+                            "/api/social/oauth/facebook_pages/callback/",
+                            {"state": state, "code": "one-time-authorization-code"},
+                        )
+
+                self.assertEqual(
+                    response["Location"],
+                    "ibda://social-accounts?status=connected",
+                )
+                stopped = [
+                    record
+                    for record in captured.records
+                    if getattr(record, "event", "")
+                    == "facebook_oauth.pagination_stopped"
+                ]
+                self.assertEqual([record.reason for record in stopped], [reason])
+                self.assertIsNone(stopped[0].exc_info)
+
+    @patch(
+        "core.views.connect_authorized_facebook_pages",
+        side_effect=RuntimeError(
+            "boom code=private-code access_token=secret-page-token"
+        ),
+    )
+    def test_facebook_oauth_logs_unexpected_failure_without_sensitive_values(
+        self,
+        mock_connect,
+    ):
+        state = "log-unexpected-state"
+        SocialOAuthState.objects.create(
+            state_digest=hashlib.sha256(state.encode("ascii")).hexdigest(),
+            owner_id=self.user.id,
+            platform=SocialAccount.Platform.FACEBOOK_PAGES,
+            expires_at=timezone.now() + timedelta(minutes=5),
+        )
+
+        with self.assertLogs(level="WARNING") as captured:
+            response = self.client.get(
+                "/api/social/oauth/facebook_pages/callback/",
+                {"state": state, "code": "private-code"},
+            )
+
+        self.assertEqual(
+            response["Location"],
+            "ibda://social-accounts?status=failed",
+        )
+        failures = [
+            record
+            for record in captured.records
+            if getattr(record, "event", "") == "facebook_oauth.callback_failed"
+        ]
+        self.assertEqual(len(failures), 1)
+        record = failures[0]
+        self.assertEqual(record.failure_category, "unexpected")
+        self.assertEqual(record.error_type, "RuntimeError")
+        self.assertIsNone(record.exc_info)
+        payload = str(record.__dict__)
+        self.assertNotIn("private-code", payload)
+        self.assertNotIn("secret-page-token", payload)
+        self.assertNotIn("boom", payload)
+        self.assertNotIn("graph.facebook.com", payload)
+        mock_connect.assert_called_once()
+
+    @patch(
+        "core.views.connect_authorized_facebook_pages",
+        side_effect=facebook_oauth.FacebookOAuthError(
+            "Unable to retrieve authorized Facebook Pages."
+        ),
+    )
+    def test_facebook_oauth_logs_facebook_error_category(
+        self,
+        mock_connect,
+    ):
+        state = "log-facebook-error-state"
+        SocialOAuthState.objects.create(
+            state_digest=hashlib.sha256(state.encode("ascii")).hexdigest(),
+            owner_id=self.user.id,
+            platform=SocialAccount.Platform.FACEBOOK_PAGES,
+            expires_at=timezone.now() + timedelta(minutes=5),
+        )
+
+        with self.assertLogs(level="WARNING") as captured:
+            response = self.client.get(
+                "/api/social/oauth/facebook_pages/callback/",
+                {"state": state, "code": "private-code"},
+            )
+
+        self.assertEqual(
+            response["Location"],
+            "ibda://social-accounts?status=failed",
+        )
+        failures = [
+            record
+            for record in captured.records
+            if getattr(record, "event", "") == "facebook_oauth.callback_failed"
+        ]
+        self.assertEqual(len(failures), 1)
+        record = failures[0]
+        self.assertEqual(record.failure_category, "facebook_oauth_error")
+        self.assertEqual(record.error_type, "FacebookOAuthError")
+        self.assertEqual(
+            record.detail,
+            "Unable to retrieve authorized Facebook Pages.",
+        )
+        self.assertIsNone(record.exc_info)
+        payload = str(record.__dict__)
+        self.assertNotIn("private-code", payload)
+        self.assertNotIn("graph.facebook.com", payload)
+        mock_connect.assert_called_once()
+
+    def test_account_purge_deletes_only_that_users_oauth_states(self):
+        from .services.account_deletion import purge_owner_data
+
+        own_state = SocialOAuthState.objects.create(
+            state_digest=hashlib.sha256(b"own-state").hexdigest(),
+            owner_id=self.user.id,
+            platform=SocialAccount.Platform.FACEBOOK_PAGES,
+            expires_at=timezone.now() + timedelta(minutes=5),
+        )
+        other_state = SocialOAuthState.objects.create(
+            state_digest=hashlib.sha256(b"other-state").hexdigest(),
+            owner_id=self.other_user_id,
+            platform=SocialAccount.Platform.FACEBOOK_PAGES,
+            expires_at=timezone.now() + timedelta(minutes=5),
+        )
+
+        counts = purge_owner_data(self.user.id)
+
+        self.assertEqual(counts["social_oauth_states"], 1)
+        self.assertFalse(
+            SocialOAuthState.objects.filter(id=own_state.id).exists()
+        )
+        self.assertTrue(
+            SocialOAuthState.objects.filter(id=other_state.id).exists()
+        )
 
     def test_connect_requires_auth_and_does_not_claim_unconfigured_success(self):
         response = self.client.post(
@@ -1579,6 +3445,71 @@ class SocialAccountApiTests(APITestCase):
             format="json",
         )
         self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
+        response = self.client.post(
+            "/api/social/accounts/facebook_pages/connect/",
+            {},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
+        self.assertFalse(SocialOAuthState.objects.exists())
+
+    @override_settings(
+        SOCIAL_FACEBOOK_CLIENT_ID="test-app-id",
+        SOCIAL_FACEBOOK_CLIENT_SECRET="test-app-secret",
+        SOCIAL_FACEBOOK_CONFIG_ID="test-config-id",
+        SOCIAL_FACEBOOK_REDIRECT_URI=(
+            "https://social.example/api/social/oauth/facebook_pages/callback/"
+        ),
+        SOCIAL_FACEBOOK_GRAPH_API_VERSION="v27.0",
+        SOCIAL_TOKEN_ENCRYPTION_KEY=Fernet.generate_key().decode("ascii"),
+    )
+    def test_facebook_connect_persists_web_response_mode(self):
+        response = self.client.post(
+            "/api/social/accounts/facebook_pages/connect/",
+            {"response_mode": "web"},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        oauth_state = SocialOAuthState.objects.get()
+        self.assertEqual(oauth_state.owner_id, self.user.id)
+        self.assertEqual(
+            oauth_state.response_mode,
+            SocialOAuthState.ResponseMode.WEB,
+        )
+        self.assertIn("authorization_url", response.data)
+
+    def test_facebook_connect_rejects_unknown_response_mode(self):
+        response = self.client.post(
+            "/api/social/accounts/facebook_pages/connect/",
+            {"response_mode": "redirect"},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertFalse(SocialOAuthState.objects.exists())
+
+    def test_web_facebook_callback_posts_status_to_opener(self):
+        state = "web-facebook-state"
+        SocialOAuthState.objects.create(
+            state_digest=hashlib.sha256(state.encode("ascii")).hexdigest(),
+            owner_id=self.user.id,
+            platform=SocialAccount.Platform.FACEBOOK_PAGES,
+            response_mode=SocialOAuthState.ResponseMode.WEB,
+            expires_at=timezone.now() + timedelta(minutes=5),
+        )
+
+        response = self.client.get(
+            "/api/social/oauth/facebook_pages/callback/",
+            {"state": state, "error": "access_denied"},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response["Content-Type"], "text/html; charset=utf-8")
+        self.assertEqual(response["Cache-Control"], "no-store")
+        self.assertIn("window.opener.postMessage", response.content.decode())
+        self.assertIn("status:'cancelled'", response.content.decode())
+        self.assertNotIn("access_denied", response.content.decode())
 
     def test_callback_rejects_missing_or_unrecognized_oauth_state(self):
         missing_state = self.client.get(
@@ -1586,15 +3517,19 @@ class SocialAccountApiTests(APITestCase):
         )
         self.assertEqual(
             missing_state.status_code,
-            status.HTTP_400_BAD_REQUEST,
+            status.HTTP_302_FOUND,
         )
+        self.assertIn("status=failed", missing_state["Location"])
+        self.assertNotIn("untrusted-code", missing_state["Location"])
 
         invalid_state = self.client.get(
             "/api/social/oauth/instagram/callback/"
             "?state=unrecognized&code=untrusted-code"
         )
-        self.assertEqual(invalid_state.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertNotIn("untrusted-code", str(invalid_state.data))
+        self.assertEqual(invalid_state.status_code, status.HTTP_302_FOUND)
+        self.assertIn("status=failed", invalid_state["Location"])
+        self.assertNotIn(b"untrusted-code", invalid_state.content)
+        self.assertNotIn("untrusted-code", invalid_state["Location"])
         self.assertFalse(SocialAccount.objects.exists())
 
     def test_disconnect_is_owner_scoped_and_clears_encrypted_tokens(self):

@@ -8,6 +8,11 @@ import {
   TextInput,
   View,
 } from "react-native";
+import { Image } from "expo-image";
+import {
+  launchImageLibraryAsync,
+  type ImagePickerAsset,
+} from "expo-image-picker";
 import { useFocusEffect, useLocalSearchParams, useRouter } from "expo-router";
 import { BottomNavigation } from "../../../components/navigation/BottomNavigation";
 import {
@@ -19,6 +24,7 @@ import {
   optimizeContentForGEO,
   saveContent,
   submitForApproval,
+  uploadContentImage,
   updateContent,
   type ContentPost,
   type ContentType,
@@ -66,6 +72,8 @@ export function ContentStudioScreen() {
   const [tone, setTone] = useState("Friendly");
   const [language, setLanguage] = useState("English");
   const [content, setContent] = useState("");
+  const [selectedImage, setSelectedImage] =
+    useState<ImagePickerAsset | null>(null);
 
   const [savedPost, setSavedPost] =
     useState<ContentPost | null>(null);
@@ -73,12 +81,13 @@ export function ContentStudioScreen() {
   const [loadingBrands, setLoadingBrands] = useState(true);
   const [generating, setGenerating] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [uploadingImage, setUploadingImage] = useState(false);
   const [optimizing, setOptimizing] = useState(false);
   const [geoResult, setGeoResult] =
     useState<GEOOptimizeResult | null>(null);
   const [error, setError] = useState("");
 
-  const canEdit = !generating && !saving && !optimizing;
+  const canEdit = !generating && !saving && !optimizing && !uploadingImage;
 
   const selectedBrand = useMemo(
     () => brands.find((brand) => brand.id === brandId) ?? null,
@@ -118,6 +127,32 @@ export function ContentStudioScreen() {
       setLanguage(selectedBrand.voice?.language || "English");
     }
   }, [selectedBrand]);
+
+  const handleSelectImage = async () => {
+    if (!canEdit) return;
+    setError("");
+
+    try {
+      const result = await launchImageLibraryAsync({
+        mediaTypes: ["images"],
+        allowsEditing: true,
+        quality: 0.9,
+      });
+      const asset = result.assets?.[0];
+      if (result.canceled || !asset) return;
+      if (asset.mimeType && asset.mimeType.toLowerCase() !== "image/jpeg") {
+        setError("Instagram feed posts require a JPEG image.");
+        return;
+      }
+
+      setSelectedImage(asset);
+      setSubmitted(false);
+    } catch (pickerError) {
+      setError(
+        getErrorMessage(pickerError, "Unable to select this image.")
+      );
+    }
+  };
 
   const handleGenerate = async () => {
     if (generating || saving || optimizing) return;
@@ -230,11 +265,22 @@ export function ContentStudioScreen() {
       content_type: contentType,
     };
 
-    if (savedPost) {
-      return updateContent(savedPost.id, input);
+    let post = savedPost
+      ? await updateContent(savedPost.id, input)
+      : await saveContent({ ...input, brand_id: brandId });
+
+    if (selectedImage) {
+      setSavedPost(post);
+      setUploadingImage(true);
+      try {
+        post = await uploadContentImage(post.id, selectedImage);
+        setSelectedImage(null);
+      } finally {
+        setUploadingImage(false);
+      }
     }
 
-    return saveContent({ ...input, brand_id: brandId });
+    return post;
   };
 
   const handleSave = async () => {
@@ -270,12 +316,17 @@ export function ContentStudioScreen() {
         !post ||
         post.body !== content.trim() ||
         post.platform !== platform ||
-        post.content_type !== contentType
+        post.content_type !== contentType ||
+        selectedImage !== null
       ) {
         post = await saveDraft();
       }
 
       if (!post) return;
+      if (platform === "instagram" && !post.image_url) {
+        setError("Attach a JPEG image before submitting an Instagram post.");
+        return;
+      }
 
       setSavedPost(post);
       await submitForApproval(post.id);
@@ -435,6 +486,7 @@ export function ContentStudioScreen() {
                 onPress={() => {
                   setPlatform(item.value);
                   setGeoResult(null);
+                  if (item.value !== "instagram") setSelectedImage(null);
                 }}
                 disabled={!canEdit}
                 accessibilityRole="button"
@@ -640,6 +692,59 @@ export function ContentStudioScreen() {
               Edit the text above before saving or submitting.
             </Text>
 
+            {platform === "instagram" ? (
+              <View className="mt-5 rounded-2xl border border-[#EAE4DC] bg-[#FCF9F4] p-4">
+                <Text className="font-semibold text-[#24221F]">
+                  Instagram feed image
+                </Text>
+                <Text className="mt-1 text-sm leading-5 text-[#827970]">
+                  Choose a JPEG image up to 8 MB. It will be stored in a public
+                  Supabase bucket so Instagram can fetch it.
+                </Text>
+
+                {selectedImage?.uri || savedPost?.image_url ? (
+                  <Image
+                    source={{
+                      uri: selectedImage?.uri || savedPost?.image_url || "",
+                    }}
+                    contentFit="cover"
+                    className="mt-3 h-56 w-full rounded-xl"
+                    accessibilityLabel="Instagram feed image preview"
+                  />
+                ) : (
+                  <Text className="mt-3 rounded-xl bg-white p-3 text-sm text-[#827970]">
+                    Add one image before submitting this Instagram post for
+                    approval.
+                  </Text>
+                )}
+
+                <Pressable
+                  onPress={() => void handleSelectImage()}
+                  disabled={!canEdit}
+                  accessibilityRole="button"
+                  className={`mt-3 min-h-11 items-center justify-center rounded-xl border border-[#EAE4DC] bg-white px-4 py-3 ${
+                    !canEdit ? "opacity-60" : ""
+                  }`}
+                >
+                  <Text className="font-semibold text-[#51483F]">
+                    {selectedImage
+                      ? "Choose another JPEG"
+                      : savedPost?.image_url
+                        ? "Replace image"
+                        : "Choose JPEG"}
+                  </Text>
+                </Pressable>
+                {uploadingImage ? (
+                  <View className="mt-3 flex-row items-center">
+                    <ActivityIndicator color="#FF6B5F" />
+                    <Text className="ml-2 text-sm text-[#827970]">
+                      Uploading image...
+                    </Text>
+                  </View>
+                ) : null}
+              </View>
+            ) : null}
+
             <Pressable
               onPress={() => void handleOptimizeGEO()}
               disabled={!canEdit || !brandId || !content.trim()}
@@ -740,6 +845,18 @@ export function ContentStudioScreen() {
 
             {!submitted && (
               <View className="mt-4 gap-3">
+                <Pressable
+                  onPress={() => void handleSave()}
+                  disabled={!canEdit}
+                  accessibilityRole="button"
+                  className={`min-h-12 items-center justify-center rounded-2xl border border-[#EAE4DC] bg-white px-4 py-3 ${
+                    !canEdit ? "opacity-60" : ""
+                  }`}
+                >
+                  <Text className="font-bold text-[#51483F]">
+                    {saving ? "Saving..." : "Save Draft"}
+                  </Text>
+                </Pressable>
                 <Pressable
                   onPress={() => void handleSubmitForApproval()}
                   disabled={!canEdit}

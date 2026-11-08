@@ -18,6 +18,10 @@ import {
   type ContentPost,
 } from "../../content-studio/services/content.service";
 import {
+  getConnectedAccounts,
+  type SocialAccount,
+} from "../../integrations/services/socialAccount.service";
+import {
   cancelScheduledPost,
   getDeviceTimezone,
   getPublishingPlatforms,
@@ -246,6 +250,10 @@ export function CalendarScreen() {
   const [posts, setPosts] = useState<ScheduledPost[]>([]);
   const [drafts, setDrafts] = useState<ContentPost[]>([]);
   const [platforms, setPlatforms] = useState<PublishingCapability[]>([]);
+  const [facebookPages, setFacebookPages] = useState<SocialAccount[]>([]);
+  const [instagramAccounts, setInstagramAccounts] = useState<SocialAccount[]>(
+    []
+  );
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState("");
@@ -262,6 +270,9 @@ export function CalendarScreen() {
     preselectedPostId
   );
   const [schedulerPlatforms, setSchedulerPlatforms] = useState<string[]>([]);
+  const [schedulerAccountIds, setSchedulerAccountIds] = useState<
+    Record<string, string>
+  >({});
   const [schedulerInput, setSchedulerInput] = useState("");
   const [schedulerTimezone, setSchedulerTimezone] = useState(getDeviceTimezone);
   const [schedulerNotice, setSchedulerNotice] = useState("");
@@ -292,12 +303,28 @@ export function CalendarScreen() {
       setError("");
 
       try {
-        const [scheduled, capabilities, draftPosts] = await Promise.all([
-          getScheduledPosts(rangeStart, rangeEnd),
-          getPublishingPlatforms(),
-          getContentPosts("draft"),
-        ]);
+        const [scheduled, capabilities, draftPosts, connected] =
+          await Promise.all([
+            getScheduledPosts(rangeStart, rangeEnd),
+            getPublishingPlatforms(),
+            getContentPosts("draft"),
+            getConnectedAccounts(),
+          ]);
         setPosts(scheduled);
+        setFacebookPages(
+          connected.accounts.filter(
+            (account) =>
+              account.platform === "facebook_pages" &&
+              account.status === "connected"
+          )
+        );
+        setInstagramAccounts(
+          connected.accounts.filter(
+            (account) =>
+              account.platform === "instagram" &&
+              account.status === "connected"
+          )
+        );
         setPlatforms(
           capabilities.platforms.map((item) => ({
             ...item,
@@ -390,6 +417,10 @@ export function CalendarScreen() {
     setActionError("");
     setActionMessage("");
     setSchedulerNotice("");
+    setSchedulerAccountIds({
+      facebook: facebookPages[0]?.id ?? "",
+      instagram: instagramAccounts[0]?.id ?? "",
+    });
     setShowScheduler(true);
     setSchedulerInput(toLocalDateTimeInput(addDays(new Date(), 1).toISOString()));
     setSchedulerTimezone(getDeviceTimezone());
@@ -430,14 +461,27 @@ export function CalendarScreen() {
           : "Unable to load approved content."
       );
     }
-  }, [preselectedPostId]);
+  }, [facebookPages, instagramAccounts, preselectedPostId]);
 
   const toggleSchedulerPlatform = (platform: string) => {
-    setSchedulerPlatforms((current) =>
-      current.includes(platform)
-        ? current.filter((item) => item !== platform)
-        : [...current, platform]
-    );
+    setSchedulerPlatforms((current) => {
+      if (current.includes(platform)) {
+        return current.filter((item) => item !== platform);
+      }
+      if (platform === "facebook" && !schedulerAccountIds.facebook) {
+        setSchedulerAccountIds((accounts) => ({
+          ...accounts,
+          facebook: facebookPages[0]?.id ?? "",
+        }));
+      }
+      if (platform === "instagram" && !schedulerAccountIds.instagram) {
+        setSchedulerAccountIds((accounts) => ({
+          ...accounts,
+          instagram: instagramAccounts[0]?.id ?? "",
+        }));
+      }
+      return [...current, platform];
+    });
   };
 
   const submitSchedule = async () => {
@@ -453,6 +497,47 @@ export function CalendarScreen() {
       setActionError("Select at least one platform.");
       return;
     }
+    const facebookSelected = schedulerPlatforms.includes("facebook");
+    const instagramSelected = schedulerPlatforms.includes("instagram");
+    if (facebookSelected && !facebookPages.length) {
+      setActionError(
+        "Connect a Facebook Page in Integrations before scheduling a Facebook post."
+      );
+      return;
+    }
+    if (
+      facebookSelected &&
+      facebookPages.length > 1 &&
+      !schedulerAccountIds.facebook
+    ) {
+      setActionError("Choose which Facebook Page should publish this post.");
+      return;
+    }
+    if (instagramSelected && !instagramAccounts.length) {
+      setActionError(
+        "Connect an Instagram professional account in Integrations before scheduling."
+      );
+      return;
+    }
+    if (
+      instagramSelected &&
+      instagramAccounts.length > 1 &&
+      !schedulerAccountIds.instagram
+    ) {
+      setActionError(
+        "Choose which Instagram account should publish this post."
+      );
+      return;
+    }
+    if (
+      instagramSelected &&
+      !approvedPosts.find((post) => post.id === schedulerPostId)?.image_url
+    ) {
+      setActionError(
+        "Instagram feed posts need a public JPEG image. Add one in Studio before submitting content for approval."
+      );
+      return;
+    }
 
     const localDate = parseLocalDateTimeInput(schedulerInput);
     if (!localDate) {
@@ -466,14 +551,25 @@ export function CalendarScreen() {
 
     setSavingSchedule(true);
     try {
+      const socialAccountIds: Record<string, string> = {};
+      if (facebookSelected) {
+        socialAccountIds.facebook =
+          schedulerAccountIds.facebook || facebookPages[0].id;
+      }
+      if (instagramSelected) {
+        socialAccountIds.instagram =
+          schedulerAccountIds.instagram || instagramAccounts[0].id;
+      }
       await schedulePost({
         post_id: schedulerPostId,
         platforms: schedulerPlatforms,
         scheduled_for: localDate.toISOString(),
         timezone_name: schedulerTimezone.trim() || "UTC",
+        social_account_ids: socialAccountIds,
       });
       setActionMessage("Content scheduled.");
       setShowScheduler(false);
+      setSchedulerAccountIds({});
       setApprovedPosts((current) =>
         current.filter((post) => post.id !== schedulerPostId)
       );
@@ -575,6 +671,9 @@ export function CalendarScreen() {
             </Text>
             <Text className="mt-1 text-sm text-[#827970]">
               {scheduled.post.brand_name} · {platformLabel(platforms, scheduled.platform)}
+              {scheduled.social_account
+                ? ` · ${scheduled.social_account.display_name}`
+                : ""}
             </Text>
           </View>
           <View className={`rounded-full px-3 py-1 ${style.badge}`}>
@@ -816,6 +915,71 @@ export function CalendarScreen() {
                     />
                   ))}
                 </View>
+
+                {schedulerPlatforms.includes("facebook") ? (
+                  <>
+                    <Text className="mt-4 text-xs font-bold uppercase tracking-[1px] text-[#827970]">
+                      Facebook Page
+                    </Text>
+                    {facebookPages.length === 0 ? (
+                      <Text className="mt-2 rounded-xl bg-[#FDF3DC] p-3 text-sm leading-5 text-[#8A6412]">
+                        No Facebook Page is connected. Connect one in
+                        Integrations before scheduling to Facebook.
+                      </Text>
+                    ) : (
+                      <View className="mt-2 flex-row flex-wrap gap-2">
+                        {facebookPages.map((page) => (
+                          <Chip
+                            key={page.id}
+                            label={page.display_name || page.platform_account_id}
+                            active={schedulerAccountIds.facebook === page.id}
+                            onPress={() =>
+                              setSchedulerAccountIds((accounts) => ({
+                                ...accounts,
+                                facebook: page.id,
+                              }))
+                            }
+                          />
+                        ))}
+                      </View>
+                    )}
+                  </>
+                ) : null}
+
+                {schedulerPlatforms.includes("instagram") ? (
+                  <>
+                    <Text className="mt-4 text-xs font-bold uppercase tracking-[1px] text-[#827970]">
+                      Instagram account
+                    </Text>
+                    {instagramAccounts.length === 0 ? (
+                      <Text className="mt-2 rounded-xl bg-[#FDF3DC] p-3 text-sm leading-5 text-[#8A6412]">
+                        No Instagram professional account is connected. Connect
+                        one in Integrations before scheduling to Instagram.
+                      </Text>
+                    ) : (
+                      <View className="mt-2 flex-row flex-wrap gap-2">
+                        {instagramAccounts.map((account) => (
+                          <Chip
+                            key={account.id}
+                            label={
+                              account.display_name ||
+                              account.platform_account_id
+                            }
+                            active={
+                              schedulerAccountIds.instagram === account.id
+                            }
+                            onPress={() =>
+                              setSchedulerAccountIds((accounts) => ({
+                                ...accounts,
+                                instagram: account.id,
+                              }))
+                            }
+                          />
+                        ))}
+                      </View>
+                    )}
+                  </>
+                ) : null}
 
                 <Text className="mt-4 text-xs font-bold uppercase tracking-[1px] text-[#827970]">
                   Date and time

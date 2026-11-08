@@ -22,10 +22,18 @@ export type ScheduledContent = {
   status: string;
 };
 
+export type ScheduledPostAccount = {
+  id: string;
+  platform: string;
+  platform_account_id: string;
+  display_name: string;
+};
+
 export type ScheduledPost = {
   id: string;
   post: ScheduledContent;
   platform: string;
+  social_account: ScheduledPostAccount | null;
   scheduled_for: string;
   timezone_name: string;
   status: ScheduledStatus;
@@ -51,6 +59,8 @@ export type ScheduleInput = {
   platforms: string[];
   scheduled_for: string;
   timezone_name: string;
+  social_account_id?: string;
+  social_account_ids?: Record<string, string>;
 };
 
 async function request<T>(
@@ -143,7 +153,11 @@ export function schedulePost(input: ScheduleInput): Promise<ScheduledPost[]> {
 
 export function rescheduleScheduledPost(
   scheduledId: string,
-  input: { scheduled_for?: string; timezone_name?: string }
+  input: {
+    scheduled_for?: string;
+    timezone_name?: string;
+    social_account_id?: string;
+  }
 ): Promise<ScheduledPost> {
   return request<ScheduledPost>(
     `/calendar/scheduled-posts/${encodeURIComponent(scheduledId)}/`,

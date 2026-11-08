@@ -1,9 +1,10 @@
-from django.http import JsonResponse
+from django.http import HttpResponse, JsonResponse
 from datetime import datetime, timedelta
 import hashlib
 import hmac
 import logging
 import uuid
+from urllib.parse import urlencode
 
 import requests
 
@@ -19,6 +20,7 @@ from rest_framework import generics
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.exceptions import NotFound, PermissionDenied, ValidationError
 from rest_framework.response import Response
+from rest_framework.parsers import FormParser, MultiPartParser
 from rest_framework.views import APIView
 from rest_framework import status
 import stripe
@@ -34,6 +36,7 @@ from .models import (
     ProviderWebhookEvent,
     ScheduledPost,
     SocialAccount,
+    SocialOAuthState,
     SupportRequest,
     UserSubscription,
 )
@@ -121,6 +124,30 @@ from .services.social_platforms import (
     SOCIAL_PROVIDERS,
     get_publishing_capabilities,
 )
+from .services.facebook_oauth import (
+    FacebookOAuthError,
+    connect_authorized_facebook_pages,
+    consume_facebook_oauth_state,
+    create_facebook_authorization_url,
+    facebook_oauth_configuration_error,
+    facebook_oauth_is_configured,
+    get_facebook_oauth_response_mode,
+)
+from .services.instagram_oauth import (
+    InstagramOAuthError,
+    connect_instagram_account,
+    consume_instagram_oauth_state,
+    create_instagram_authorization_url,
+    get_instagram_oauth_response_mode,
+    instagram_oauth_configuration_error,
+    instagram_oauth_is_configured,
+)
+from .services.media_storage import (
+    MAX_IMAGE_BYTES,
+    MediaStorageError,
+    upload_public_image,
+)
+from .services.social_tokens import SocialTokenEncryptionError
 from .services.payments.stripe_gateway import (
     cancel_subscription as cancel_stripe_subscription,
     retrieve_price_details,
@@ -129,6 +156,8 @@ from .services.payments.stripe_gateway import (
 )
 
 logger = logging.getLogger(__name__)
+
+SOCIAL_ACCOUNTS_RETURN_URL = "ibda://social-accounts"
 
 
 def _stripe_value(value, key, default=None):
@@ -605,6 +634,12 @@ class ScheduledPostCreateView(APIView):
                 platforms=serializer.validated_data["platforms"],
                 scheduled_for=serializer.validated_data["scheduled_for"],
                 timezone_name=serializer.validated_data["timezone_name"],
+                social_account_id=serializer.validated_data.get(
+                    "social_account_id"
+                ),
+                social_account_ids=serializer.validated_data.get(
+                    "social_account_ids"
+                ),
             )
         except SchedulingError as error:
             logger.warning(
@@ -645,6 +680,9 @@ class ScheduledPostDetailView(APIView):
                 scheduled_id=id,
                 scheduled_for=serializer.validated_data.get("scheduled_for"),
                 timezone_name=serializer.validated_data.get("timezone_name"),
+                social_account_id=serializer.validated_data.get(
+                    "social_account_id"
+                ),
             )
         except SchedulingError as error:
             return Response(
@@ -884,22 +922,48 @@ class SupportRequestCreateView(APIView):
         )
 
 
+def _social_provider_configuration(platform):
+    if platform == SocialAccount.Platform.FACEBOOK_PAGES:
+        return (
+            facebook_oauth_is_configured(),
+            facebook_oauth_configuration_error(),
+        )
+    if platform == SocialAccount.Platform.INSTAGRAM:
+        return (
+            instagram_oauth_is_configured(),
+            instagram_oauth_configuration_error(),
+        )
+    return False, next(
+        (
+            provider["reason"]
+            for provider in SOCIAL_PROVIDERS
+            if provider["platform"] == platform
+        ),
+        "",
+    )
+
+
 class SocialAccountListView(APIView):
     authentication_classes = [SupabaseAuthentication]
     permission_classes = [IsAuthenticated]
 
     def get(self, request):
         accounts = SocialAccount.objects.filter(owner_id=request.user.id)
-        response_data = {
-            "providers": [
+        providers = []
+        for provider in SOCIAL_PROVIDERS:
+            configured, reason = _social_provider_configuration(
+                provider["platform"]
+            )
+            providers.append(
                 {
                     "platform": provider["platform"],
                     "name": provider["name"],
-                    "configured": False,
-                    "reason": provider["reason"],
+                    "configured": configured,
+                    "reason": "" if configured else reason,
                 }
-                for provider in SOCIAL_PROVIDERS
-            ],
+            )
+        response_data = {
+            "providers": providers,
             "accounts": SocialAccountSerializer(accounts, many=True).data,
         }
         serializer = ConnectedAccountsResponseSerializer(instance=response_data)
@@ -920,6 +984,47 @@ class SocialAccountConnectView(APIView):
                 {"detail": "Unsupported social platform."},
                 status=status.HTTP_400_BAD_REQUEST,
             )
+        authorization_creators = {
+            SocialAccount.Platform.FACEBOOK_PAGES: (
+                create_facebook_authorization_url,
+                FacebookOAuthError,
+            ),
+            SocialAccount.Platform.INSTAGRAM: (
+                create_instagram_authorization_url,
+                InstagramOAuthError,
+            ),
+        }
+        creator = authorization_creators.get(platform)
+        if creator is not None:
+            if not isinstance(request.data, dict):
+                return Response(
+                    {"detail": "Invalid OAuth response mode."},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            response_mode = request.data.get(
+                "response_mode",
+                SocialOAuthState.ResponseMode.NATIVE,
+            )
+            if response_mode not in SocialOAuthState.ResponseMode.values:
+                return Response(
+                    {"detail": "Invalid OAuth response mode."},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            create_url, error_class = creator
+            try:
+                authorization_url = create_url(
+                    request.user.id, response_mode
+                )
+            except error_class as error:
+                return Response(
+                    {
+                        "detail": str(error),
+                        "platform": platform,
+                        "configured": False,
+                    },
+                    status=status.HTTP_503_SERVICE_UNAVAILABLE,
+                )
+            return Response({"authorization_url": authorization_url})
         return Response(
             {
                 "detail": provider["reason"],
@@ -940,6 +1045,10 @@ class SocialOAuthCallbackView(APIView):
                 {"detail": "Unsupported social platform."},
                 status=status.HTTP_400_BAD_REQUEST,
             )
+        if platform == SocialAccount.Platform.FACEBOOK_PAGES:
+            return self._facebook_callback(request)
+        if platform == SocialAccount.Platform.INSTAGRAM:
+            return self._instagram_callback(request)
         if not request.query_params.get("state"):
             return Response(
                 {"detail": "Missing OAuth state."},
@@ -954,6 +1063,219 @@ class SocialOAuthCallbackView(APIView):
             },
             status=status.HTTP_400_BAD_REQUEST,
         )
+
+    @staticmethod
+    def _facebook_callback(request):
+        try:
+            return SocialOAuthCallbackView._facebook_callback_response(request)
+        except Exception as error:
+            logger.warning(
+                "facebook_oauth.callback_failed",
+                extra={
+                    "event": "facebook_oauth.callback_failed",
+                    "platform": SocialAccount.Platform.FACEBOOK_PAGES,
+                    "failure_category": "unexpected",
+                    "error_type": type(error).__name__,
+                },
+            )
+            # Never log the exception message, traceback, or chained
+            # exception: they can embed the callback URL, query string,
+            # authorization code, or tokens.
+            # The public callback must fail closed: never an HTML technical
+            # 500 and never any exception detail, token, or authorization code.
+            response_mode = get_facebook_oauth_response_mode(
+                request.query_params.get("state", "")
+            )
+            return _social_accounts_oauth_redirect("failed", response_mode)
+
+    @staticmethod
+    def _facebook_callback_response(request):
+        state = request.query_params.get("state", "")
+        oauth_state = consume_facebook_oauth_state(
+            state,
+            SocialAccount.Platform.FACEBOOK_PAGES,
+        )
+        if oauth_state is None:
+            response_mode = get_facebook_oauth_response_mode(state)
+            return _social_accounts_oauth_redirect("failed", response_mode)
+        response_mode = oauth_state.response_mode
+
+        provider_error = request.query_params.get("error", "")
+        error_reason = request.query_params.get("error_reason", "")
+        if provider_error or error_reason:
+            result = (
+                "cancelled"
+                if provider_error in {"access_denied", "user_denied"}
+                or error_reason in {"access_denied", "user_denied"}
+                else "failed"
+            )
+            return _social_accounts_oauth_redirect(result, response_mode)
+
+        code = request.query_params.get("code", "")
+        try:
+            page_count = connect_authorized_facebook_pages(
+                oauth_state.owner_id,
+                code,
+            )
+        except (FacebookOAuthError, SocialTokenEncryptionError) as error:
+            logger.warning(
+                "facebook_oauth.callback_failed",
+                extra={
+                    "event": "facebook_oauth.callback_failed",
+                    "platform": SocialAccount.Platform.FACEBOOK_PAGES,
+                    "failure_category": (
+                        "facebook_oauth_error"
+                        if isinstance(error, FacebookOAuthError)
+                        else "social_token_encryption_error"
+                    ),
+                    "error_type": type(error).__name__,
+                    "detail": str(error),
+                },
+            )
+            return _social_accounts_oauth_redirect("failed", response_mode)
+        return _social_accounts_oauth_redirect(
+            "connected" if page_count else "no_pages",
+            response_mode,
+        )
+
+
+    @staticmethod
+    def _instagram_callback(request):
+        try:
+            return SocialOAuthCallbackView._instagram_callback_response(request)
+        except Exception as error:
+            logger.warning(
+                "instagram_oauth.callback_failed",
+                extra={
+                    "event": "instagram_oauth.callback_failed",
+                    "platform": SocialAccount.Platform.INSTAGRAM,
+                    "failure_category": "unexpected",
+                    "error_type": type(error).__name__,
+                },
+            )
+            response_mode = get_instagram_oauth_response_mode(
+                request.query_params.get("state", "")
+            )
+            return _social_accounts_oauth_redirect(
+                "failed",
+                response_mode,
+                SocialAccount.Platform.INSTAGRAM,
+            )
+
+    @staticmethod
+    def _instagram_callback_response(request):
+        state = request.query_params.get("state", "")
+        oauth_state = consume_instagram_oauth_state(state)
+        if oauth_state is None:
+            response_mode = get_instagram_oauth_response_mode(state)
+            return _social_accounts_oauth_redirect(
+                "failed",
+                response_mode,
+                SocialAccount.Platform.INSTAGRAM,
+            )
+        response_mode = oauth_state.response_mode
+
+        provider_error = request.query_params.get("error", "")
+        error_reason = request.query_params.get("error_reason", "")
+        if provider_error or error_reason:
+            result = (
+                "cancelled"
+                if provider_error in {"access_denied", "user_denied"}
+                or error_reason in {"access_denied", "user_denied"}
+                else "failed"
+            )
+            return _social_accounts_oauth_redirect(
+                result,
+                response_mode,
+                SocialAccount.Platform.INSTAGRAM,
+            )
+
+        code = request.query_params.get("code", "")
+        try:
+            connect_instagram_account(oauth_state.owner_id, code)
+        except (InstagramOAuthError, SocialTokenEncryptionError) as error:
+            logger.warning(
+                "instagram_oauth.callback_failed",
+                extra={
+                    "event": "instagram_oauth.callback_failed",
+                    "platform": SocialAccount.Platform.INSTAGRAM,
+                    "failure_category": (
+                        "instagram_oauth_error"
+                        if isinstance(error, InstagramOAuthError)
+                        else "social_token_encryption_error"
+                    ),
+                    "error_type": type(error).__name__,
+                    "detail": str(error),
+                },
+            )
+            return _social_accounts_oauth_redirect(
+                "failed",
+                response_mode,
+                SocialAccount.Platform.INSTAGRAM,
+            )
+        return _social_accounts_oauth_redirect(
+            "connected",
+            response_mode,
+            SocialAccount.Platform.INSTAGRAM,
+        )
+
+
+def _social_accounts_oauth_redirect(
+    result,
+    response_mode=SocialOAuthState.ResponseMode.NATIVE,
+    provider=SocialAccount.Platform.FACEBOOK_PAGES,
+):
+    is_instagram = provider == SocialAccount.Platform.INSTAGRAM
+    message_type = (
+        "ibda-instagram-oauth" if is_instagram else "ibda-facebook-oauth"
+    )
+    if response_mode == SocialOAuthState.ResponseMode.WEB:
+        if is_instagram:
+            messages = {
+                "connected": "Instagram connected. You can close this window.",
+                "no_pages": "No Instagram accounts were found. You can close this window.",
+                "cancelled": "Instagram connection was cancelled. You can close this window.",
+                "failed": "Instagram connection failed. You can close this window.",
+            }
+        else:
+            messages = {
+                "connected": "Facebook Pages connected. You can close this window.",
+                "no_pages": "No Facebook Pages were found. You can close this window.",
+                "cancelled": "Facebook connection was cancelled. You can close this window.",
+                "failed": "Facebook connection failed. You can close this window.",
+            }
+        response = HttpResponse(
+            "<!doctype html><html><head><meta charset=\"utf-8\">"
+            "<meta name=\"referrer\" content=\"no-referrer\">"
+            f"<title>{'Instagram' if is_instagram else 'Facebook'} connection</title></head>"
+            f"<body><p>{messages[result]}</p>"
+            "<script>"
+            "if (window.opener) {"
+            "window.opener.postMessage("
+            "{type:'" + message_type + "',status:'"
+            + result
+            + "'}, '*');"
+            "window.close();"
+            "}"
+            "</script></body></html>",
+            content_type="text/html; charset=utf-8",
+        )
+        response["Cache-Control"] = "no-store"
+        response["Referrer-Policy"] = "no-referrer"
+        response["X-Content-Type-Options"] = "nosniff"
+        response["Content-Security-Policy"] = (
+            "default-src 'none'; script-src 'unsafe-inline'; "
+            "base-uri 'none'; frame-ancestors 'none'"
+        )
+        return response
+
+    response = HttpResponse(status=status.HTTP_302_FOUND)
+    response["Location"] = (
+        f"{SOCIAL_ACCOUNTS_RETURN_URL}?{urlencode({'status': result})}"
+    )
+    response["Cache-Control"] = "no-store"
+    response["Referrer-Policy"] = "no-referrer"
+    return response
 
 
 class SocialAccountDisconnectView(APIView):
@@ -980,6 +1302,55 @@ class SocialAccountDisconnectView(APIView):
             ]
         )
         return Response(status=status.HTTP_204_NO_CONTENT)
+
+
+class ContentPostImageUploadView(APIView):
+    authentication_classes = [SupabaseAuthentication]
+    permission_classes = [IsAuthenticated]
+    parser_classes = [MultiPartParser, FormParser]
+
+    def post(self, request, post_id):
+        post = get_object_or_404(
+            ContentPost,
+            id=post_id,
+            brand__owner_id=request.user.id,
+        )
+        if post.status in (
+            ContentPost.Status.SCHEDULED,
+            ContentPost.Status.PUBLISHED,
+        ):
+            return Response(
+                {"detail": "Scheduled or published content cannot change."},
+                status=status.HTTP_409_CONFLICT,
+            )
+
+        image = request.FILES.get("image")
+        if image is None:
+            return Response(
+                {"image": ["Choose a JPEG image to upload."]},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        if image.size > MAX_IMAGE_BYTES:
+            return Response(
+                {"detail": "The image must be 8 MB or smaller."},
+                status=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+            )
+
+        try:
+            image_url = upload_public_image(
+                owner_id=request.user.id,
+                image_bytes=image.read(),
+                content_type=getattr(image, "content_type", ""),
+            )
+        except MediaStorageError as error:
+            return Response(
+                {"detail": error.message},
+                status=error.status_code,
+            )
+
+        post.image_url = image_url
+        post.save(update_fields=["image_url", "updated_at"])
+        return Response(ContentPostSerializer(post).data)
 
 
 class SubscriptionPlansView(APIView):

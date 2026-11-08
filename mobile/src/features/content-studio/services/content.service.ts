@@ -1,4 +1,6 @@
 import { supabase } from "../../../lib/supabase";
+import { Platform } from "react-native";
+import type { ImagePickerAsset } from "expo-image-picker";
 
 const API_URL = (
   process.env.EXPO_PUBLIC_API_URL || "http://127.0.0.1:8000/api"
@@ -54,6 +56,7 @@ export type ContentPost = {
   content_type: ContentType;
   status: string;
   ai_generated: boolean;
+  image_url: string;
   created_at: string;
   updated_at: string;
 };
@@ -91,7 +94,9 @@ async function request<T>(
   const send = (accessToken: string) => {
     const headers = new Headers(options.headers);
     headers.set("Accept", "application/json");
-    headers.set("Content-Type", "application/json");
+    if (!(options.body instanceof FormData)) {
+      headers.set("Content-Type", "application/json");
+    }
     headers.set("Authorization", `Bearer ${accessToken}`);
     return fetch(`${API_URL}${path}`, { ...options, headers });
   };
@@ -158,6 +163,46 @@ export function saveContent(input: SaveContentInput): Promise<ContentPost> {
   });
 }
 
+export async function uploadContentImage(
+  postId: string,
+  asset: ImagePickerAsset
+): Promise<ContentPost> {
+  if (asset.mimeType && asset.mimeType.toLowerCase() !== "image/jpeg") {
+    throw new Error("Instagram feed posts require a JPEG image.");
+  }
+
+  const formData = new FormData();
+  const fileName = asset.fileName || "instagram-image.jpg";
+  if (Platform.OS === "web") {
+    if (asset.file) {
+      formData.append("image", asset.file, fileName);
+    } else {
+      const response = await fetch(asset.uri);
+      if (!response.ok) {
+        throw new Error("Unable to read the selected image.");
+      }
+      formData.append("image", await response.blob(), fileName);
+    }
+  } else {
+    const nativeFormData = formData as FormData & {
+      append(
+        name: string,
+        value: { uri: string; name: string; type: string }
+      ): void;
+    };
+    nativeFormData.append("image", {
+      uri: asset.uri,
+      name: fileName,
+      type: asset.mimeType || "image/jpeg",
+    });
+  }
+
+  return request<ContentPost>(
+    `/content/posts/${encodeURIComponent(postId)}/image/`,
+    { method: "POST", body: formData }
+  );
+}
+
 export function updateContent(
   postId: string,
   input: Pick<SaveContentInput, "title" | "body" | "platform" | "content_type">
@@ -187,4 +232,3 @@ export function getContentPost(postId: string): Promise<ContentPost> {
     `/content/posts/${encodeURIComponent(postId)}/`
   );
 }
-

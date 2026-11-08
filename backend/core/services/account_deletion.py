@@ -33,6 +33,7 @@ from core.models import (
     PaymentTransaction,
     ScheduledPost,
     SocialAccount,
+    SocialOAuthState,
     StripeCheckoutAttempt,
     SupportRequest,
     UserSubscription,
@@ -223,6 +224,10 @@ def purge_owner_data(owner_id):
             (
                 "social_accounts",
                 SocialAccount.objects.filter(owner_id=owner_id),
+            ),
+            (
+                "social_oauth_states",
+                SocialOAuthState.objects.filter(owner_id=owner_id),
             ),
             (
                 "support_requests",

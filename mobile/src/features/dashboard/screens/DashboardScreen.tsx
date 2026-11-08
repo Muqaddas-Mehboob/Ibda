@@ -24,31 +24,6 @@ const COLORS = {
   lavender: "#F0E7FA",
 };
 
-const POSTS = [
-  {
-    id: "1",
-    platform: "INSTAGRAM",
-    time: "2:15 PM",
-    title: "Editorial Studio Walkthrough",
-    type: "REEL",
-    status: "Approved",
-    approved: true,
-    color: "#DCE8DD",
-    artwork: "🏡",
-  },
-  {
-    id: "2",
-    platform: "LINKEDIN",
-    time: "5:00 PM",
-    title: "The Next Era of AI Publishing",
-    type: "POST",
-    status: "Approve",
-    approved: false,
-    color: "#E6E9FA",
-    artwork: "✳️",
-  },
-];
-
 function SectionTitle({
   title,
   action,
@@ -132,84 +107,7 @@ function MetricCard({
   );
 }
 
-function ContentCard({
-  post,
-  onApprove,
-}: {
-  post: (typeof POSTS)[number];
-  onApprove: () => void;
-}) {
-  return (
-    <View
-      className="mb-3 flex-row items-center rounded-[22px] border p-3"
-      style={{
-        backgroundColor: COLORS.surface,
-        borderColor: COLORS.border,
-        shadowColor: "#000",
-        shadowOpacity: 0.035,
-        shadowRadius: 4,
-        shadowOffset: { width: 0, height: 2 },
-        elevation: 1,
-      }}
-    >
-      <View
-        className="h-[78px] w-[78px] items-center justify-center rounded-[17px]"
-        style={{ backgroundColor: post.color }}
-      >
-        <Text className="text-3xl">{post.artwork}</Text>
-        <View className="mt-1 rounded-md bg-white/90 px-2 py-0.5">
-          <Text className="text-[9px] font-bold" style={{ color: COLORS.text }}>
-            {post.type}
-          </Text>
-        </View>
-      </View>
 
-      <View className="ml-3 min-w-0 flex-1">
-        <View className="mb-2 flex-row flex-wrap items-center gap-1.5">
-          <View
-            className="rounded-full px-2 py-1"
-            style={{
-              backgroundColor:
-                post.platform === "INSTAGRAM" ? "#F3ECE6" : "#EAF0FF",
-            }}
-          >
-            <Text
-              className="text-[9px] font-extrabold"
-              style={{
-                color: post.platform === "INSTAGRAM" ? "#74584D" : "#345CE5",
-              }}
-            >
-              {post.platform}
-            </Text>
-          </View>
-          <Text className="text-[11px]" style={{ color: COLORS.muted }}>
-            {post.time}
-          </Text>
-        </View>
-
-        <Text
-          className="text-[14px] font-bold leading-5"
-          numberOfLines={2}
-          style={{ color: COLORS.text }}
-        >
-          {post.title}
-        </Text>
-
-        <Pressable
-          onPress={onApprove}
-          className="mt-2 self-start rounded-full px-3 py-2"
-          style={{
-            backgroundColor: post.approved ? COLORS.green : COLORS.coral,
-          }}
-        >
-          <Text className="text-[11px] font-bold text-white">
-            {post.approved ? "✓  Approved" : "✓  Approve"}
-          </Text>
-        </Pressable>
-      </View>
-    </View>
-  );
-}
 
 export default function DashboardScreen() {
   const router = useRouter();
@@ -467,7 +365,7 @@ export default function DashboardScreen() {
           <View className="mt-8">
             <SectionTitle
               title="Content Rhythm"
-              action="Week 42  ›"
+              action="This Week  ›"
               onAction={() => router.push("/calendar")}
             />
 
@@ -531,61 +429,6 @@ export default function DashboardScreen() {
                 );
               })}
             </View>
-          </View>
-
-          {/* Attention section */}
-          <View className="mt-8">
-            <SectionTitle
-              title="Needs your attention"
-              action="View all  ›"
-              onAction={() => showComingSoon("Approval inbox")}
-            />
-
-            <View className="mb-4 flex-row items-center">
-              <View
-                className="rounded-full px-3 py-1.5"
-                style={{ backgroundColor: "#FFE0DA" }}
-              >
-                <Text
-                  className="text-[12px] font-bold"
-                  style={{ color: "#A94336" }}
-                >
-                  2 ready
-                </Text>
-              </View>
-            </View>
-
-            {POSTS.map((post) => (
-              <ContentCard
-                key={post.id}
-                post={{
-                  ...post,
-                  approved: approvedPosts.includes(post.id),
-                }}
-                onApprove={() => {
-                  if (approvedPosts.includes(post.id)) {
-                    showComingSoon("Post details");
-                    return;
-                  }
-
-                  Alert.alert(
-                    "Approve this post?",
-                    "This preview action updates the local UI only. Connect the approval API for a saved approval.",
-                    [
-                      { text: "Cancel", style: "cancel" },
-                      {
-                        text: "Approve",
-                        onPress: () =>
-                          setApprovedPosts((current) => [
-                            ...current,
-                            post.id,
-                          ]),
-                      },
-                    ]
-                  );
-                }}
-              />
-            ))}
           </View>
         </View>
       </ScrollView>

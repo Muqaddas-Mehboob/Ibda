@@ -2,14 +2,18 @@ import { useCallback, useMemo, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
+  Platform,
   Pressable,
   RefreshControl,
   ScrollView,
   Text,
   View,
 } from "react-native";
+import * as Linking from "expo-linking";
+import * as WebBrowser from "expo-web-browser";
 import { router, useFocusEffect } from "expo-router";
 import { BottomNavigation } from "../../../components/navigation/BottomNavigation";
+import { confirmAsync } from "../../../lib/confirm";
 import {
   disconnectSocialAccount,
   getConnectedAccounts,
@@ -42,6 +46,180 @@ const PLATFORM_META: Record<
   },
 };
 
+const SOCIAL_RETURN_URL = "ibda://social-accounts";
+type OAuthPlatform = "instagram" | "facebook_pages";
+type OAuthStatus =
+  | "connected"
+  | "no_pages"
+  | "cancelled"
+  | "failed";
+const OAUTH_STATUSES: OAuthStatus[] = [
+  "connected",
+  "no_pages",
+  "cancelled",
+  "failed",
+];
+
+function isOAuthPlatform(platform: SocialPlatform): platform is OAuthPlatform {
+  return platform === "instagram" || platform === "facebook_pages";
+}
+
+function isOAuthStatus(value: unknown): value is OAuthStatus {
+  return (
+    typeof value === "string" &&
+    OAUTH_STATUSES.some((status) => status === value)
+  );
+}
+
+function getOAuthCallbackOrigin(
+  value: string,
+  platform: OAuthPlatform
+): string | undefined {
+  try {
+    const url = new URL(value);
+    const isInstagram = platform === "instagram";
+    const expectedHost = isInstagram
+      ? "www.instagram.com"
+      : "www.facebook.com";
+    if (
+      url.protocol !== "https:" ||
+      url.hostname !== expectedHost ||
+      url.port ||
+      url.username ||
+      url.password ||
+      (isInstagram
+        ? url.pathname !== "/oauth/authorize"
+        : !/^\/v\d+\.\d+\/dialog\/oauth$/.test(url.pathname)) ||
+      url.hash
+    ) {
+      return undefined;
+    }
+
+    const query = url.searchParams;
+    if (
+      !query.get("client_id") ||
+      query.get("response_type") !== "code" ||
+      !query.get("state") ||
+      query.getAll("client_id").length !== 1 ||
+      query.getAll("response_type").length !== 1 ||
+      query.getAll("redirect_uri").length !== 1 ||
+      query.getAll("state").length !== 1
+    ) {
+      return undefined;
+    }
+
+    if (isInstagram) {
+      const scopes = new Set((query.get("scope") || "").split(","));
+      if (
+        query.get("enable_fb_login") !== "false" ||
+        query.getAll("enable_fb_login").length !== 1 ||
+        query.getAll("scope").length !== 1 ||
+        !scopes.has("instagram_business_basic") ||
+        !scopes.has("instagram_business_content_publish")
+      ) {
+        return undefined;
+      }
+    } else if (
+      !query.get("config_id") ||
+      query.get("override_default_response_type") !== "true" ||
+      query.getAll("config_id").length !== 1
+    ) {
+      return undefined;
+    }
+
+    const redirectUriValue = query.get("redirect_uri");
+    if (!redirectUriValue) return undefined;
+    const redirectUri = new URL(redirectUriValue);
+    const validRedirectUri =
+      redirectUri.protocol === "https:" &&
+      Boolean(redirectUri.hostname) &&
+      !redirectUri.username &&
+      !redirectUri.password &&
+      redirectUri.pathname ===
+        (isInstagram
+          ? "/api/social/oauth/instagram/callback/"
+          : "/api/social/oauth/facebook_pages/callback/") &&
+      !redirectUri.search &&
+      !redirectUri.hash;
+    return validRedirectUri ? redirectUri.origin : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+function waitForWebOAuthCallback(
+  popup: Window,
+  callbackOrigin: string,
+  platform: OAuthPlatform
+): Promise<OAuthStatus | "closed" | "timeout"> {
+  const messageType =
+    platform === "instagram"
+      ? "ibda-instagram-oauth"
+      : "ibda-facebook-oauth";
+  return new Promise((resolve) => {
+    let finished = false;
+    const finish = (result: OAuthStatus | "closed" | "timeout") => {
+      if (finished) return;
+      finished = true;
+      window.removeEventListener("message", onMessage);
+      window.clearInterval(closeCheck);
+      window.clearTimeout(timeout);
+      resolve(result);
+    };
+    const onMessage = (event: MessageEvent<unknown>) => {
+      if (
+        event.origin !== callbackOrigin ||
+        event.source !== popup ||
+        typeof event.data !== "object" ||
+        event.data === null
+      ) {
+        return;
+      }
+
+      if (
+        !("type" in event.data) ||
+        !("status" in event.data) ||
+        event.data.type !== messageType ||
+        !isOAuthStatus(event.data.status)
+      ) {
+        return;
+      }
+      finish(event.data.status);
+    };
+
+    window.addEventListener("message", onMessage);
+    const closeCheck = window.setInterval(() => {
+      if (popup.closed) finish("closed");
+    }, 500);
+    const timeout = window.setTimeout(() => finish("timeout"), 10 * 60 * 1000);
+  });
+}
+
+function getOAuthCallbackStatus(
+  callbackUrl: string
+): OAuthStatus | undefined {
+  try {
+    const parsedUrl = new URL(callbackUrl);
+    if (
+      parsedUrl.protocol !== "ibda:" ||
+      parsedUrl.hostname !== "social-accounts" ||
+      parsedUrl.pathname !== "" ||
+      parsedUrl.username ||
+      parsedUrl.password ||
+      parsedUrl.port ||
+      parsedUrl.searchParams.getAll("status").length !== 1
+    ) {
+      return undefined;
+    }
+
+    const parsed = Linking.parse(callbackUrl);
+    const status = parsed.queryParams?.status;
+    return isOAuthStatus(status) ? status : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 export function ConnectedAccountsScreen() {
   const [data, setData] = useState<ConnectedAccountsResponse | null>(null);
   const [loading, setLoading] = useState(true);
@@ -51,6 +229,7 @@ export function ConnectedAccountsScreen() {
     ""
   );
   const [disconnectingId, setDisconnectingId] = useState("");
+  const [notice, setNotice] = useState("");
 
   const load = useCallback(async (refresh = false) => {
     if (refresh) setRefreshing(true);
@@ -88,10 +267,100 @@ export function ConnectedAccountsScreen() {
 
   const connect = async (provider: SocialProvider) => {
     if (!provider.configured || workingPlatform) return;
+    const oauthPlatform = isOAuthPlatform(provider.platform)
+      ? provider.platform
+      : undefined;
+    const webPopup =
+      oauthPlatform && Platform.OS === "web"
+        ? window.open("about:blank", "_blank")
+        : null;
+    if (
+      oauthPlatform &&
+      Platform.OS === "web" &&
+      !webPopup
+    ) {
+      setError(
+        `Your browser blocked the ${provider.name} login window. Allow pop-ups for this site and try again.`
+      );
+      return;
+    }
+
     setWorkingPlatform(provider.platform);
     setError("");
     try {
-      const result = await startSocialConnection(provider.platform);
+      const responseMode = Platform.OS === "web" ? "web" : "native";
+      const result = await startSocialConnection(
+        provider.platform,
+        oauthPlatform ? responseMode : undefined
+      );
+      if (oauthPlatform) {
+        const callbackOrigin = getOAuthCallbackOrigin(
+          result.authorization_url,
+          oauthPlatform
+        );
+        if (!callbackOrigin) {
+          setError(`The ${provider.name} authorization link was invalid.`);
+          return;
+        }
+
+        let callbackStatus:
+          | OAuthStatus
+          | "closed"
+          | "timeout"
+          | undefined;
+        if (Platform.OS === "web" && webPopup) {
+          webPopup.location.replace(result.authorization_url);
+          callbackStatus = await waitForWebOAuthCallback(
+            webPopup,
+            callbackOrigin,
+            oauthPlatform
+          );
+        } else {
+          const authResult = await WebBrowser.openAuthSessionAsync(
+            result.authorization_url,
+            SOCIAL_RETURN_URL
+          );
+          if (authResult.type !== "success") {
+            setError(
+              authResult.type === "cancel" || authResult.type === "dismiss"
+                ? `${provider.name} connection was cancelled.`
+                : `${provider.name} connection did not complete.`
+            );
+            return;
+          }
+          callbackStatus = getOAuthCallbackStatus(authResult.url);
+        }
+
+        switch (callbackStatus) {
+          case "connected":
+            Alert.alert(
+              `${provider.name} connected`,
+              oauthPlatform === "instagram"
+                ? "Your Instagram professional account is now connected."
+                : "Your authorized Facebook Pages are now connected."
+            );
+            await load(true);
+            return;
+          case "no_pages":
+            Alert.alert(
+              "No Facebook Pages found",
+              "No Facebook Pages were available for the account you authorized."
+            );
+            return;
+          case "cancelled":
+            setError(`${provider.name} connection was cancelled.`);
+            return;
+          case "failed":
+          default:
+            setError(
+              callbackStatus === "closed"
+                ? `${provider.name} connection was cancelled.`
+                : `Unable to connect ${provider.name}. Please try again.`
+            );
+            return;
+        }
+      }
+
       Alert.alert(
         "Connection unavailable",
         result.authorization_url
@@ -105,30 +374,30 @@ export function ConnectedAccountsScreen() {
           : "Unable to start the connection."
       );
     } finally {
+      if (webPopup && !webPopup.closed) webPopup.close();
       setWorkingPlatform("");
     }
   };
 
-  const disconnect = (account: SocialAccount) => {
-    Alert.alert(
-      "Disconnect account?",
-      `Ibda will remove its saved connection to ${account.display_name || account.platform_account_id}.`,
-      [
-        { text: "Cancel", style: "cancel" },
-        {
-          text: "Disconnect",
-          style: "destructive",
-          onPress: () => void confirmDisconnect(account),
-        },
-      ]
-    );
-  };
+  const disconnect = async (account: SocialAccount) => {
+    if (disconnectingId) return;
 
-  const confirmDisconnect = async (account: SocialAccount) => {
+    const accountName = account.display_name || account.platform_account_id;
+    // React Native Web renders Alert.alert as a no-op, so web needs the
+    // window.confirm() fallback that confirmAsync provides.
+    const confirmed = await confirmAsync(
+      "Disconnect account?",
+      `Ibda will remove its saved connection to ${accountName}.`,
+      { confirmText: "Disconnect", destructive: true }
+    );
+    if (!confirmed) return;
+
     setDisconnectingId(account.id);
     setError("");
+    setNotice("");
     try {
       await disconnectSocialAccount(account.id);
+      setNotice(`${accountName} was disconnected.`);
       await load(true);
     } catch (disconnectError) {
       setError(
@@ -191,6 +460,12 @@ export function ConnectedAccountsScreen() {
                 <Text className="font-semibold text-[#FF6B5F]">Try again</Text>
               </Pressable>
             ) : null}
+          </View>
+        ) : null}
+
+        {notice ? (
+          <View className="mb-5 rounded-2xl border border-[#BFDCCB] bg-white p-4">
+            <Text className="leading-5 text-[#287D54]">{notice}</Text>
           </View>
         ) : null}
 
@@ -270,9 +545,13 @@ export function ConnectedAccountsScreen() {
                                 </Text>
                               </View>
                               <Pressable
-                                onPress={() => disconnect(account)}
+                                onPress={() => void disconnect(account)}
                                 disabled={disconnectingId === account.id}
                                 accessibilityRole="button"
+                                accessibilityLabel={`Disconnect ${
+                                  account.display_name ||
+                                  account.platform_account_id
+                                }`}
                                 className="min-h-11 justify-center rounded-xl border border-[#EAE4DC] px-3"
                               >
                                 {disconnectingId === account.id ? (

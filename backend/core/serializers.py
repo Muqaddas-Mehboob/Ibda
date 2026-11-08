@@ -174,6 +174,7 @@ class ContentPostSerializer(serializers.ModelSerializer):
             "brand_name",
             "title",
             "body",
+            "image_url",
             "platform",
             "content_type",
             "status",
@@ -186,6 +187,7 @@ class ContentPostSerializer(serializers.ModelSerializer):
             "brand_name",
             "status",
             "ai_generated",
+            "image_url",
             "created_at",
             "updated_at",
         ]
@@ -228,14 +230,23 @@ class ScheduledPostContentSerializer(serializers.ModelSerializer):
             "brand_name",
             "title",
             "body",
+            "image_url",
             "platform",
             "status",
         ]
         read_only_fields = fields
 
 
+class ScheduledPostAccountSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = SocialAccount
+        fields = ["id", "platform", "platform_account_id", "display_name"]
+        read_only_fields = fields
+
+
 class ScheduledPostSerializer(serializers.ModelSerializer):
     post = ScheduledPostContentSerializer(read_only=True)
+    social_account = ScheduledPostAccountSerializer(read_only=True)
     publishing_available = serializers.SerializerMethodField()
 
     class Meta:
@@ -244,6 +255,7 @@ class ScheduledPostSerializer(serializers.ModelSerializer):
             "id",
             "post",
             "platform",
+            "social_account",
             "scheduled_for",
             "timezone_name",
             "status",
@@ -264,6 +276,11 @@ class ScheduledPostSerializer(serializers.ModelSerializer):
 
 class ScheduledPostCreateSerializer(serializers.Serializer):
     post_id = serializers.UUIDField()
+    social_account_id = serializers.UUIDField(required=False, allow_null=True)
+    social_account_ids = serializers.DictField(
+        child=serializers.UUIDField(),
+        required=False,
+    )
     platforms = serializers.ListField(
         child=serializers.ChoiceField(choices=ContentPost.Platform.choices),
         allow_empty=False,
@@ -278,9 +295,43 @@ class ScheduledPostCreateSerializer(serializers.Serializer):
         trim_whitespace=True,
     )
 
+    def validate(self, attrs):
+        account_ids = attrs.get("social_account_ids", {})
+        platforms = set(attrs["platforms"])
+        invalid_platforms = set(account_ids) - {"facebook", "instagram"}
+        if invalid_platforms:
+            raise serializers.ValidationError(
+                {"social_account_ids": "Unsupported account platform."}
+            )
+        if set(account_ids) - platforms:
+            raise serializers.ValidationError(
+                {
+                    "social_account_ids": (
+                        "Choose accounts only for selected platforms."
+                    )
+                }
+            )
+        if account_ids and attrs.get("social_account_id"):
+            raise serializers.ValidationError(
+                "Use either social_account_id or social_account_ids, not both."
+            )
+        if (
+            attrs.get("social_account_id")
+            and {"facebook", "instagram"}.issubset(platforms)
+        ):
+            raise serializers.ValidationError(
+                {
+                    "social_account_ids": (
+                        "Choose separate accounts for Facebook and Instagram."
+                    )
+                }
+            )
+        return attrs
+
 
 class ScheduledPostUpdateSerializer(serializers.Serializer):
     scheduled_for = serializers.DateTimeField(required=False)
+    social_account_id = serializers.UUIDField(required=False, allow_null=True)
     timezone_name = serializers.CharField(
         max_length=64,
         required=False,
