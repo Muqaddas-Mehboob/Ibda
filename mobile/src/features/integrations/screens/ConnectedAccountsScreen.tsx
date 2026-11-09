@@ -78,17 +78,14 @@ function getOAuthCallbackOrigin(
   try {
     const url = new URL(value);
     const isInstagram = platform === "instagram";
-    const expectedHost = isInstagram
-      ? "www.instagram.com"
-      : "www.facebook.com";
     if (
       url.protocol !== "https:" ||
-      url.hostname !== expectedHost ||
+      url.hostname !== "www.facebook.com" ||
       url.port ||
       url.username ||
       url.password ||
       (isInstagram
-        ? url.pathname !== "/oauth/authorize"
+        ? url.pathname !== "/dialog/oauth"
         : !/^\/v\d+\.\d+\/dialog\/oauth$/.test(url.pathname)) ||
       url.hash
     ) {
@@ -109,13 +106,9 @@ function getOAuthCallbackOrigin(
     }
 
     if (isInstagram) {
-      const scopes = new Set((query.get("scope") || "").split(","));
       if (
-        query.get("enable_fb_login") !== "false" ||
-        query.getAll("enable_fb_login").length !== 1 ||
-        query.getAll("scope").length !== 1 ||
-        !scopes.has("instagram_business_basic") ||
-        !scopes.has("instagram_business_content_publish")
+        !query.get("config_id") ||
+        query.getAll("config_id").length !== 1
       ) {
         return undefined;
       }

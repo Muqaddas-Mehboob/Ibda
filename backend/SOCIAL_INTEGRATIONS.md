@@ -1,9 +1,9 @@
 # Social account integrations
 
 The connected-accounts API and encrypted account storage support separate
-server-side Facebook Login for Business and Business Login for Instagram OAuth
-flows. Facebook Page publishing and Instagram single-image feed publishing are
-implemented. Instagram video, Reels, and carousel publishing are not enabled.
+server-side Facebook Login for Business and Instagram API with Unified Login
+flows. Facebook Page publishing and Instagram single-image feed publishing
+are implemented. Instagram video, Reels, and carousel publishing are not enabled.
 LinkedIn and TikTok remain unavailable until their provider integrations are
 implemented and reviewed.
 
@@ -12,11 +12,11 @@ Keep all provider credentials in the backend environment only:
 - `SOCIAL_TOKEN_ENCRYPTION_KEY`: Fernet key used to encrypt access/refresh
   tokens before database storage. Generate one with
   `python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"`.
-- `SOCIAL_INSTAGRAM_CLIENT_ID`, `SOCIAL_INSTAGRAM_CLIENT_SECRET`,
-  `SOCIAL_INSTAGRAM_REDIRECT_URI`, and `SOCIAL_INSTAGRAM_API_VERSION`.
-  These are the Instagram App ID, App Secret, exact registered HTTPS callback,
-  and Graph API version from the Instagram Login setup. Keep the App Secret
-  server-side.
+- `SOCIAL_INSTAGRAM_META_APP_ID`, `SOCIAL_INSTAGRAM_META_APP_SECRET`,
+  `SOCIAL_INSTAGRAM_CONFIG_ID`, `SOCIAL_INSTAGRAM_REDIRECT_URI`, and
+  `SOCIAL_INSTAGRAM_API_VERSION`. These are the Meta App ID and server-only
+  App Secret, Unified Login configuration ID, exact HTTPS callback, and
+  Graph API version.
 - `SOCIAL_FACEBOOK_CLIENT_ID`: IBDA Meta App ID.
 - `SOCIAL_FACEBOOK_CLIENT_SECRET`: IBDA Meta App Secret; server-side only.
 - `SOCIAL_FACEBOOK_CONFIG_ID`: Facebook Login for Business configuration
@@ -33,22 +33,54 @@ Keep all provider credentials in the backend environment only:
 - `SUPABASE_SERVICE_ROLE_KEY`: server-only Supabase key used by the backend to
   upload media. Never put it in the mobile app or expose it to clients.
 
-## Instagram Login and image publishing
+## Instagram Unified Login and image publishing
 
-Configure the Meta app's Instagram product using **API setup with Instagram
-Login** and **Business Login**. Set its OAuth redirect URI to the exact value
-of `SOCIAL_INSTAGRAM_REDIRECT_URI`, including the trailing slash:
+Configure the Meta app's Instagram use case using **API setup with Unified
+Login**. Create a Business Integration System User Access Token configuration
+that shares Instagram professional accounts and grants the required
+`instagram_basic`, `instagram_manage_messages`, and
+`instagram_content_publish` permissions. The Unified Login setup guide
+identifies `instagram_basic` and `instagram_manage_messages` as required; this
+integration additionally needs `instagram_content_publish`. Remove optional
+permissions and assets that IBDA does not use. Set the configuration's HTTPS
+redirect URL to the exact value of `SOCIAL_INSTAGRAM_REDIRECT_URI`, including
+the trailing slash:
 
 `https://<public-backend-host>/api/social/oauth/instagram/callback/`
 
-The backend uses the Instagram App ID and App Secret, requests
-`instagram_business_basic` and `instagram_business_content_publish`, and
-disables the Facebook Login option in the Instagram authorization window.
-Instagram Login is a separate flow from Facebook Login for Business; it does
-not use the Facebook `config_id`. Use a Business or Creator Instagram
-professional account. Standard Access is for accounts you own or manage and
-have added to the app; Advanced Access and app review are needed for other
-businesses.
+Copy that configuration's `config_id` into `SOCIAL_INSTAGRAM_CONFIG_ID`. The
+backend builds a Facebook Login for Business dialog URL with `client_id`,
+`config_id`, `redirect_uri`, and `response_type=code`; the configuration, not a
+`scope` query parameter, controls permissions and assets. `prompt=login` allows
+the user to choose Instagram or Facebook login. The server exchanges the code
+at the versioned `graph.facebook.com` OAuth endpoint using the Meta App ID and
+App Secret, then obtains the client business ID and shared accounts from
+`/me` and `/me/assigned_instagram_accounts`. The resulting Business
+Integration System User Access Token is encrypted in `SocialAccount` records
+alongside the account ID, client business ID, and configuration ID.
+
+Meta controls whether this token expires through the configuration. The
+backend records an expiry when Meta returns one and blocks publishing after
+expiry. It does not refresh these tokens automatically: Meta's Business
+Integration System User Access Token management API requires
+`business_management`, which is not added to the minimum Instagram publishing
+configuration. If the configured token expires, reconnect the account. Choose
+the appropriate token expiration in Meta's configuration; do not assume an
+expiration policy.
+
+Existing Instagram Login accounts are not deleted. They lack the Unified
+Login business/configuration metadata and cannot be used with the Unified
+Login publisher; reconnect them. After a successful Unified Login, previously
+connected legacy Instagram rows not included in the authorized account set
+are marked disconnected without deleting their records or encrypted tokens.
+
+Meta's Unified Login setup guide also lists an HTTPS webhook endpoint as a
+setup prerequisite and describes configuring the **Instagram** webhook object.
+IBDA does not currently implement an Instagram webhook receiver, and this
+publishing integration does not subscribe to webhook fields. Do not configure
+a placeholder callback; confirm whether the Dashboard blocks this publishing
+configuration without webhooks. If it does, implement and verify an Instagram
+webhook endpoint in a separate change before completing setup.
 
 Instagram feed publishing accepts one JPEG image up to 8 MB and a caption.
 Videos, Reels, and carousels are not supported by this first version. The

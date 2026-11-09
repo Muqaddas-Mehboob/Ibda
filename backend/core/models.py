@@ -293,6 +293,8 @@ class SocialAccount(TimeStampedModel):
     refresh_token_encrypted = models.TextField(blank=True)
     token_expires_at = models.DateTimeField(null=True, blank=True)
     scopes = models.JSONField(default=list, blank=True)
+    client_business_id = models.CharField(max_length=255, blank=True)
+    oauth_config_id = models.CharField(max_length=255, blank=True)
 
     class Meta:
         ordering = ["platform", "display_name"]

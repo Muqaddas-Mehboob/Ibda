@@ -1,6 +1,5 @@
 import logging
 import time
-from datetime import timedelta
 
 import requests
 from django.conf import settings
@@ -9,10 +8,8 @@ from django.utils import timezone
 from ..models import SocialAccount
 from .instagram_oauth import (
     INSTAGRAM_GRAPH_URL,
-    InstagramOAuthError,
     instagram_api_version,
     instagram_oauth_configuration_error,
-    refresh_instagram_token,
 )
 from .media_storage import media_storage_configuration_error
 from .publishing_errors import PublishingError
@@ -25,7 +22,6 @@ MAX_CAPTION_LENGTH = 2200
 MAX_HASHTAGS = 30
 CONTAINER_POLL_ATTEMPTS = 10
 CONTAINER_POLL_SECONDS = 2
-TOKEN_REFRESH_WINDOW = timedelta(days=7)
 READY_CONTAINER_STATES = frozenset({"FINISHED", "PUBLISHED"})
 FAILED_CONTAINER_STATES = frozenset({"ERROR", "EXPIRED"})
 
@@ -121,6 +117,12 @@ def _account_access_token(account):
             "Reconnect the account before publishing.",
             transient=False,
         )
+    if not account.client_business_id or not account.oauth_config_id:
+        raise PublishingError(
+            "This Instagram connection uses the previous login flow. "
+            "Reconnect the account with Instagram Unified Login.",
+            transient=False,
+        )
     try:
         token = decrypt_social_token(account.access_token_encrypted)
     except SocialTokenEncryptionError:
@@ -142,18 +144,6 @@ def _account_access_token(account):
             "before publishing.",
             transient=False,
         )
-    if expires_at and expires_at <= timezone.now() + TOKEN_REFRESH_WINDOW:
-        try:
-            return refresh_instagram_token(account)
-        except InstagramOAuthError:
-            # The current token may still be valid; let Meta decide.
-            logger.warning(
-                "instagram_publishing.token_refresh_failed",
-                extra={
-                    "event": "instagram_publishing.token_refresh_failed",
-                    "account_id": str(account.id),
-                },
-            )
     return token
 
 

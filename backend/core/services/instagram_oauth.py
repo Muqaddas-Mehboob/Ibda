@@ -2,19 +2,19 @@ import hashlib
 import logging
 import re
 import secrets
-from datetime import datetime, timedelta, timezone as datetime_timezone
+from datetime import timedelta
 from urllib.parse import urlencode, urlsplit
 
 import requests
 from cryptography.fernet import Fernet
 from django.conf import settings
 from django.db import transaction
+from django.db.models import Q
 from django.utils import timezone
 
 from ..models import SocialAccount, SocialOAuthState
 from .social_tokens import (
     SocialTokenEncryptionError,
-    decrypt_social_token,
     encrypt_social_token,
 )
 
@@ -22,18 +22,15 @@ logger = logging.getLogger(__name__)
 
 STATE_LIFETIME = timedelta(minutes=10)
 INSTAGRAM_CALLBACK_PATH = "/api/social/oauth/instagram/callback/"
-INSTAGRAM_LOGIN_URL = "https://www.instagram.com/oauth/authorize"
-INSTAGRAM_TOKEN_URL = "https://api.instagram.com/oauth/access_token"
-INSTAGRAM_GRAPH_URL = "https://graph.instagram.com"
+INSTAGRAM_LOGIN_URL = "https://www.facebook.com/dialog/oauth"
+INSTAGRAM_GRAPH_URL = "https://graph.facebook.com"
 INSTAGRAM_SCOPES = [
-    "instagram_business_basic",
-    "instagram_business_content_publish",
+    "instagram_basic",
+    "instagram_manage_messages",
+    "instagram_content_publish",
 ]
 REQUEST_TIMEOUT = (5, 20)
 GRAPH_VERSION_PATTERN = re.compile(r"v\d+\.\d+")
-SUPPORTED_ACCOUNT_TYPES = frozenset({"BUSINESS", "MEDIA_CREATOR", "CREATOR"})
-
-BUSINESS_DISCOVERY_FIELDS = "user_id,username,account_type"
 
 
 class InstagramOAuthError(Exception):
@@ -52,17 +49,18 @@ def instagram_api_version():
 
 def instagram_oauth_configuration_error():
     required_settings = (
-        getattr(settings, "SOCIAL_INSTAGRAM_CLIENT_ID", ""),
-        getattr(settings, "SOCIAL_INSTAGRAM_CLIENT_SECRET", ""),
+        getattr(settings, "SOCIAL_INSTAGRAM_META_APP_ID", ""),
+        getattr(settings, "SOCIAL_INSTAGRAM_META_APP_SECRET", ""),
+        getattr(settings, "SOCIAL_INSTAGRAM_CONFIG_ID", ""),
         getattr(settings, "SOCIAL_INSTAGRAM_REDIRECT_URI", ""),
         getattr(settings, "SOCIAL_TOKEN_ENCRYPTION_KEY", ""),
     )
     if not all(required_settings):
-        return "Instagram OAuth is not fully configured."
+        return "Instagram Unified Login is not fully configured."
     if not instagram_api_version():
         return (
-            "Instagram OAuth is not configured: the API version must use "
-            "the vNN.N format."
+            "Instagram Unified Login is not configured: the API version "
+            "must use the vNN.N format."
         )
 
     try:
@@ -118,11 +116,12 @@ def create_instagram_authorization_url(owner_id, response_mode="native"):
     state = _new_state(owner_id, response_mode)
     query = urlencode(
         {
-            "client_id": settings.SOCIAL_INSTAGRAM_CLIENT_ID,
+            "client_id": settings.SOCIAL_INSTAGRAM_META_APP_ID,
+            "config_id": settings.SOCIAL_INSTAGRAM_CONFIG_ID,
             "redirect_uri": settings.SOCIAL_INSTAGRAM_REDIRECT_URI,
             "response_type": "code",
-            "scope": ",".join(INSTAGRAM_SCOPES),
-            "enable_fb_login": "false",
+            "display": "popup",
+            "prompt": "login",
             "state": state,
         }
     )
@@ -170,22 +169,20 @@ def _response_json(response):
         data = response.json()
     except ValueError as error:
         raise InstagramOAuthError(
-            "Instagram returned an invalid response."
+            "Meta returned an invalid response."
         ) from error
     if not isinstance(data, dict):
-        raise InstagramOAuthError("Instagram returned an invalid response.")
+        raise InstagramOAuthError("Meta returned an invalid response.")
     return data
 
 
 def _exchange_code(code):
     try:
-        response = requests.post(
-            INSTAGRAM_TOKEN_URL,
-            data={
-                "client_id": settings.SOCIAL_INSTAGRAM_CLIENT_ID,
-                "client_secret": settings.SOCIAL_INSTAGRAM_CLIENT_SECRET,
-                "grant_type": "authorization_code",
-                "redirect_uri": settings.SOCIAL_INSTAGRAM_REDIRECT_URI,
+        response = requests.get(
+            f"{INSTAGRAM_GRAPH_URL}/{instagram_api_version()}/oauth/access_token",
+            params={
+                "client_id": settings.SOCIAL_INSTAGRAM_META_APP_ID,
+                "client_secret": settings.SOCIAL_INSTAGRAM_META_APP_SECRET,
                 "code": code,
             },
             headers={"Accept": "application/json"},
@@ -193,100 +190,39 @@ def _exchange_code(code):
             allow_redirects=False,
         )
     except requests.RequestException:
-        # The exception text can embed the authorization code and secret.
         raise InstagramOAuthError(
-            "Unable to exchange the Instagram authorization."
+            "Unable to exchange the Meta authorization."
         ) from None
 
     if response.status_code != 200:
         raise InstagramOAuthError(
-            "Instagram authorization could not be completed."
+            "Meta authorization could not be completed."
         )
     data = _response_json(response)
-    if "data" in data:
-        token_data = data["data"]
+    access_token = data.get("access_token")
+    if not isinstance(access_token, str) or not access_token:
+        raise InstagramOAuthError("Meta did not return an access token.")
+
+    expires_in = data.get("expires_in")
+    expires_at = None
+    if expires_in is not None:
         if (
-            not isinstance(token_data, list)
-            or not token_data
-            or not isinstance(token_data[0], dict)
+            not isinstance(expires_in, int)
+            or isinstance(expires_in, bool)
+            or expires_in <= 0
         ):
             raise InstagramOAuthError(
-                "Instagram returned invalid authorization information."
+                "Meta returned invalid token expiry information."
             )
-        data = token_data[0]
-
-    access_token = data.get("access_token")
-    user_id = data.get("user_id")
-    if not isinstance(access_token, str) or not access_token:
-        raise InstagramOAuthError("Instagram did not return an access token.")
-    if not isinstance(user_id, (str, int)) or not str(user_id).strip():
-        raise InstagramOAuthError(
-            "Instagram did not return an account identifier."
-        )
-    permissions = data.get("permissions")
-    if not isinstance(permissions, str):
-        raise InstagramOAuthError(
-            "Instagram did not confirm the requested permissions."
-        )
-    granted_permissions = {
-        permission.strip() for permission in permissions.split(",")
-    }
-    if not set(INSTAGRAM_SCOPES).issubset(granted_permissions):
-        raise InstagramOAuthError(
-            "Grant Instagram basic and content publishing permissions, then "
-            "reconnect the account."
-        )
-    return access_token, str(user_id)
+        expires_at = timezone.now() + timedelta(seconds=expires_in)
+    return access_token, expires_at
 
 
-def _exchange_long_lived_token(short_lived_token):
+def _graph_get(path, access_token, params):
     try:
         response = requests.get(
-            f"{INSTAGRAM_GRAPH_URL}/access_token",
-            params={
-                "grant_type": "ig_exchange_token",
-                "client_secret": settings.SOCIAL_INSTAGRAM_CLIENT_SECRET,
-                "access_token": short_lived_token,
-            },
-            headers={"Accept": "application/json"},
-            timeout=REQUEST_TIMEOUT,
-            allow_redirects=False,
-        )
-    except requests.RequestException:
-        raise InstagramOAuthError(
-            "Unable to extend the Instagram authorization."
-        ) from None
-
-    if response.status_code != 200:
-        raise InstagramOAuthError(
-            "Instagram authorization could not be extended."
-        )
-    data = _response_json(response)
-    token = data.get("access_token")
-    expires_in = data.get("expires_in")
-    if not isinstance(token, str) or not token:
-        raise InstagramOAuthError(
-            "Instagram did not return a long-lived access token."
-        )
-    if not isinstance(expires_in, int) or isinstance(expires_in, bool):
-        raise InstagramOAuthError(
-            "Instagram returned invalid token expiry information."
-        )
-    if expires_in <= 0:
-        raise InstagramOAuthError(
-            "Instagram returned invalid token expiry information."
-        )
-    return token, datetime.fromtimestamp(
-        timezone.now().timestamp() + expires_in,
-        tz=datetime_timezone.utc,
-    )
-
-
-def _fetch_profile(access_token):
-    try:
-        response = requests.get(
-            f"{INSTAGRAM_GRAPH_URL}/{instagram_api_version()}/me",
-            params={"fields": BUSINESS_DISCOVERY_FIELDS},
+            f"{INSTAGRAM_GRAPH_URL}/{instagram_api_version()}/{path}",
+            params=params,
             headers={
                 "Accept": "application/json",
                 "Authorization": f"Bearer {access_token}",
@@ -296,131 +232,133 @@ def _fetch_profile(access_token):
         )
     except requests.RequestException:
         raise InstagramOAuthError(
-            "Unable to retrieve the Instagram account."
+            "Unable to retrieve the authorized Instagram business assets."
         ) from None
 
     if response.status_code != 200:
         raise InstagramOAuthError(
-            "Unable to retrieve the Instagram account."
+            "Unable to retrieve the authorized Instagram business assets."
         )
-    data = _response_json(response)
-    username = data.get("username")
-    account_type = data.get("account_type")
-    if not isinstance(username, str) or not username.strip():
+    return _response_json(response)
+
+
+def _fetch_client_business_id(access_token):
+    data = _graph_get("me", access_token, {"fields": "client_business_id"})
+    business_id = data.get("client_business_id")
+    if not isinstance(business_id, (str, int)) or not str(business_id).strip():
         raise InstagramOAuthError(
-            "Instagram did not return an account username."
+            "Meta did not return the connected business portfolio."
         )
-    if (
-        not isinstance(account_type, str)
-        or account_type.strip().upper() not in SUPPORTED_ACCOUNT_TYPES
-    ):
+    return str(business_id)
+
+
+def _fetch_assigned_instagram_accounts(access_token):
+    path = "me/assigned_instagram_accounts"
+    params = {"fields": "id,username", "limit": 100}
+    accounts = {}
+    seen_cursors = set()
+    has_next_page = True
+    while has_next_page:
+        data = _graph_get(path, access_token, params)
+        page = data.get("data")
+        if not isinstance(page, list):
+            raise InstagramOAuthError(
+                "Meta returned invalid Instagram account information."
+            )
+        for item in page:
+            if not isinstance(item, dict):
+                raise InstagramOAuthError(
+                    "Meta returned invalid Instagram account information."
+                )
+            account_id = item.get("id")
+            username = item.get("username", "")
+            if (
+                not isinstance(account_id, (str, int))
+                or not str(account_id).strip()
+            ):
+                raise InstagramOAuthError(
+                    "Meta returned an invalid Instagram account identifier."
+                )
+            if not isinstance(username, str):
+                raise InstagramOAuthError(
+                    "Meta returned an invalid Instagram account name."
+                )
+            account_id = str(account_id)
+            accounts[account_id] = (
+                username.strip() or f"Instagram account {account_id}"
+            )
+
+        paging = data.get("paging")
+        has_next_page = isinstance(paging, dict) and bool(paging.get("next"))
+        if not has_next_page:
+            break
+        cursors = paging.get("cursors")
+        cursor = cursors.get("after") if isinstance(cursors, dict) else None
+        if not isinstance(cursor, str) or not cursor or cursor in seen_cursors:
+            raise InstagramOAuthError(
+                "Meta returned invalid Instagram account pagination."
+            )
+        seen_cursors.add(cursor)
+        params["after"] = cursor
+        if len(seen_cursors) >= 100:
+            raise InstagramOAuthError(
+                "Meta returned too many Instagram account pages."
+            )
+
+    if not accounts:
         raise InstagramOAuthError(
-            "An Instagram professional (Business or Creator) account is "
-            "required."
+            "No Instagram professional accounts were shared with IBDA."
         )
-    return username.strip(), account_type.strip().upper()
+    return accounts
 
 
 def connect_instagram_account(owner_id, code):
-    """Connect the authorized Instagram professional account for ``owner_id``."""
+    """Connect the Instagram professional accounts authorized for an owner."""
     if not code or len(code) > 4096:
         raise InstagramOAuthError(
-            "Instagram did not return a valid authorization code."
+            "Meta did not return a valid authorization code."
         )
 
-    short_lived_token, user_id = _exchange_code(code)
-    access_token, expires_at = _exchange_long_lived_token(short_lived_token)
-    username, _account_type = _fetch_profile(access_token)
+    access_token, expires_at = _exchange_code(code)
+    business_id = _fetch_client_business_id(access_token)
+    accounts = _fetch_assigned_instagram_accounts(access_token)
+    encrypted_token = encrypt_social_token(access_token)
+    config_id = settings.SOCIAL_INSTAGRAM_CONFIG_ID
 
-    SocialAccount.objects.update_or_create(
-        owner_id=owner_id,
-        platform=SocialAccount.Platform.INSTAGRAM,
-        platform_account_id=user_id,
-        defaults={
-            "display_name": username,
-            "status": SocialAccount.Status.CONNECTED,
-            "access_token_encrypted": encrypt_social_token(access_token),
-            "refresh_token_encrypted": "",
-            "token_expires_at": expires_at,
-            "scopes": INSTAGRAM_SCOPES,
-        },
-    )
+    with transaction.atomic():
+        stale_accounts = SocialAccount.objects.filter(
+            owner_id=owner_id,
+            platform=SocialAccount.Platform.INSTAGRAM,
+            status=SocialAccount.Status.CONNECTED,
+        ).exclude(platform_account_id__in=accounts)
+        stale_accounts.filter(
+            Q(client_business_id=business_id, oauth_config_id=config_id)
+            | Q(client_business_id="", oauth_config_id="")
+        ).update(status=SocialAccount.Status.DISCONNECTED)
+
+        for account_id, username in accounts.items():
+            SocialAccount.objects.update_or_create(
+                owner_id=owner_id,
+                platform=SocialAccount.Platform.INSTAGRAM,
+                platform_account_id=account_id,
+                defaults={
+                    "display_name": username,
+                    "status": SocialAccount.Status.CONNECTED,
+                    "access_token_encrypted": encrypted_token,
+                    "refresh_token_encrypted": "",
+                    "token_expires_at": expires_at,
+                    "scopes": INSTAGRAM_SCOPES,
+                    "client_business_id": business_id,
+                    "oauth_config_id": config_id,
+                },
+            )
+
     logger.info(
         "instagram_oauth.connected",
         extra={
             "event": "instagram_oauth.connected",
             "platform": SocialAccount.Platform.INSTAGRAM,
-            "instagram_user_id": user_id,
+            "account_count": len(accounts),
         },
     )
-    return username
-
-
-def refresh_instagram_token(account):
-    """Refresh a long-lived Instagram token and persist the new one."""
-    try:
-        current_token = decrypt_social_token(account.access_token_encrypted)
-    except SocialTokenEncryptionError:
-        raise InstagramOAuthError(
-            "The stored Instagram token could not be read."
-        ) from None
-    if not current_token:
-        raise InstagramOAuthError("No Instagram access token is stored.")
-
-    try:
-        response = requests.get(
-            f"{INSTAGRAM_GRAPH_URL}/refresh_access_token",
-            params={
-                "grant_type": "ig_refresh_token",
-                "access_token": current_token,
-            },
-            headers={"Accept": "application/json"},
-            timeout=REQUEST_TIMEOUT,
-            allow_redirects=False,
-        )
-    except requests.RequestException:
-        raise InstagramOAuthError(
-            "Unable to refresh the Instagram authorization."
-        ) from None
-
-    if response.status_code != 200:
-        raise InstagramOAuthError(
-            "Unable to refresh the Instagram authorization."
-        )
-    data = _response_json(response)
-    token = data.get("access_token")
-    expires_in = data.get("expires_in")
-    if not isinstance(token, str) or not token:
-        raise InstagramOAuthError(
-            "Instagram did not return a refreshed access token."
-        )
-    if not isinstance(expires_in, int) or isinstance(expires_in, bool):
-        raise InstagramOAuthError(
-            "Instagram returned invalid token expiry information."
-        )
-    if expires_in <= 0:
-        raise InstagramOAuthError(
-            "Instagram returned invalid token expiry information."
-        )
-
-    account.access_token_encrypted = encrypt_social_token(token)
-    account.token_expires_at = datetime.fromtimestamp(
-        timezone.now().timestamp() + expires_in,
-        tz=datetime_timezone.utc,
-    )
-    account.save(
-        update_fields=[
-            "access_token_encrypted",
-            "token_expires_at",
-            "updated_at",
-        ]
-    )
-    logger.info(
-        "instagram_oauth.token_refreshed",
-        extra={
-            "event": "instagram_oauth.token_refreshed",
-            "platform": SocialAccount.Platform.INSTAGRAM,
-            "account_id": str(account.id),
-        },
-    )
-    return token
+    return len(accounts)

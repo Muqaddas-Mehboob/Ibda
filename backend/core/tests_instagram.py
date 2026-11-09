@@ -30,8 +30,9 @@ def graph_response(status_code, payload):
 
 def social_settings():
     return override_settings(
-        SOCIAL_INSTAGRAM_CLIENT_ID="ig-client-id",
-        SOCIAL_INSTAGRAM_CLIENT_SECRET="ig-client-secret",
+        SOCIAL_INSTAGRAM_META_APP_ID="meta-app-id",
+        SOCIAL_INSTAGRAM_META_APP_SECRET="meta-app-secret",
+        SOCIAL_INSTAGRAM_CONFIG_ID="instagram-config-id",
         SOCIAL_INSTAGRAM_REDIRECT_URI=(
             "https://social.example/api/social/oauth/instagram/callback/"
         ),
@@ -58,7 +59,7 @@ class InstagramOAuthTests(APITestCase):
         self.assertFalse(SocialAccount.objects.exists())
 
     @social_settings()
-    def test_connect_returns_an_instagram_login_authorization_url(self):
+    def test_connect_returns_a_unified_login_authorization_url(self):
         response = self.client.post(
             "/api/social/accounts/instagram/connect/",
             {"response_mode": "web"},
@@ -67,11 +68,13 @@ class InstagramOAuthTests(APITestCase):
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         url = response.data["authorization_url"]
-        self.assertTrue(url.startswith("https://www.instagram.com/oauth/authorize?"))
-        self.assertIn("instagram_business_basic", url)
-        self.assertIn("instagram_business_content_publish", url)
+        self.assertTrue(
+            url.startswith("https://www.facebook.com/dialog/oauth?")
+        )
+        self.assertIn("config_id=instagram-config-id", url)
+        self.assertIn("prompt=login", url)
         self.assertIn("response_type=code", url)
-        self.assertIn("enable_fb_login=false", url)
+        self.assertNotIn("scope=", url)
         state = SocialAccount.objects.none()
         self.assertFalse(state.exists())
         from .models import SocialOAuthState
@@ -82,7 +85,7 @@ class InstagramOAuthTests(APITestCase):
         self.assertEqual(oauth_state.response_mode, "web")
 
     @social_settings()
-    def test_callback_connects_the_authorized_professional_account(self):
+    def test_callback_connects_accounts_from_unified_login(self):
         from .models import SocialOAuthState
         import hashlib
 
@@ -95,32 +98,18 @@ class InstagramOAuthTests(APITestCase):
         )
 
         with patch(
-            "core.services.instagram_oauth.requests.post"
-        ) as exchange, patch(
             "core.services.instagram_oauth.requests.get"
-        ) as profile:
-            exchange.return_value = graph_response(
-                200,
-                {
-                    "data": [
-                        {
-                            "access_token": "short-lived",
-                            "user_id": IG_ID,
-                            "permissions": ",".join(INSTAGRAM_SCOPES),
-                        }
-                    ]
-                },
-            )
-            profile.side_effect = [
-                graph_response(
-                    200, {"access_token": TOKEN, "expires_in": 5184000}
-                ),
+        ) as meta_get:
+            meta_get.side_effect = [
+                graph_response(200, {"access_token": TOKEN}),
+                graph_response(200, {"client_business_id": "biz-123"}),
                 graph_response(
                     200,
                     {
-                        "user_id": IG_ID,
-                        "username": "ibda.studio",
-                        "account_type": "BUSINESS",
+                        "data": [
+                            {"id": IG_ID, "username": "ibda.studio"},
+                            {"id": f"{IG_ID}-2", "username": "ibda.creator"},
+                        ]
                     },
                 ),
             ]
@@ -133,16 +122,41 @@ class InstagramOAuthTests(APITestCase):
         self.assertEqual(response.status_code, status.HTTP_302_FOUND)
         self.assertIn("status=connected", response["Location"])
         account = SocialAccount.objects.get(
-            platform=SocialAccount.Platform.INSTAGRAM
+            platform=SocialAccount.Platform.INSTAGRAM,
+            platform_account_id=IG_ID,
         )
         self.assertEqual(account.platform_account_id, IG_ID)
         self.assertEqual(account.display_name, "ibda.studio")
         self.assertEqual(account.scopes, INSTAGRAM_SCOPES)
         self.assertEqual(decrypt_social_token(account.access_token_encrypted), TOKEN)
-        self.assertIsNotNone(account.token_expires_at)
+        self.assertIsNone(account.token_expires_at)
+        self.assertEqual(account.client_business_id, "biz-123")
+        self.assertEqual(account.oauth_config_id, "instagram-config-id")
+        self.assertEqual(
+            SocialAccount.objects.filter(
+                owner_id=self.user.id,
+                platform=SocialAccount.Platform.INSTAGRAM,
+                status=SocialAccount.Status.CONNECTED,
+            ).count(),
+            2,
+        )
+        exchange_call = meta_get.call_args_list[0]
+        self.assertEqual(
+            exchange_call.args[0],
+            "https://graph.facebook.com/v27.0/oauth/access_token",
+        )
+        self.assertEqual(
+            exchange_call.kwargs["params"]["client_id"], "meta-app-id"
+        )
+        self.assertIn("client_secret", exchange_call.kwargs["params"])
+        self.assertNotIn(TOKEN, str(exchange_call.kwargs))
+        self.assertEqual(
+            meta_get.call_args_list[1].kwargs["headers"]["Authorization"],
+            f"Bearer {TOKEN}",
+        )
 
     @social_settings()
-    def test_callback_rejects_a_non_professional_account(self):
+    def test_callback_requires_an_assigned_instagram_account(self):
         from .models import SocialOAuthState
         import hashlib
 
@@ -155,30 +169,12 @@ class InstagramOAuthTests(APITestCase):
         )
 
         with patch(
-            "core.services.instagram_oauth.requests.post"
-        ) as exchange, patch(
             "core.services.instagram_oauth.requests.get"
-        ) as profile:
-            exchange.return_value = graph_response(
-                200,
-                {
-                    "access_token": "short-lived",
-                    "user_id": IG_ID,
-                    "permissions": ",".join(INSTAGRAM_SCOPES),
-                },
-            )
-            profile.side_effect = [
-                graph_response(
-                    200, {"access_token": TOKEN, "expires_in": 5184000}
-                ),
-                graph_response(
-                    200,
-                    {
-                        "user_id": IG_ID,
-                        "username": "personal",
-                        "account_type": "PERSONAL",
-                    },
-                ),
+        ) as meta_get:
+            meta_get.side_effect = [
+                graph_response(200, {"access_token": TOKEN}),
+                graph_response(200, {"client_business_id": "biz-123"}),
+                graph_response(200, {"data": []}),
             ]
 
             response = self.client.get(
@@ -210,25 +206,18 @@ class InstagramOAuthTests(APITestCase):
         self.assertIn("[redacted]", record.getMessage())
 
     @social_settings()
-    @patch("core.services.instagram_oauth.requests.post")
-    def test_oauth_rejects_missing_content_publish_permission(self, exchange):
+    @patch("core.services.instagram_oauth.requests.get")
+    def test_connection_fails_if_meta_shares_no_instagram_accounts(self, meta_get):
         from .services.instagram_oauth import (
             InstagramOAuthError,
             connect_instagram_account,
         )
 
-        exchange.return_value = graph_response(
-            200,
-            {
-                "data": [
-                    {
-                        "access_token": "short-lived",
-                        "user_id": IG_ID,
-                        "permissions": "instagram_business_basic",
-                    }
-                ]
-            },
-        )
+        meta_get.side_effect = [
+            graph_response(200, {"access_token": TOKEN}),
+            graph_response(200, {"client_business_id": "biz-123"}),
+            graph_response(200, {"data": []}),
+        ]
 
         with self.assertRaises(InstagramOAuthError):
             connect_instagram_account(self.user.id, "authorization-code")
@@ -250,6 +239,8 @@ class InstagramPublishingTests(APITestCase):
             display_name="ibda.studio",
             access_token_encrypted=encrypt_social_token(TOKEN),
             token_expires_at=NOW + timedelta(days=30),
+            client_business_id="biz-123",
+            oauth_config_id="instagram-config-id",
         )
 
     def create_post(self, **overrides):
@@ -303,7 +294,7 @@ class InstagramPublishingTests(APITestCase):
         container_url = graph_post.call_args_list[0].args[0]
         self.assertEqual(
             container_url,
-            f"https://graph.instagram.com/v27.0/{IG_ID}/media",
+            f"https://graph.facebook.com/v27.0/{IG_ID}/media",
         )
         container_data = graph_post.call_args_list[0].kwargs["data"]
         self.assertEqual(
@@ -313,6 +304,10 @@ class InstagramPublishingTests(APITestCase):
             container_data["caption"], "Hello from IBDA\n\n#ibda #launch"
         )
         self.assertEqual(container_data["access_token"], TOKEN)
+        self.assertEqual(
+            graph_get.call_args.kwargs["headers"]["Authorization"],
+            f"Bearer {TOKEN}",
+        )
 
         publish_data = graph_post.call_args_list[1].kwargs["data"]
         self.assertEqual(publish_data["creation_id"], "container-1")
@@ -347,6 +342,27 @@ class InstagramPublishingTests(APITestCase):
         self.assertEqual(counts["blocked"], 1)
         scheduled.refresh_from_db()
         self.assertIn("not linked to an Instagram account", scheduled.error_message)
+        graph_post.assert_not_called()
+
+    @patch("core.services.instagram_publishing.requests.post")
+    def test_legacy_instagram_login_account_requires_reconnection(self, graph_post):
+        legacy_account = SocialAccount.objects.create(
+            owner_id=self.user.id,
+            platform=SocialAccount.Platform.INSTAGRAM,
+            platform_account_id=f"{IG_ID}-legacy",
+            display_name="legacy.account",
+            access_token_encrypted=encrypt_social_token(TOKEN),
+        )
+        scheduled = self.due_post(
+            self.create_post(),
+            account=legacy_account,
+        )
+
+        counts = publish_due_posts(now=NOW)
+
+        self.assertEqual(counts["failed"], 1)
+        scheduled.refresh_from_db()
+        self.assertIn("previous login flow", scheduled.error_message)
         graph_post.assert_not_called()
 
     @patch("core.services.instagram_publishing.time.sleep")
