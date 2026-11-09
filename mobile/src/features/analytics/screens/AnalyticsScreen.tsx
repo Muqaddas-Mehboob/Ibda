@@ -1,12 +1,7 @@
+import { StudioText as Text } from "../../../components/ui/StudioText";
+import { StudioPressable as Pressable, StudioCard } from "../../../components/ui/StudioControls";
 import { useCallback, useState } from "react";
-import {
-  ActivityIndicator,
-  Pressable,
-  RefreshControl,
-  ScrollView,
-  Text,
-  View,
-} from "react-native";
+import { ActivityIndicator, RefreshControl, ScrollView, View } from "react-native";
 import { router, useFocusEffect } from "expo-router";
 import { BottomNavigation } from "../../../components/navigation/BottomNavigation";
 import {
@@ -22,13 +17,13 @@ const METRICS = [
     key: "content_posts",
     label: "Content posts",
     detail: "Created in this period",
-    color: "#FF6B5F",
+    color: "#C24A3C",
   },
   {
     key: "pending_approvals",
     label: "Pending approvals",
     detail: "Submitted in this period",
-    color: "#D49B42",
+    color: "#D69B48",
   },
   {
     key: "approved_content",
@@ -46,7 +41,7 @@ const METRICS = [
     key: "scheduled_posts",
     label: "Scheduled posts",
     detail: "Scheduled dates in this period",
-    color: "#8171A8",
+    color: "#826C8B",
   },
 ] as const;
 
@@ -103,18 +98,18 @@ export function AnalyticsScreen() {
   );
 
   return (
-    <View className="flex-1 bg-[#FCF9F4]">
+    <View className="flex-1 bg-[#FAF8F4]">
       <ScrollView
         contentContainerStyle={{
           padding: 24,
           paddingTop: 40,
-          paddingBottom: 32,
+          paddingBottom: 48, width: "100%", maxWidth: 960, alignSelf: "center",
         }}
         refreshControl={
           <RefreshControl
             refreshing={refreshing}
             onRefresh={() => void load(true)}
-            tintColor="#FF6B5F"
+            tintColor="#C24A3C"
           />
         }
         showsVerticalScrollIndicator={false}
@@ -125,22 +120,22 @@ export function AnalyticsScreen() {
         }
         accessibilityRole="button"
         accessibilityLabel="Go back"
-        className="mb-8 h-11 w-11 items-center justify-center rounded-full border border-[#EAE4DC] bg-white"
+        className="mb-8 h-11 w-11 items-center justify-center rounded-full border border-[#E9E2DA] bg-white active:bg-[#F1E9DF]"
       >
-        <Text className="text-xl text-[#51483F]">‹</Text>
+        <Text className="text-xl text-[#716A64]">‹</Text>
       </Pressable>
       
-        <Text className="mb-2 text-xs font-bold uppercase tracking-[3px] text-[#FF6B5F]">
+        <Text className="mb-2 text-[12px] font-bold uppercase tracking-[2px] text-[#C24A3C]" variant="eyebrow" tone="secondary">
           YOUR WORKSPACE
         </Text>
-        <Text className="text-4xl font-bold text-[#24221F]">Analytics</Text>
-        <Text className="mb-6 mt-3 text-base leading-6 text-[#827970]">
+        <Text className="text-[32px] leading-[39px] tracking-[-0.8px] font-bold text-[#292724]" variant="page" tone="charcoal">Analytics</Text>
+        <Text className="mb-6 mt-3 text-base leading-6 text-[#716A64]" variant="body">
           A clear view of your content workflow across your brands.
         </Text>
 
         <View
           accessibilityRole="tablist"
-          className="mb-6 flex-row rounded-2xl border border-[#EAE4DC] bg-white p-1"
+          className="mb-6 flex-row rounded-2xl border border-[#E9E2DA] bg-white p-1"
         >
           {RANGES.map((range) => {
             const selected = days === range;
@@ -151,14 +146,14 @@ export function AnalyticsScreen() {
                 accessibilityRole="tab"
                 accessibilityState={{ selected }}
                 accessibilityLabel={`Last ${range} days`}
-                className={`min-h-11 flex-1 items-center justify-center rounded-xl ${
-                  selected ? "bg-[#24221F]" : ""
+                className={`min-h-[54px] flex-1 items-center justify-center rounded-[18px] ${
+                  selected ? "bg-[#292724]" : ""
                 }`}
               >
                 <Text
-                  className={`text-sm font-semibold ${
-                    selected ? "text-white" : "text-[#827970]"
-                  }`}
+                  className={`text-[15px] leading-[24px] font-semibold ${
+                    selected ? "text-white" : "text-[#716A64]"
+                  }`} variant="button"
                 >
                   {range} days
                 </Text>
@@ -169,77 +164,77 @@ export function AnalyticsScreen() {
 
         {loading ? (
           <View className="items-center py-16">
-            <ActivityIndicator size="large" color="#FF6B5F" />
-            <Text className="mt-3 text-[#827970]">Loading your analytics...</Text>
+            <ActivityIndicator size="large" color="#C24A3C" />
+            <Text className="mt-3 text-[#716A64] text-[15px] leading-[24px]" variant="body">Loading your analytics...</Text>
           </View>
         ) : error ? (
-          <View className="rounded-3xl border border-[#EAE4DC] bg-white p-5">
-            <Text className="font-semibold text-[#24221F]">
+          <StudioCard className="rounded-3xl border border-[#E9E2DA] bg-white p-5">
+            <Text className="font-semibold text-[#292724] text-[15px] leading-[24px]" variant="label">
               Couldn’t load analytics
             </Text>
-            <Text className="mt-2 leading-5 text-[#A33D34]">{error}</Text>
+            <Text className="mt-2 text-[#A33D34] text-[15px] leading-[24px]" variant="body">{error}</Text>
             <Pressable
               onPress={() => void load()}
               accessibilityRole="button"
-              className="mt-4 min-h-11 self-start justify-center rounded-xl bg-[#24221F] px-4 py-2"
+              className="mt-4 min-h-[54px] self-start justify-center rounded-[18px] bg-[#292724] px-4 py-2"
             >
-              <Text className="font-semibold text-white">Try again</Text>
+              <Text className="font-semibold text-white text-[15px] leading-[24px]" variant="button">Try again</Text>
             </Pressable>
-          </View>
+          </StudioCard>
         ) : analytics ? (
           <>
             <View className="mb-6 flex-row flex-wrap justify-between gap-y-3">
               {METRICS.map((metric) => (
-                <View
+                <StudioCard
                   key={metric.key}
-                  className="w-[48%] rounded-3xl border border-[#EAE4DC] bg-white p-4"
+                  className="w-[48%] rounded-3xl border border-[#E9E2DA] bg-white p-5"
                 >
                   <View
                     className="mb-4 h-2 w-10 rounded-full"
                     style={{ backgroundColor: metric.color }}
                   />
-                  <Text className="text-3xl font-bold text-[#24221F]">
+                  <Text className="text-[30px] leading-[37px] tracking-[-0.6px] font-bold text-[#292724]" variant="metric">
                     {analytics.summary[metric.key]}
                   </Text>
-                  <Text className="mt-1 font-semibold text-[#51483F]">
+                  <Text className="mt-1 font-semibold text-[#716A64] text-[15px] leading-[24px]" variant="label">
                     {metric.label}
                   </Text>
-                  <Text className="mt-1 text-xs leading-4 text-[#827970]">
+                  <Text className="mt-1 text-[12px] leading-[18px] text-[#716A64]" variant="caption">
                     {metric.detail}
                   </Text>
-                </View>
+                </StudioCard>
               ))}
             </View>
 
             {!hasData ? (
-              <View className="mb-6 rounded-3xl border border-[#EAE4DC] bg-white p-5">
-                <Text className="text-lg font-bold text-[#24221F]">
+              <StudioCard className="mb-6 rounded-3xl border border-[#E9E2DA] bg-white p-5">
+                <Text className="text-[19px] leading-[26px] font-bold text-[#292724]" variant="cardTitle">
                   No activity in this period
                 </Text>
-                <Text className="mt-2 leading-5 text-[#827970]">
+                <Text className="mt-2 text-[#716A64] text-[15px] leading-[24px]" variant="body">
                   When you create content, submit approvals, or schedule posts,
                   your real activity will appear here.
                 </Text>
-              </View>
+              </StudioCard>
             ) : null}
 
-            <View className="mb-6 rounded-3xl border border-[#EAE4DC] bg-white p-5">
-              <Text className="text-lg font-bold text-[#24221F]">
+            <StudioCard className="mb-6 rounded-3xl border border-[#E9E2DA] bg-white p-5">
+              <Text className="text-[19px] leading-[26px] font-bold text-[#292724]" variant="cardTitle">
                 Content activity
               </Text>
-              <Text className="mb-5 mt-1 text-sm text-[#827970]">
+              <Text className="mb-5 mt-1 text-[15px] leading-[24px] text-[#716A64]" variant="body">
                 Posts created by{" "}
                 {analytics.activity_granularity === "day" ? "day" : "week"}
               </Text>
               {analytics.activity.every((item) => item.content_posts === 0) ? (
-                <Text className="py-6 text-center text-sm text-[#827970]">
+                <Text className="py-6 text-center text-[15px] leading-[24px] text-[#716A64]" variant="body">
                   No content posts in this period.
                 </Text>
               ) : (
                 <ScrollView
                   horizontal
                   showsHorizontalScrollIndicator={false}
-                  contentContainerStyle={{ gap: 12 }}
+                  contentContainerStyle={{ gap: 12, width: "100%", maxWidth: 960, alignSelf: "center" }}
                 >
                   {analytics.activity.map((item) => (
                     <View
@@ -247,9 +242,9 @@ export function AnalyticsScreen() {
                       accessibilityLabel={`${activityDateLabel(item.date)}: ${item.content_posts} posts`}
                       className="w-10 items-center"
                     >
-                      <View className="h-32 w-8 justify-end overflow-hidden rounded-full bg-[#F3EEE8]">
+                      <View className="h-32 w-8 justify-end overflow-hidden rounded-full bg-[#F1E9DF]">
                         <View
-                          className="w-full rounded-full bg-[#FF6B5F]"
+                          className="w-full rounded-full bg-[#C24A3C]"
                           style={{
                             height:
                               item.content_posts === 0
@@ -261,24 +256,24 @@ export function AnalyticsScreen() {
                           }}
                         />
                       </View>
-                      <Text className="mt-2 text-[10px] font-semibold text-[#827970]">
+                      <Text className="mt-2 text-[11px] font-semibold text-[#716A64]" variant="caption">
                         {activityDateLabel(item.date)}
                       </Text>
-                      <Text className="mt-1 text-xs font-bold text-[#24221F]">
+                      <Text className="mt-1 text-[12px] font-bold text-[#292724]" variant="caption">
                         {item.content_posts}
                       </Text>
                     </View>
                   ))}
                 </ScrollView>
               )}
-            </View>
+            </StudioCard>
 
-            <View className="mb-6 rounded-3xl border border-[#EAE4DC] bg-white p-5">
-              <Text className="mb-4 text-lg font-bold text-[#24221F]">
+            <StudioCard className="mb-6 rounded-3xl border border-[#E9E2DA] bg-white p-5">
+              <Text className="mb-4 text-[19px] leading-[26px] font-bold text-[#292724]" variant="cardTitle">
                 Content by brand
               </Text>
               {analytics.brands.length === 0 ? (
-                <Text className="py-3 text-sm text-[#827970]">
+                <Text className="py-3 text-[15px] leading-[24px] text-[#716A64]" variant="body">
                   No brand content in this period.
                 </Text>
               ) : (
@@ -288,17 +283,17 @@ export function AnalyticsScreen() {
                       <View className="mb-2 flex-row justify-between gap-3">
                         <Text
                           numberOfLines={1}
-                          className="flex-1 font-semibold text-[#51483F]"
+                          className="flex-1 font-semibold text-[#716A64] text-[15px] leading-[24px]" variant="label"
                         >
                           {brand.brand_name}
                         </Text>
-                        <Text className="font-bold text-[#24221F]">
+                        <Text className="font-bold text-[#292724] text-[15px] leading-[24px]" variant="label">
                           {brand.content_posts}
                         </Text>
                       </View>
-                      <View className="h-2 overflow-hidden rounded-full bg-[#F3EEE8]">
+                      <View className="h-2 overflow-hidden rounded-full bg-[#F1E9DF]">
                         <View
-                          className="h-full rounded-full bg-[#FF6B5F]"
+                          className="h-full rounded-full bg-[#C24A3C]"
                           style={{
                             width: `${
                               (brand.content_posts /
@@ -317,13 +312,13 @@ export function AnalyticsScreen() {
                   ))}
                 </View>
               )}
-            </View>
+            </StudioCard>
 
-            <View className="rounded-3xl border border-[#EAE4DC] bg-[#F5EFE7] p-5">
-              <Text className="font-bold text-[#24221F]">
+            <View className="rounded-3xl border border-[#E9E2DA] bg-[#F1E9DF] p-6">
+              <Text className="font-bold text-[#292724] text-[15px] leading-[24px]" variant="label">
                 Social performance
               </Text>
-              <Text className="mt-2 leading-5 text-[#827970]">
+              <Text className="mt-2 text-[#716A64] text-[15px] leading-[24px]" variant="body">
                 Engagement, reach, clicks, and follower metrics aren’t shown
                 because no social platform analytics integration is configured.
               </Text>

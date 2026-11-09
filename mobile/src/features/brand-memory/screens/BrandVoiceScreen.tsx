@@ -1,14 +1,8 @@
+import { StudioText as Text } from "../../../components/ui/StudioText";
+import { StudioPressable as Pressable, StudioInput as TextInput } from "../../../components/ui/StudioControls";
 
 import { useCallback, useEffect, useState } from "react";
-import {
-    ActivityIndicator,
-    Alert,
-    Pressable,
-    ScrollView,
-    Text,
-    TextInput,
-    View,
-} from "react-native";
+import { ActivityIndicator, Alert, ScrollView, View } from "react-native";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import {
     getBrandVoice,
@@ -87,45 +81,45 @@ export function BrandVoiceScreen() {
         multiline = false,
     ) => (
         <View className="mb-5" key={key}>
-            <Text className="mb-2 text-sm font-semibold text-[#24221F]">{label}</Text>
+            <Text className="mb-2 text-[15px] leading-[24px] font-semibold text-[#292724]" variant="label">{label}</Text>
             <TextInput
                 value={voice[key]}
                 onChangeText={(value) => update(key, value)}
                 placeholder={placeholder}
-                placeholderTextColor="#A39A91"
+                placeholderTextColor="#716A64"
                 multiline={multiline}
                 textAlignVertical={multiline ? "top" : "center"}
-                className={`rounded-2xl border border-[#EAE4DC] bg-white px-4 py-4 text-[#24221F] ${multiline ? "min-h-28" : ""
+                className={`rounded-[18px] border border-[#E9E2DA] bg-[#F7F4EF] px-4 py-4 text-[#292724] ${multiline ? "min-h-28 rounded-[18px]" : " rounded-[18px]"
                     }`}
             />
         </View>
     );
 
     return (
-        <View className="flex-1 bg-[#FCF9F4]">
-            <ScrollView contentContainerStyle={{ padding: 24, paddingTop: 30, paddingBottom: 40 }}>
+        <View className="flex-1 bg-[#FAF8F4]">
+            <ScrollView contentContainerStyle={{ padding: 24, paddingTop: 36, paddingBottom: 48, width: "100%", maxWidth: 960, alignSelf: "center" }}>
                 <Pressable onPress={() => router.back()}>
-                    <Text className="mb-6 text-base text-[#705B52]">← Back to profiles</Text>
+                    <Text className="mb-6 text-base leading-[24px] text-[#716A64]" variant="button">← Back to profiles</Text>
                 </Pressable>
 
-                <Text className="mb-2 text-xs font-bold uppercase tracking-[3px] text-[#FF6B5F]">
+                <Text className="mb-2 text-[12px] font-bold uppercase tracking-[2px] text-[#4A523E]" variant="eyebrow" tone="olive">
                     VOICE & MEMORY
                 </Text>
-                <Text className="text-4xl font-bold text-[#24221F]">Brand voice</Text>
-                <Text className="mb-7 mt-3 leading-6 text-[#827970]">
+                <Text className="text-[32px] leading-[39px] tracking-[-0.8px] font-bold text-[#292724]" variant="page" tone="olive">Brand voice</Text>
+                <Text className="mb-7 mt-3 text-[#716A64] text-[15px] leading-[24px]" variant="body">
                     Teach Ibda how your brand sounds, who it speaks to and which rules
                     every piece of content should follow.
                 </Text>
 
                 {loading ? (
-                    <ActivityIndicator size="large" color="#FF6B5F" />
+                    <ActivityIndicator size="large" color="#C24A3C" />
                 ) : (
                     <>
                         {error ? (
-                            <Text className="mb-4 text-sm text-red-600">{error}</Text>
+                            <Text className="mb-4 text-[15px] leading-[24px] text-red-600" variant="body">{error}</Text>
                         ) : null}
 
-                        <Text className="mb-3 text-lg font-bold text-[#24221F]">
+                        <Text className="mb-3 text-[19px] leading-[26px] font-bold text-[#292724]" variant="cardTitle">
                             Choose a tone
                         </Text>
                         <View className="mb-6 flex-row flex-wrap gap-2">
@@ -133,12 +127,12 @@ export function BrandVoiceScreen() {
                                 <Pressable
                                     key={tone}
                                     onPress={() => update("tone", tone)}
-                                    className={`rounded-full border px-4 py-3 ${voice.tone === tone
-                                            ? "border-[#FF6B5F] bg-[#F8E3DF]"
-                                            : "border-[#EAE4DC] bg-white"
+                                    className={`rounded-2xl border px-4 py-3 ${voice.tone === tone
+                                            ? "border-[#7F9C81] bg-[#E5EDE3]"
+                                            : "border-[#E9E2DA] bg-white active:bg-[#F1E9DF]"
                                         }`}
                                 >
-                                    <Text className="font-medium text-[#24221F]">{tone}</Text>
+                                    <Text className="font-medium text-[#292724] text-[15px] leading-[24px]" variant="button">{tone}</Text>
                                 </Pressable>
                             ))}
                         </View>
@@ -151,9 +145,9 @@ export function BrandVoiceScreen() {
                         <Pressable
                             disabled={saving}
                             onPress={() => void save()}
-                            className="items-center rounded-full bg-[#FF6B5F] py-4"
+                            className="items-center rounded-2xl bg-[#C24A3C] active:bg-[#A63F32] py-4"
                         >
-                            <Text className="font-bold text-white">
+                            <Text className="font-bold text-white text-[15px] leading-[24px]" variant="button">
                                 {saving ? "Saving..." : "Save brand voice"}
                             </Text>
                         </Pressable>
@@ -165,9 +159,9 @@ export function BrandVoiceScreen() {
                                     params: { brandId },
                                 })
                             }
-                            className="mt-3 items-center rounded-full border border-[#EAE4DC] bg-white py-4"
+                            className="mt-3 items-center rounded-2xl border border-[#E9E2DA] bg-white active:bg-[#F1E9DF] py-4"
                         >
-                            <Text className="font-semibold text-[#24221F]">
+                            <Text className="font-semibold text-[#292724] text-[15px] leading-[24px]" variant="button">
                                 View voice blueprint →
                             </Text>
                         </Pressable>

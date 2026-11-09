@@ -1,13 +1,8 @@
+import { StudioText as Text } from "../../../components/ui/StudioText";
+import { StudioPressable as Pressable, StudioInput as TextInput, StudioCard } from "../../../components/ui/StudioControls";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import {
-  ActivityIndicator,
-  Pressable,
-  ScrollView,
-  Text,
-  TextInput,
-  View,
-} from "react-native";
+import { ActivityIndicator, ScrollView, View } from "react-native";
 import { Image } from "expo-image";
 import {
   launchImageLibraryAsync,
@@ -345,15 +340,15 @@ export function ContentStudioScreen() {
   };
 
   const fieldClass =
-    "mt-2 rounded-2xl border border-[#EAE4DC] bg-white px-4 py-3 text-base text-[#24221F]";
+    "mt-2 rounded-[18px] border border-[#E9E2DA] bg-[#F7F4EF] px-4 py-4 text-base text-[#292724]";
 
   return (
-    <View className="flex-1 bg-[#FCF9F4]">
+    <View className="flex-1 bg-[#FAF8F4]">
       <ScrollView
         contentContainerStyle={{
           padding: 24,
-          paddingTop: 32,
-          paddingBottom: 48,
+          paddingTop: 36,
+          paddingBottom: 48, width: "100%", maxWidth: 960, alignSelf: "center",
         }}
         keyboardShouldPersistTaps="handled"
         keyboardDismissMode="on-drag"
@@ -365,31 +360,32 @@ export function ContentStudioScreen() {
           }
           accessibilityRole="button"
           accessibilityLabel="Go back"
-          className="mb-8 h-11 w-11 items-center justify-center rounded-full border border-[#EAE4DC] bg-white"
+          className="mb-8 h-11 w-11 items-center justify-center rounded-full border border-[#E9E2DA] bg-white active:bg-[#F1E9DF]"
         >
-          <Text className="text-xl text-[#51483F]">‹</Text>
+          <Text className="text-xl text-[#716A64]">‹</Text>
         </Pressable>
-        <Text className="mb-2 text-xs font-bold uppercase tracking-[3px] text-[#FF6B5F]">
+        <Text className="mb-2 text-[12px] font-bold uppercase tracking-[2px] text-[#C24A3C]" variant="eyebrow" tone="coral">
           IBDA WORKSPACE
         </Text>
 
-        <Text className="text-4xl font-bold text-[#24221F]">
+        <Text className="text-[32px] leading-[39px] tracking-[-0.8px] font-bold text-[#292724]" variant="page" tone="charcoal">
           AI Content Studio
         </Text>
 
-        <Text className="mb-7 mt-3 text-base leading-6 text-[#827970]">
+        <Text className="mb-7 mt-3 text-base leading-6 text-[#716A64]" variant="body">
           Create on-brand social content with your saved brand
           details and voice.
         </Text>
 
-        <Text className="font-semibold text-[#24221F]">
+        <StudioCard className="rounded-[24px] border border-[#E9E2DA] bg-white p-5">
+        <Text className="font-semibold text-[#292724] text-[15px] leading-[24px]" variant="label">
           Brand
         </Text>
 
         {loadingBrands ? (
-          <View className="mt-3 flex-row items-center rounded-2xl border border-[#EAE4DC] bg-white p-4">
-            <ActivityIndicator color="#FF6B5F" />
-            <Text className="ml-3 text-[#827970]">
+          <View className="mt-3 flex-row items-center rounded-2xl border border-[#E9E2DA] bg-white p-4">
+            <ActivityIndicator color="#C24A3C" />
+            <Text className="ml-3 text-[#716A64] text-[15px] leading-[24px]" variant="body">
               Loading your brands...
             </Text>
           </View>
@@ -397,23 +393,23 @@ export function ContentStudioScreen() {
           <View className="mt-2 rounded-2xl border border-[#EAC5BE] bg-white p-4">
             <Text
               accessibilityRole="alert"
-              className="leading-5 text-[#A33D34]"
+              className="text-[#A33D34] text-[15px] leading-[24px]" variant="body"
             >
               {error}
             </Text>
 
             <Pressable
               onPress={() => void loadBrands()}
-              className="mt-3 min-h-11 self-start justify-center"
+              className="mt-3 min-h-[54px] self-start justify-center rounded-[18px]"
             >
-              <Text className="font-semibold text-[#FF6B5F]">
+              <Text className="font-semibold text-[#C24A3C] text-[15px] leading-[24px]" variant="button">
                 Retry loading brands
               </Text>
             </Pressable>
           </View>
         ) : brands.length === 0 ? (
-          <View className="mt-2 rounded-2xl border border-[#EAE4DC] bg-white p-4">
-            <Text className="leading-5 text-[#827970]">
+          <View className="mt-2 rounded-2xl border border-[#E9E2DA] bg-white p-4">
+            <Text className="text-[#716A64] text-[15px] leading-[24px]" variant="body">
               You need a saved brand before you can generate content.
             </Text>
 
@@ -421,7 +417,7 @@ export function ContentStudioScreen() {
               onPress={() => void loadBrands()}
               className="mt-3 self-start"
             >
-              <Text className="font-semibold text-[#FF6B5F]">
+              <Text className="font-semibold text-[#C24A3C] text-[15px] leading-[24px]" variant="button">
                 Retry loading brands
               </Text>
             </Pressable>
@@ -443,18 +439,18 @@ export function ContentStudioScreen() {
                   disabled={!canEdit}
                   accessibilityRole="button"
                   accessibilityState={{ selected }}
-                  className={`min-h-11 justify-center rounded-full border px-4 py-2 ${
+                  className={`min-h-[54px] justify-center rounded-[18px] border px-4 py-2 ${
                     selected
-                      ? "border-[#FF6B5F] bg-[#FF6B5F]"
-                      : "border-[#EAE4DC] bg-white"
+                      ? "border-[#C24A3C] bg-[#C24A3C] active:bg-[#A63F32]"
+                      : "border-[#E9E2DA] bg-white active:bg-[#F1E9DF]"
                   }`}
                 >
                   <Text
                     className={`font-medium ${
                       selected
                         ? "text-white"
-                        : "text-[#51483F]"
-                    }`}
+                        : "text-[#716A64]"
+                    }`} variant="button"
                   >
                     {brand.name}
                   </Text>
@@ -465,14 +461,14 @@ export function ContentStudioScreen() {
         )}
 
         {selectedBrand && (
-          <Text className="mt-2 text-sm text-[#827970]">
+          <Text className="mt-2 text-[15px] leading-[24px] text-[#716A64]" variant="body">
             Voice defaults:{" "}
             {selectedBrand.voice?.tone || "Friendly"} ·{" "}
             {selectedBrand.voice?.language || "English"}
           </Text>
         )}
 
-        <Text className="mt-6 font-semibold text-[#24221F]">
+        <Text className="mt-6 font-semibold text-[#292724] text-[15px] leading-[24px]" variant="label">
           Platform
         </Text>
 
@@ -491,13 +487,13 @@ export function ContentStudioScreen() {
                 disabled={!canEdit}
                 accessibilityRole="button"
                 accessibilityState={{ selected }}
-                className={`min-h-11 justify-center rounded-full border px-4 py-2 ${
+                className={`min-h-[54px] justify-center rounded-[18px] border px-4 py-2 ${
                   selected
-                    ? "border-[#FF6B5F] bg-[#F8E3DF]"
-                    : "border-[#EAE4DC] bg-white"
+                    ? "border-[#C24A3C] bg-[#F8E3DF]"
+                    : "border-[#E9E2DA] bg-white active:bg-[#F1E9DF]"
                 }`}
               >
-                <Text className="font-medium text-[#24221F]">
+                <Text className="font-medium text-[#292724] text-[15px] leading-[24px]" variant="button">
                   {item.label}
                 </Text>
               </Pressable>
@@ -505,7 +501,7 @@ export function ContentStudioScreen() {
           })}
         </View>
 
-        <Text className="mt-6 font-semibold text-[#24221F]">
+        <Text className="mt-6 font-semibold text-[#292724] text-[15px] leading-[24px]" variant="label">
           Content type
         </Text>
 
@@ -523,13 +519,13 @@ export function ContentStudioScreen() {
                 disabled={!canEdit}
                 accessibilityRole="button"
                 accessibilityState={{ selected }}
-                className={`min-h-11 justify-center rounded-full border px-4 py-2 ${
+                className={`min-h-[54px] justify-center rounded-[18px] border px-4 py-2 ${
                   selected
-                    ? "border-[#FF6B5F] bg-[#F8E3DF]"
-                    : "border-[#EAE4DC] bg-white"
+                    ? "border-[#C24A3C] bg-[#F8E3DF]"
+                    : "border-[#E9E2DA] bg-white active:bg-[#F1E9DF]"
                 }`}
               >
-                <Text className="font-medium text-[#24221F]">
+                <Text className="font-medium text-[#292724] text-[15px] leading-[24px]" variant="button">
                   {item.label}
                 </Text>
               </Pressable>
@@ -537,17 +533,20 @@ export function ContentStudioScreen() {
           })}
         </View>
 
-        <View className="mt-6">
-          <Text className="font-semibold text-[#24221F]">
+        </StudioCard>
+
+        <StudioCard className="mt-6 rounded-[24px] border border-[#E9E2DA] bg-white p-5">
+        <View>
+          <Text className="font-semibold text-[#292724] text-[15px] leading-[24px]" variant="label">
             Topic or campaign{" "}
-            <Text className="text-[#FF6B5F]">*</Text>
+            <Text className="text-[#C24A3C]">*</Text>
           </Text>
 
           <TextInput
             value={topic}
             onChangeText={setTopic}
             placeholder="What should this post be about?"
-            placeholderTextColor="#A39A91"
+            placeholderTextColor="#716A64"
             editable={canEdit}
             maxLength={300}
             returnKeyType="next"
@@ -556,7 +555,7 @@ export function ContentStudioScreen() {
         </View>
 
         <View className="mt-5">
-          <Text className="font-semibold text-[#24221F]">
+          <Text className="font-semibold text-[#292724] text-[15px] leading-[24px]" variant="label">
             Keywords
           </Text>
 
@@ -564,7 +563,7 @@ export function ContentStudioScreen() {
             value={keywords}
             onChangeText={setKeywords}
             placeholder="Add keywords separated by commas"
-            placeholderTextColor="#A39A91"
+            placeholderTextColor="#716A64"
             editable={canEdit}
             maxLength={720}
             autoCapitalize="none"
@@ -573,7 +572,7 @@ export function ContentStudioScreen() {
         </View>
 
         <View className="mt-5">
-          <Text className="font-semibold text-[#24221F]">
+          <Text className="font-semibold text-[#292724] text-[15px] leading-[24px]" variant="label">
             Call to action
           </Text>
 
@@ -581,7 +580,7 @@ export function ContentStudioScreen() {
             value={callToAction}
             onChangeText={setCallToAction}
             placeholder="e.g. Explore the collection"
-            placeholderTextColor="#A39A91"
+            placeholderTextColor="#716A64"
             editable={canEdit}
             maxLength={300}
             className={fieldClass}
@@ -590,7 +589,7 @@ export function ContentStudioScreen() {
 
         <View className="mt-5 flex-row gap-3">
           <View className="flex-1">
-            <Text className="font-semibold text-[#24221F]">
+            <Text className="font-semibold text-[#292724] text-[15px] leading-[24px]" variant="label">
               Tone
             </Text>
 
@@ -598,14 +597,14 @@ export function ContentStudioScreen() {
               value={tone}
               onChangeText={setTone}
               placeholder="Friendly"
-              placeholderTextColor="#A39A91"
+              placeholderTextColor="#716A64"
               editable={canEdit}
               className={fieldClass}
             />
           </View>
 
           <View className="flex-1">
-            <Text className="font-semibold text-[#24221F]">
+            <Text className="font-semibold text-[#292724] text-[15px] leading-[24px]" variant="label">
               Language
             </Text>
 
@@ -613,7 +612,7 @@ export function ContentStudioScreen() {
               value={language}
               onChangeText={setLanguage}
               placeholder="English"
-              placeholderTextColor="#A39A91"
+              placeholderTextColor="#716A64"
               editable={canEdit}
               className={fieldClass}
             />
@@ -630,7 +629,7 @@ export function ContentStudioScreen() {
             brands.length === 0
           }
           accessibilityRole="button"
-          className={`mt-7 min-h-14 flex-row items-center justify-center rounded-2xl bg-[#FF6B5F] px-5 py-4 ${
+          className={`mt-7 min-h-[54px] flex-row items-center justify-center rounded-[18px] bg-[#C24A3C] shadow-sm shadow-[#C24A3C]/15 active:bg-[#A63F32] px-5 py-4 ${
             !canEdit || loadingBrands || brands.length === 0
               ? "opacity-70"
               : ""
@@ -639,7 +638,7 @@ export function ContentStudioScreen() {
           {generating ? (
             <ActivityIndicator color="#FFFFFF" />
           ) : (
-            <Text className="font-bold text-white">
+            <Text className="font-bold text-white text-[15px] leading-[24px]" variant="label">
               {content
                 ? "Regenerate Content"
                 : "Generate Content"}
@@ -647,11 +646,13 @@ export function ContentStudioScreen() {
           )}
         </Pressable>
 
+        </StudioCard>
+
         {!!error && (
           <View className="mt-5 rounded-2xl border border-[#EAC5BE] bg-white p-4">
             <Text
               accessibilityRole="alert"
-              className="leading-5 text-[#A33D34]"
+              className="text-[#A33D34] text-[15px] leading-[24px]" variant="body"
             >
               {error}
             </Text>
@@ -659,13 +660,13 @@ export function ContentStudioScreen() {
         )}
 
         {!!content && (
-          <View className="mt-8 rounded-3xl border border-[#EAE4DC] bg-white p-5">
-            <Text className="mb-3 text-xs font-bold uppercase tracking-[2px] text-[#FF6B5F]">
+          <StudioCard className="mt-6 rounded-3xl border border-[#E9E2DA] bg-white p-5">
+            <Text className="mb-3 text-[12px] font-bold uppercase tracking-[2px] text-[#C24A3C]" variant="eyebrow" tone="coral">
               CONTENT PREVIEW
             </Text>
 
             {savedPost && (
-              <Text className="mb-3 text-sm font-medium text-[#827970]">
+              <Text className="mb-3 text-[15px] leading-[24px] font-medium text-[#716A64]" variant="label">
                 Draft saved · {savedPost.status}
               </Text>
             )}
@@ -685,19 +686,19 @@ export function ContentStudioScreen() {
               textAlignVertical="top"
               editable={canEdit}
               accessibilityLabel="Generated content preview. Editable."
-              className="min-h-40 rounded-2xl border border-[#EAE4DC] bg-[#FCF9F4] px-4 py-4 text-base leading-6 text-[#24221F]"
+              className="min-h-40 rounded-[18px] border border-[#E9E2DA] bg-[#FAF8F4] px-4 py-4 text-base leading-6 text-[#292724]"
             />
 
-            <Text className="mt-2 text-xs text-[#827970]">
+            <Text className="mt-2 text-[12px] text-[#716A64]" variant="caption">
               Edit the text above before saving or submitting.
             </Text>
 
             {platform === "instagram" ? (
-              <View className="mt-5 rounded-2xl border border-[#EAE4DC] bg-[#FCF9F4] p-4">
-                <Text className="font-semibold text-[#24221F]">
+              <View className="mt-5 rounded-2xl border border-[#E9E2DA] bg-[#FAF8F4] p-4">
+                <Text className="font-semibold text-[#292724] text-[15px] leading-[24px]" variant="label">
                   Instagram feed image
                 </Text>
-                <Text className="mt-1 text-sm leading-5 text-[#827970]">
+                <Text className="mt-1 text-[15px] leading-[23px] text-[#716A64]" variant="body">
                   Choose a JPEG image up to 8 MB. It will be stored in a public
                   Supabase bucket so Instagram can fetch it.
                 </Text>
@@ -712,7 +713,7 @@ export function ContentStudioScreen() {
                     accessibilityLabel="Instagram feed image preview"
                   />
                 ) : (
-                  <Text className="mt-3 rounded-xl bg-white p-3 text-sm text-[#827970]">
+                  <Text className="mt-3 rounded-xl bg-white p-3 text-[15px] leading-[24px] text-[#716A64]" variant="body">
                     Add one image before submitting this Instagram post for
                     approval.
                   </Text>
@@ -722,11 +723,11 @@ export function ContentStudioScreen() {
                   onPress={() => void handleSelectImage()}
                   disabled={!canEdit}
                   accessibilityRole="button"
-                  className={`mt-3 min-h-11 items-center justify-center rounded-xl border border-[#EAE4DC] bg-white px-4 py-3 ${
+                  className={`mt-3 min-h-[54px] items-center justify-center rounded-[18px] border border-[#E9E2DA] bg-white active:bg-[#F1E9DF] px-4 py-3 ${
                     !canEdit ? "opacity-60" : ""
                   }`}
                 >
-                  <Text className="font-semibold text-[#51483F]">
+                  <Text className="font-semibold text-[#716A64] text-[15px] leading-[24px]" variant="button">
                     {selectedImage
                       ? "Choose another JPEG"
                       : savedPost?.image_url
@@ -736,8 +737,8 @@ export function ContentStudioScreen() {
                 </Pressable>
                 {uploadingImage ? (
                   <View className="mt-3 flex-row items-center">
-                    <ActivityIndicator color="#FF6B5F" />
-                    <Text className="ml-2 text-sm text-[#827970]">
+                    <ActivityIndicator color="#C24A3C" />
+                    <Text className="ml-2 text-[15px] leading-[24px] text-[#716A64]" variant="body">
                       Uploading image...
                     </Text>
                   </View>
@@ -749,7 +750,7 @@ export function ContentStudioScreen() {
               onPress={() => void handleOptimizeGEO()}
               disabled={!canEdit || !brandId || !content.trim()}
               accessibilityRole="button"
-              className={`mt-4 min-h-12 flex-row items-center justify-center rounded-2xl bg-[#287D54] px-4 py-3 ${
+              className={`mt-4 min-h-[54px] flex-row items-center justify-center rounded-[18px] bg-[#51445F] active:bg-[#40354B] px-4 py-3 ${
                 !canEdit || !brandId || !content.trim()
                   ? "opacity-60"
                   : ""
@@ -758,25 +759,25 @@ export function ContentStudioScreen() {
               {optimizing ? (
                 <>
                   <ActivityIndicator color="#FFFFFF" />
-                  <Text className="ml-2 font-bold text-white">
+                  <Text className="ml-2 font-bold text-white text-[15px] leading-[24px]" variant="label">
                     Optimizing for GEO...
                   </Text>
                 </>
               ) : (
-                <Text className="font-bold text-white">
+                <Text className="font-bold text-white text-[15px] leading-[24px]" variant="label">
                   Optimize for GEO
                 </Text>
               )}
             </Pressable>
 
             {geoResult && (
-              <View className="mt-4 rounded-2xl border border-[#D5E9DB] bg-[#F1FAF3] p-4">
-                <Text className="text-lg font-bold text-[#24221F]">
+              <View className="mt-6 rounded-[24px] border border-[#EEE7F1] border-l-[3px] border-l-[#826C8B] bg-[#EEE7F1] p-5">
+                <Text className="text-[19px] leading-[26px] font-bold text-[#292724]" variant="cardTitle" tone="plum">
                   GEO Improvements
                 </Text>
 
                 {geoResult.improvements.length === 0 ? (
-                  <Text className="mt-2 text-sm text-[#51483F]">
+                  <Text className="mt-2 text-[15px] leading-[24px] text-[#716A64]" variant="body">
                     No major improvements were identified.
                   </Text>
                 ) : (
@@ -784,7 +785,7 @@ export function ContentStudioScreen() {
                     (improvement, index) => (
                       <Text
                         key={index}
-                        className="mt-3 text-sm leading-6 text-[#51483F]"
+                        className="mt-3 text-[15px] leading-6 text-[#716A64]" variant="body"
                       >
                         {index + 1}. {improvement}
                       </Text>
@@ -794,14 +795,14 @@ export function ContentStudioScreen() {
 
                 {geoResult.optimized_content.trim() ? (
                   <>
-                    <Text className="mt-6 font-bold text-[#24221F]">
+                    <Text className="mt-6 font-bold text-[#292724] text-[15px] leading-[24px]" variant="label">
                       GEO-Refined Content
                     </Text>
 
-                    <View className="mt-3 rounded-xl border border-[#D5E9DB] bg-white p-4">
+                    <View className="mt-3 rounded-xl border border-[#E9E2DA] bg-white p-5">
                       <Text
                         selectable
-                        className="text-base leading-6 text-[#24221F]"
+                        className="text-base leading-6 text-[#292724]" variant="body"
                       >
                         {geoResult.optimized_content}
                       </Text>
@@ -811,22 +812,22 @@ export function ContentStudioScreen() {
                       onPress={handleApplyGEO}
                       disabled={!canEdit}
                       accessibilityRole="button"
-                      className={`mt-4 min-h-12 items-center justify-center rounded-2xl bg-[#24221F] px-4 py-3 ${
+                      className={`mt-4 min-h-[54px] items-center justify-center rounded-[18px] bg-[#292724] px-4 py-3 ${
                         !canEdit ? "opacity-60" : ""
                       }`}
                     >
-                      <Text className="font-bold text-white">
+                      <Text className="font-bold text-white text-[15px] leading-[24px]" variant="button">
                         Apply Optimized Content
                       </Text>
                     </Pressable>
                   </>
                 ) : (
-                  <View className="mt-5 rounded-xl border border-[#D5E9DB] bg-white p-4">
-                    <Text className="font-semibold text-[#24221F]">
+                  <View className="mt-5 rounded-xl border border-[#E9E2DA] bg-white p-5">
+                    <Text className="font-semibold text-[#292724] text-[15px] leading-[24px]" variant="label">
                       Additional Brand Details Needed
                     </Text>
 
-                    <Text className="mt-2 text-sm leading-6 text-[#51483F]">
+                    <Text className="mt-2 text-[15px] leading-6 text-[#716A64]" variant="body">
                       Meaningful GEO refinement requires more verified
                       brand information. Add details such as your
                       location, specific products, services, or unique
@@ -838,7 +839,7 @@ export function ContentStudioScreen() {
             )}
 
             {!!submitted && (
-              <Text className="mt-4 font-semibold text-[#287D54]">
+              <Text className="mt-4 font-semibold text-[#287D54] text-[15px] leading-[24px]" variant="label">
                 Submitted to Approval Inbox successfully.
               </Text>
             )}
@@ -849,11 +850,11 @@ export function ContentStudioScreen() {
                   onPress={() => void handleSave()}
                   disabled={!canEdit}
                   accessibilityRole="button"
-                  className={`min-h-12 items-center justify-center rounded-2xl border border-[#EAE4DC] bg-white px-4 py-3 ${
+                  className={`min-h-[54px] items-center justify-center rounded-[18px] border border-[#E9E2DA] bg-white active:bg-[#F1E9DF] px-4 py-3 ${
                     !canEdit ? "opacity-60" : ""
                   }`}
                 >
-                  <Text className="font-bold text-[#51483F]">
+                  <Text className="font-bold text-[#716A64] text-[15px] leading-[24px]" variant="button">
                     {saving ? "Saving..." : "Save Draft"}
                   </Text>
                 </Pressable>
@@ -861,11 +862,11 @@ export function ContentStudioScreen() {
                   onPress={() => void handleSubmitForApproval()}
                   disabled={!canEdit}
                   accessibilityRole="button"
-                  className={`min-h-12 items-center justify-center rounded-2xl bg-[#24221F] px-4 py-3 ${
+                  className={`min-h-[54px] items-center justify-center rounded-[18px] bg-[#292724] px-4 py-3 ${
                     !canEdit ? "opacity-60" : ""
                   }`}
                 >
-                  <Text className="font-bold text-white">
+                  <Text className="font-bold text-white text-[15px] leading-[24px]" variant="button">
                     {saving
                       ? "Saving..."
                       : "Submit for Approval"}
@@ -873,7 +874,7 @@ export function ContentStudioScreen() {
                 </Pressable>
               </View>
             )}
-          </View>
+          </StudioCard>
         )}
       </ScrollView>
 

@@ -1,13 +1,7 @@
+import { StudioText as Text } from "../../../components/ui/StudioText";
+import { StudioPressable as Pressable, StudioInput as TextInput } from "../../../components/ui/StudioControls";
 import { useEffect, useState } from "react";
-import {
-  ActivityIndicator,
-  Alert,
-  Pressable,
-  ScrollView,
-  Text,
-  TextInput,
-  View,
-} from "react-native";
+import { ActivityIndicator, Alert, ScrollView, View } from "react-native";
 import { useRouter } from "expo-router";
 import { BottomNavigation } from "../../../components/navigation/BottomNavigation";
 import { confirmAsync } from "../../../lib/confirm";
@@ -42,13 +36,13 @@ function SettingRow({
     >
       <View
         className={`h-10 w-10 items-center justify-center rounded-2xl ${
-          destructive ? "bg-[#FFF0ED]" : "bg-[#F3EEE8]"
+          destructive ? "bg-[#FFF0ED]" : "bg-[#E5EDE3]"
         }`}
       >
         <Text
-          className={`text-base font-bold ${
-            destructive ? "text-[#B04438]" : "text-[#827970]"
-          }`}
+          className={`text-base leading-[24px] font-bold ${
+            destructive ? "text-[#B04438]" : "text-[#4A523E]"
+          }`} variant="label"
         >
           {icon}
         </Text>
@@ -56,16 +50,16 @@ function SettingRow({
       <View className="flex-1">
         <Text
           className={`font-semibold ${
-            destructive ? "text-[#B04438]" : "text-[#24221F]"
-          }`}
+            destructive ? "text-[#B04438]" : "text-[#292724]"
+          }`} variant="controlTitle"
         >
           {title}
         </Text>
-        <Text className="mt-1 text-sm leading-5 text-[#827970]">
+        <Text className="mt-1 text-[15px] leading-[23px] text-[#716A64]" variant="body">
           {description}
         </Text>
       </View>
-      <Text className="text-lg text-[#A79D94]">›</Text>
+      <Text className="text-lg text-[#A79D94]" variant="button">›</Text>
     </Pressable>
   );
 }
@@ -284,12 +278,12 @@ export function SettingsScreen() {
   };
 
   return (
-    <View className="flex-1 bg-[#FCF9F4]">
+    <View className="flex-1 bg-[#FAF8F4]">
       <ScrollView
         contentContainerStyle={{
           padding: 24,
           paddingTop: 40,
-          paddingBottom: 32,
+          paddingBottom: 48, width: "100%", maxWidth: 960, alignSelf: "center",
         }}
         keyboardShouldPersistTaps="handled"
         showsVerticalScrollIndicator={false}
@@ -300,65 +294,65 @@ export function SettingsScreen() {
         }
         accessibilityRole="button"
         accessibilityLabel="Go back"
-        className="mb-8 h-11 w-11 items-center justify-center rounded-full border border-[#EAE4DC] bg-white"
+        className="mb-8 h-11 w-11 items-center justify-center rounded-full border border-[#E9E2DA] bg-white active:bg-[#F1E9DF]"
       >
-        <Text className="text-xl text-[#51483F]">‹</Text>
+        <Text className="text-xl text-[#716A64]">‹</Text>
       </Pressable>
-        <Text className="mb-2 text-xs font-bold uppercase tracking-[3px] text-[#FF6B5F]">
+        <Text className="mb-2 text-[12px] font-bold uppercase tracking-[2px] text-[#C24A3C]" variant="eyebrow" tone="secondary">
           YOUR WORKSPACE
         </Text>
-        <Text className="text-4xl font-bold text-[#24221F]">Settings</Text>
-        <Text className="mb-7 mt-3 text-base leading-6 text-[#827970]">
+        <Text className="text-[32px] leading-[39px] tracking-[-0.8px] font-bold text-[#292724]" variant="page" tone="charcoal">Settings</Text>
+        <Text className="mb-7 mt-3 text-base leading-6 text-[#716A64]" variant="body">
           Manage your account and how you use Ibda.
         </Text>
 
         {loadError ? (
           <View className="mb-5 rounded-2xl border border-[#F0C5BE] bg-white p-4">
-            <Text className="text-[#A33D34]">{loadError}</Text>
+            <Text className="text-[#A33D34] text-[15px] leading-[24px]" variant="body">{loadError}</Text>
           </View>
         ) : null}
 
         <Section title="Account">
           {loadingAccount ? (
             <View className="flex-row items-center gap-3 px-4 py-4">
-              <ActivityIndicator size="small" color="#FF6B5F" />
-              <Text className="text-[#827970]">Loading account details...</Text>
+              <ActivityIndicator size="small" color="#C24A3C" />
+              <Text className="text-[#716A64] text-[15px] leading-[24px]" variant="body">Loading account details...</Text>
             </View>
           ) : null}
           <View className="px-4 pb-4 pt-4">
-            <Text className="mb-2 text-sm font-semibold text-[#51483F]">
+            <Text className="mb-2 text-[15px] leading-[24px] font-semibold text-[#716A64]" variant="label">
               Display name
             </Text>
             <TextInput
               value={displayName}
               onChangeText={setDisplayName}
               placeholder="Your name"
-              placeholderTextColor="#A79D94"
+              placeholderTextColor="#716A64"
               maxLength={100}
               autoCapitalize="words"
               accessibilityLabel="Display name"
-              className="min-h-12 rounded-xl border border-[#EAE4DC] bg-[#FCF9F4] px-4 text-[#24221F]"
+              className="min-h-12 rounded-[18px] border border-[#E9E2DA] bg-[#FAF8F4] px-4 text-[#292724]"
             />
             {displayName.trim() !== savedName ? (
               <Pressable
                 onPress={() => void saveProfile()}
                 disabled={savingProfile}
                 accessibilityRole="button"
-                className="mt-3 min-h-11 flex-row items-center justify-center rounded-xl bg-[#FF6B5F] px-4"
+                className="mt-3 min-h-[54px] flex-row items-center justify-center rounded-[18px] bg-[#C24A3C] shadow-sm shadow-[#C24A3C]/15 active:bg-[#A63F32] px-4"
               >
                 {savingProfile ? (
                   <ActivityIndicator color="#FFFFFF" />
                 ) : (
-                  <Text className="font-bold text-white">Save profile</Text>
+                  <Text className="font-bold text-white text-[15px] leading-[24px]" variant="label">Save profile</Text>
                 )}
               </Pressable>
             ) : null}
           </View>
-          <View className="border-t border-[#EAE4DC] px-4 py-4">
-            <Text className="mb-1 text-sm font-semibold text-[#51483F]">
+          <View className="border-t border-[#E9E2DA] px-4 py-4">
+            <Text className="mb-1 text-[15px] leading-[24px] font-semibold text-[#716A64]" variant="label">
               Email address
             </Text>
-            <Text className="text-[#827970]">
+            <Text className="text-[#716A64] text-[15px] leading-[24px]" variant="body">
               {email || "Email unavailable"}
             </Text>
           </View>
@@ -371,7 +365,7 @@ export function SettingsScreen() {
             description="View your plan, billing history, and available plans"
             onPress={() => router.push("/subscription")}
           />
-          <View className="border-t border-[#EAE4DC]">
+          <View className="border-t border-[#E9E2DA]">
           <SettingRow
             icon="◎"
             title="Connected accounts"
@@ -379,8 +373,8 @@ export function SettingsScreen() {
             onPress={() => router.push("/social-accounts")}
           />
           </View>
-          <View className="border-t border-[#EAE4DC] px-4 py-4">
-            <Text className="leading-5 text-[#827970]">
+          <View className="border-t border-[#E9E2DA] px-4 py-4">
+            <Text className="text-[#716A64] text-[15px] leading-[24px]" variant="body">
               Notification preferences and theme selection aren’t configurable
               yet. Notifications are currently delivered in-app.
             </Text>
@@ -396,7 +390,7 @@ export function SettingsScreen() {
             }
             onPress={() => router.push("/contact-support")}
           />
-          <View className="border-t border-[#EAE4DC]">
+          <View className="border-t border-[#E9E2DA]">
             <SettingRow
               icon="i"
               title="Privacy policy"
@@ -404,7 +398,7 @@ export function SettingsScreen() {
               onPress={() => router.push("/privacy-policy")}
             />
           </View>
-          <View className="border-t border-[#EAE4DC]">
+          <View className="border-t border-[#E9E2DA]">
             <SettingRow
               icon="§"
               title="Terms of service"
@@ -438,10 +432,10 @@ function Section({
 }) {
   return (
     <View className="mb-6">
-      <Text className="mb-3 text-sm font-bold uppercase tracking-wide text-[#827970]">
+      <Text className="mb-3 text-[15px] leading-[24px] font-bold uppercase tracking-wide text-[#716A64]" variant="eyebrow" tone="secondary">
         {title}
       </Text>
-      <View className="overflow-hidden rounded-3xl border border-[#EAE4DC] bg-white">
+      <View className="overflow-hidden rounded-3xl border border-[#E9E2DA] bg-white">
         {children}
       </View>
     </View>

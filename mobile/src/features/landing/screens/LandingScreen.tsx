@@ -1,13 +1,10 @@
+import { StudioIcon, type StudioIconName } from "../../../components/ui/StudioIcon";
+import { StudioText as Text } from "../../../components/ui/StudioText";
+import { IbdaLogo } from "../../../components/brand/IbdaLogo";
+import { StudioPressable as Pressable, StudioCard } from "../../../components/ui/StudioControls";
 
 import { router } from "expo-router";
-import {
-  Pressable,
-  ScrollView,
-  StatusBar,
-  Text,
-  View,
-  useWindowDimensions,
-} from "react-native";
+import { ScrollView, StatusBar, View, useWindowDimensions } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 
 function FeatureTile({
@@ -15,25 +12,17 @@ function FeatureTile({
   title,
   description,
 }: {
-  icon: string;
+  icon: StudioIconName;
   title: string;
   description: string;
 }) {
   return (
-    <View className="min-w-0 flex-1 items-center justify-center rounded-xl bg-ibda-surface px-1 py-4">
-      <Text className="mb-2 text-lg text-ibda-coral">{icon}</Text>
-      <Text
-        numberOfLines={1}
-        adjustsFontSizeToFit
-        className="max-w-full text-center text-xs font-bold text-ibda-charcoal"
-      >
-        {title}
-      </Text>
-      <Text className="mt-1 text-center text-[11px] leading-4 text-ibda-brown">
-        {description}
-      </Text>
-    </View>
-  );
+ <View className="min-w-0 flex-1 items-center px-1 py-2">
+  <View className="mb-3 h-10 w-10 items-center justify-center rounded-2xl bg-[#E5EDE3]"><StudioIcon name={icon} size={20} color="#4A523E" /></View>
+  <Text numberOfLines={1} adjustsFontSizeToFit variant="label" tone="charcoal" style={{ fontSize: 13 }}>{title}</Text>
+  <Text variant="caption" tone="secondary" className="mt-1 text-center">{description}</Text>
+ </View>
+);
 }
 
 export function LandingScreen() {
@@ -41,142 +30,32 @@ export function LandingScreen() {
   const compact = width < 380;
 
   return (
-    <SafeAreaView style={{ flex: 1, backgroundColor: "#FCF9F4" }}>
-      <StatusBar barStyle="dark-content" />
-
-      <ScrollView
-        className="w-full flex-1"
-        contentContainerStyle={{
-          width: "100%",
-          paddingHorizontal: compact ? 16 : 24,
-          paddingTop: 12,
-          paddingBottom: 28,
-        }}
-        showsVerticalScrollIndicator={false}
-        bounces={false}
-      >
-        {/* Brand header */}
-        <View className="mb-6 w-full flex-row items-center justify-between">
-          <View className="flex-row items-center">
-            <View className="mr-2.5 h-9 w-9 items-center justify-center rounded-full bg-[#281D2C]">
-              <Text className="text-xl font-bold text-white">i</Text>
-            </View>
-            <Text className="text-xl font-extrabold text-ibda-charcoal">
-              ibda
-            </Text>
-          </View>
-
-          <Text className="text-[10px] font-bold tracking-widest text-ibda-brown">
-            CREATIVE STUDIO
-          </Text>
-        </View>
-
-        {/* Hero artwork */}
-        <View className="w-full overflow-hidden rounded-[28px] bg-[#E7DED1] p-4">
-          <View className="h-[170px] w-full items-center justify-center">
-            <View className="absolute left-2 top-2 h-24 w-16 rotate-[-8deg] bg-[#F7F2E9]" />
-            <View className="absolute right-1 top-3 h-24 w-14 rotate-[6deg] bg-[#D0C3B1]" />
-            <View className="absolute bottom-2 left-8 h-12 w-20 rotate-[5deg] bg-[#C6B8A5]" />
-
-            <View className="z-10 w-[72%] items-center border border-[#D8CEC0] bg-[#FCF9F4] px-4 py-5">
-              <Text className="text-2xl font-semibold text-ibda-charcoal">
-                Ibda
-              </Text>
-              <Text className="mt-1 text-xs text-ibda-brown">
-                Welcome to Ibda
-              </Text>
-            </View>
-          </View>
-
-          <View className="w-full flex-row items-center rounded-2xl bg-ibda-background px-3 py-3">
-            <View className="mr-3 h-10 w-10 items-center justify-center rounded-full bg-[#281D2C]">
-              <Text className="text-lg text-white">✦</Text>
-            </View>
-            <View className="min-w-0 flex-1">
-              <Text className="text-sm font-bold text-ibda-brown">
-                Brand Voice AI
-              </Text>
-              <Text
-                numberOfLines={1}
-                className="text-xs text-ibda-charcoal"
-              >
-                Architectural & Poetic
-              </Text>
-            </View>
-          </View>
-        </View>
-
-        {/* Intro label */}
-        <View className="mt-6 items-center">
-          <View className="max-w-full rounded-full bg-ibda-lavender px-3 py-2">
-            <Text className="text-center text-xs font-semibold text-ibda-brown">
-              ✦  Autonomous Publishing
-            </Text>
-          </View>
-
-          <Text
-            adjustsFontSizeToFit
-            className={`mt-5 w-full text-center font-extrabold tracking-tight text-ibda-charcoal ${
-              compact ? "text-[32px] leading-[38px]" : "text-[38px] leading-[44px]"
-            }`}
-          >
-            Curated AI for{"\n"}modern creators.
-          </Text>
-
-          <Text className="mt-4 w-full text-center text-sm leading-[22px] text-ibda-brown">
-            Autonomous publishing, deep brand voice
-            {"\n"}memory, and cross-channel editorial
-            {"\n"}intelligence.
-          </Text>
-        </View>
-
-        {/* Responsive feature cards */}
-        <View className="mt-6 w-full flex-row gap-2">
-          <FeatureTile
-            icon="⚙"
-            title="Voice Sync"
-            description={"Deep tone\nmemory"}
-          />
-          <FeatureTile
-            icon="▦"
-            title="Rhythm"
-            description={"Contextual\nqueue"}
-          />
-          <FeatureTile
-            icon="✳"
-            title="Omnichannel"
-            description={"Native\naesthetics"}
-          />
-        </View>
-
-        {/* Actions */}
-        <Pressable
-          accessibilityRole="button"
-          onPress={() => router.push("/sign-up")}
-          className="mt-7 min-h-[54px] w-full flex-row items-center justify-center rounded-full bg-ibda-coral active:opacity-80"
-        >
-          <Text className="text-base font-bold text-white">
-            Get Started
-          </Text>
-          <Text className="ml-2 text-lg text-white">→</Text>
-        </Pressable>
-
-        <Pressable
-          accessibilityRole="button"
-          onPress={() => router.push("/sign-in")}
-          className="mt-3 min-h-[52px] w-full flex-row items-center justify-center rounded-full bg-[#ECE8E3] px-3 active:opacity-80"
-        >
-          <Text className="text-center text-sm font-semibold text-ibda-charcoal">
-            Already have an account?{" "}
-            <Text className="font-bold text-ibda-coral">Sign in</Text>
-          </Text>
-        </Pressable>
-
-        {/* Footer */}
-        <Text className="mt-6 text-center text-xs leading-5 text-ibda-brown">
-          Create with purpose. Grow with Ibda.
-        </Text>
-      </ScrollView>
-    </SafeAreaView>
-  );
+ <SafeAreaView style={{ flex: 1, backgroundColor: "#FAF8F4" }}>
+  <StatusBar barStyle="dark-content" />
+  <ScrollView className="w-full flex-1" contentContainerStyle={{ width: "100%", maxWidth: 600, alignSelf: "center", paddingHorizontal: compact ? 20 : 24, paddingTop: 16, paddingBottom: 36 }} showsVerticalScrollIndicator={false} bounces={false}>
+   <View className="mb-7 w-full flex-row items-center justify-between">
+    <IbdaLogo size={40} />
+    <Text variant="eyebrow" tone="secondary" style={{ fontSize: 10, letterSpacing: 1.2 }}>CREATIVE STUDIO</Text>
+   </View>
+   <View className="items-center">
+    <View className="mb-4 flex-row items-center gap-2 rounded-full bg-[#F1E9DF] px-3 py-2"><StudioIcon name="spark" size={14} color="#51445F" /><Text variant="caption" tone="plum">Autonomous Publishing</Text></View>
+    <Text variant="display" tone="charcoal" className="text-center" style={{ fontSize: compact ? 34 : 38, lineHeight: compact ? 41 : 46 }}>Curated AI for{"\n"}modern creators.</Text>
+    <Text variant="body" tone="secondary" className="mt-4 text-center">Autonomous publishing, deep brand voice{"\n"}memory, and cross-channel editorial{"\n"}intelligence.</Text>
+   </View>
+   <StudioCard className="mt-6 rounded-[24px] border border-[#E9E2DA] border-l-[3px] border-l-[#7F9C81] bg-white p-5">
+    <View className="mb-4 flex-row items-center justify-between"><Text variant="eyebrow" tone="olive">Brand Voice AI</Text><StudioIcon name="brand" color="#7F9C81" size={24} /></View>
+    <Text variant="page" tone="olive" style={{ fontSize: 27, lineHeight: 34 }}>Architectural &amp; Poetic</Text>
+    <View className="mt-4 flex-row items-center gap-3 border-t border-[#E9E2DA] pt-4"><IbdaLogo size={30} wordmark={false} /><View><Text variant="label" tone="charcoal">Ibda</Text><Text variant="caption" tone="secondary">Welcome to Ibda</Text></View></View>
+   </StudioCard>
+   <View className="my-5 w-full flex-row gap-2">
+    <FeatureTile icon="brand" title="Voice Sync" description={"Deep tone\nmemory"} />
+    <FeatureTile icon="calendar" title="Rhythm" description={"Contextual\nqueue"} />
+    <FeatureTile icon="spark" title="Omnichannel" description={"Native\naesthetics"} />
+   </View>
+   <Pressable accessibilityRole="button" onPress={() => router.push("/sign-up")} className="min-h-[54px] w-full flex-row items-center justify-center gap-2 rounded-[18px] bg-[#C24A3C] active:bg-[#A63F32] px-5"><Text variant="button" tone="white">Get Started</Text><StudioIcon name="arrow" size={19} color="#FFFFFF" /></Pressable>
+   <Pressable accessibilityRole="button" onPress={() => router.push("/sign-in")} className="mt-3 min-h-[52px] w-full flex-row items-center justify-center rounded-[18px] bg-[#F1E9DF] px-3"><Text variant="label" tone="charcoal" className="text-center">Already have an account?{" "}<Text tone="coral" style={{ fontWeight: "600" }}>Sign in</Text></Text></Pressable>
+   <Text variant="caption" tone="secondary" className="mt-6 text-center">Create with purpose. Grow with Ibda.</Text>
+  </ScrollView>
+ </SafeAreaView>
+);
 }

@@ -1,15 +1,7 @@
+import { StudioText as Text } from "../../../components/ui/StudioText";
+import { StudioPressable as Pressable, StudioInput as TextInput, StudioCard } from "../../../components/ui/StudioControls";
 import { useCallback, useMemo, useState } from "react";
-import {
-  ActivityIndicator,
-  Alert,
-  Platform,
-  Pressable,
-  RefreshControl,
-  ScrollView,
-  Text,
-  TextInput,
-  View,
-} from "react-native";
+import { ActivityIndicator, Alert, Platform, RefreshControl, ScrollView, View } from "react-native";
 import { useFocusEffect, useLocalSearchParams, useRouter } from "expo-router";
 import { BottomNavigation } from "../../../components/navigation/BottomNavigation";
 import {
@@ -217,16 +209,16 @@ function Chip({
       onPress={onPress}
       accessibilityRole="button"
       accessibilityState={{ selected: active }}
-      className={`min-h-9 justify-center rounded-full border px-3 ${
+      className={`min-h-9 justify-center rounded-2xl border px-3 ${
         active
-          ? "border-[#FF6B5F] bg-[#FF6B5F]"
-          : "border-[#EAE4DC] bg-white"
+          ? "border-[#C24A3C] bg-[#C24A3C] active:bg-[#A63F32]"
+          : "border-[#E9E2DA] bg-white active:bg-[#F1E9DF]"
       }`}
     >
       <Text
-        className={`text-xs font-semibold ${
-          active ? "text-white" : "text-[#51483F]"
-        }`}
+        className={`text-[12px] font-semibold ${
+          active ? "text-white" : "text-[#716A64]"
+        }`} variant="caption"
       >
         {label}
       </Text>
@@ -660,16 +652,16 @@ export function CalendarScreen() {
       scheduled.status === "failed";
 
     return (
-      <View
+      <StudioCard
         key={scheduled.id}
-        className="rounded-3xl border border-[#EAE4DC] bg-white p-4"
+        className="rounded-3xl border border-[#E9E2DA] bg-white p-5"
       >
         <View className="flex-row items-start justify-between gap-3">
           <View className="flex-1">
-            <Text className="text-base font-bold text-[#24221F]">
+            <Text className="text-base leading-[24px] font-bold text-[#292724]" variant="label">
               {scheduled.post.title || scheduled.post.brand_name || "Scheduled post"}
             </Text>
-            <Text className="mt-1 text-sm text-[#827970]">
+            <Text className="mt-1 text-[15px] leading-[24px] text-[#716A64]" variant="body">
               {scheduled.post.brand_name} · {platformLabel(platforms, scheduled.platform)}
               {scheduled.social_account
                 ? ` · ${scheduled.social_account.display_name}`
@@ -677,19 +669,19 @@ export function CalendarScreen() {
             </Text>
           </View>
           <View className={`rounded-full px-3 py-1 ${style.badge}`}>
-            <Text className={`text-xs font-bold ${style.text}`}>
+            <Text className={`text-[12px] font-bold ${style.text}`} variant="caption">
               {style.label}
             </Text>
           </View>
         </View>
 
         {!!scheduled.post.body && (
-          <Text numberOfLines={3} className="mt-2 leading-5 text-[#51483F]">
+          <Text numberOfLines={3} className="mt-2 text-[#716A64] text-[15px] leading-[24px]" variant="body">
             {scheduled.post.body}
           </Text>
         )}
 
-        <Text className="mt-3 font-semibold text-[#FF6B5F]">
+        <Text className="mt-4 self-start rounded-xl bg-[#F7EACF] px-3 py-2 font-semibold text-[#8A6412] text-[15px] leading-[24px]" variant="label">
           {formatDateTimeInZone(
             scheduled.scheduled_for,
             scheduled.timezone_name
@@ -699,7 +691,7 @@ export function CalendarScreen() {
 
         {!scheduled.publishing_available &&
         (scheduled.status === "pending" || scheduled.status === "blocked") ? (
-          <Text className="mt-2 text-xs leading-5 text-[#8A6412]">
+          <Text className="mt-2 text-[12px] leading-[23px] text-[#8A6412]" variant="caption">
             {platformLabel(platforms, scheduled.platform)} publishing is not
             connected. This post can be scheduled and tracked but cannot be
             published yet.
@@ -707,20 +699,20 @@ export function CalendarScreen() {
         ) : null}
 
         {!!scheduled.error_message && scheduled.status !== "pending" ? (
-          <Text className="mt-2 text-xs leading-5 text-[#A33D34]">
+          <Text className="mt-2 text-[12px] leading-[23px] text-[#A33D34]" variant="caption">
             {scheduled.error_message}
           </Text>
         ) : null}
 
         {scheduled.status === "published" && scheduled.published_at ? (
-          <Text className="mt-2 text-xs text-[#1F6B41]">
+          <Text className="mt-2 text-[12px] text-[#1F6B41]" variant="caption">
             Confirmed published {formatDateTime(scheduled.published_at)}.
           </Text>
         ) : null}
 
         {editingId === scheduled.id ? (
-          <View className="mt-3 rounded-2xl bg-[#F8F5F0] p-3">
-            <Text className="text-xs font-semibold uppercase tracking-[1px] text-[#827970]">
+          <View className="mt-3 rounded-2xl bg-[#F7F4EF] p-3">
+            <Text className="text-[12px] font-semibold uppercase tracking-[1px] text-[#716A64]" variant="eyebrow" tone="secondary">
               New date and time
             </Text>
             <TextInput
@@ -730,18 +722,18 @@ export function CalendarScreen() {
               autoCorrect={false}
               accessibilityLabel="New scheduled date and time"
               placeholder="2030-01-15T09:30"
-              className="mt-2 rounded-xl border border-[#EAE4DC] bg-white px-3 py-2 text-base text-[#24221F]"
+              className="mt-2 rounded-[18px] border border-[#E9E2DA] bg-[#F7F4EF] px-3 py-4 text-base text-[#292724]"
             />
             <View className="mt-3 flex-row gap-2">
               <Pressable
                 onPress={() => void submitReschedule(scheduled)}
                 disabled={savingEdit}
                 accessibilityRole="button"
-                className={`min-h-11 flex-1 items-center justify-center rounded-xl bg-[#FF6B5F] px-3 ${
+                className={`min-h-[54px] flex-1 items-center justify-center rounded-[18px] bg-[#C24A3C] shadow-sm shadow-[#C24A3C]/15 active:bg-[#A63F32] px-3 ${
                   savingEdit ? "opacity-60" : ""
                 }`}
               >
-                <Text className="font-bold text-white">
+                <Text className="font-bold text-white text-[15px] leading-[24px]" variant="button">
                   {savingEdit ? "Saving..." : "Save time"}
                 </Text>
               </Pressable>
@@ -749,9 +741,9 @@ export function CalendarScreen() {
                 onPress={() => setEditingId(null)}
                 disabled={savingEdit}
                 accessibilityRole="button"
-                className="min-h-11 flex-1 items-center justify-center rounded-xl border border-[#EAE4DC] bg-white px-3"
+                className="min-h-[54px] flex-1 items-center justify-center rounded-[18px] border border-[#E9E2DA] bg-white active:bg-[#F1E9DF] px-3"
               >
-                <Text className="font-semibold text-[#51483F]">Close</Text>
+                <Text className="font-semibold text-[#716A64] text-[15px] leading-[24px]" variant="button">Close</Text>
               </Pressable>
             </View>
           </View>
@@ -760,9 +752,9 @@ export function CalendarScreen() {
             <Pressable
               onPress={() => startReschedule(scheduled)}
               accessibilityRole="button"
-              className="min-h-10 flex-1 items-center justify-center rounded-xl border border-[#EAE4DC] bg-white px-3"
+              className="min-h-10 flex-1 items-center justify-center rounded-xl border border-[#E9E2DA] bg-white active:bg-[#F1E9DF] px-3"
             >
-              <Text className="text-sm font-semibold text-[#51483F]">
+              <Text className="text-[15px] leading-[24px] font-semibold text-[#716A64]" variant="button">
                 Reschedule
               </Text>
             </Pressable>
@@ -771,25 +763,25 @@ export function CalendarScreen() {
               accessibilityRole="button"
               className="min-h-10 flex-1 items-center justify-center rounded-xl border border-[#F0C5BE] bg-white px-3"
             >
-              <Text className="text-sm font-semibold text-[#B04438]">
+              <Text className="text-[15px] leading-[24px] font-semibold text-[#B04438]" variant="button">
                 Cancel post
               </Text>
             </Pressable>
           </View>
         ) : null}
-      </View>
+      </StudioCard>
     );
   };
 
   return (
-    <View className="flex-1 bg-[#FCF9F4]">
+    <View className="flex-1 bg-[#FAF8F4]">
       <ScrollView
-        contentContainerStyle={{ padding: 24, paddingTop: 36, paddingBottom: 32 }}
+        contentContainerStyle={{ padding: 24, paddingTop: 36, paddingBottom: 48, width: "100%", maxWidth: 960, alignSelf: "center" }}
         refreshControl={
           <RefreshControl
             refreshing={refreshing}
             onRefresh={() => void load(true)}
-            tintColor="#FF6B5F"
+            tintColor="#C24A3C"
           />
         }
         showsVerticalScrollIndicator={false}
@@ -800,17 +792,17 @@ export function CalendarScreen() {
         }
         accessibilityRole="button"
         accessibilityLabel="Go back"
-        className="mb-8 h-11 w-11 items-center justify-center rounded-full border border-[#EAE4DC] bg-white"
+        className="mb-8 h-11 w-11 items-center justify-center rounded-full border border-[#E9E2DA] bg-white active:bg-[#F1E9DF]"
       >
-        <Text className="text-xl text-[#51483F]">‹</Text>
+        <Text className="text-xl text-[#716A64]">‹</Text>
       </Pressable>
-        <Text className="mb-2 text-xs font-bold uppercase tracking-[3px] text-[#FF6B5F]">
+        <Text className="mb-2 text-[12px] font-bold uppercase tracking-[2px] text-[#8A6412]" variant="eyebrow" tone="secondary">
           PUBLISHING
         </Text>
-        <Text className="text-4xl font-bold text-[#24221F]">
+        <Text className="text-[32px] leading-[39px] tracking-[-0.8px] font-bold text-[#292724]" variant="page" tone="charcoal">
           Calendar &amp; Queue
         </Text>
-        <Text className="mb-5 mt-3 text-base leading-6 text-[#827970]">
+        <Text className="mb-5 mt-3 text-base leading-6 text-[#716A64]" variant="body">
           Schedule approved content, review what’s queued, and track publishing
           results.
         </Text>
@@ -818,14 +810,14 @@ export function CalendarScreen() {
         <Pressable
           onPress={() => void openScheduler()}
           accessibilityRole="button"
-          className="mb-5 min-h-12 items-center justify-center rounded-2xl bg-[#24221F] px-4"
+          className="mb-6 min-h-[54px] items-center justify-center rounded-[18px] bg-[#C24A3C] active:bg-[#A63F32] px-4"
         >
-          <Text className="font-bold text-white">Schedule content</Text>
+          <Text className="font-bold text-white text-[15px] leading-[24px]" variant="button">Schedule content</Text>
         </Pressable>
 
         {!anyPlatformAvailable && platforms.length > 0 ? (
           <View className="mb-5 rounded-2xl border border-[#F3DFB8] bg-[#FDF3DC] p-4">
-            <Text className="text-sm leading-5 text-[#8A6412]">
+            <Text className="text-[15px] leading-[23px] text-[#8A6412]" variant="body">
               No social publishing integration is connected. You can schedule
               and manage posts here, but nothing will be published to a
               platform until credentials and permissions are configured.
@@ -834,9 +826,9 @@ export function CalendarScreen() {
         ) : null}
 
         {showScheduler ? (
-          <View className="mb-5 rounded-3xl border border-[#EAE4DC] bg-white p-4">
+          <StudioCard className="mb-5 rounded-3xl border border-[#E9E2DA] bg-white p-5">
             <View className="flex-row items-center justify-between">
-              <Text className="text-lg font-bold text-[#24221F]">
+              <Text className="text-[19px] leading-[26px] font-bold text-[#292724]" variant="cardTitle">
                 Schedule approved content
               </Text>
               <Pressable
@@ -844,33 +836,33 @@ export function CalendarScreen() {
                 accessibilityRole="button"
                 className="min-h-9 justify-center px-2"
               >
-                <Text className="font-semibold text-[#827970]">Close</Text>
+                <Text className="font-semibold text-[#716A64] text-[15px] leading-[24px]" variant="button">Close</Text>
               </Pressable>
             </View>
 
             {schedulerNotice ? (
-              <Text className="mt-3 rounded-xl bg-[#FDF3DC] p-3 text-sm leading-5 text-[#8A6412]">
+              <Text className="mt-3 rounded-xl bg-[#FDF3DC] p-3 text-[15px] leading-[23px] text-[#8A6412]" variant="body">
                 {schedulerNotice}
               </Text>
             ) : null}
 
             {approvedPosts.length === 0 ? (
-              <View className="mt-3 rounded-xl bg-[#F8F5F0] p-3">
-                <Text className="text-sm leading-5 text-[#51483F]">
+              <View className="mt-3 rounded-xl bg-[#F7F4EF] p-3">
+                <Text className="text-[15px] leading-[23px] text-[#716A64]" variant="body">
                   No approved content is waiting to be scheduled. Create content
                   in Studio, submit it for approval, then approve it.
                 </Text>
                 <Pressable
                   onPress={() => router.push("/content-studio")}
                   accessibilityRole="button"
-                  className="mt-3 min-h-10 items-center justify-center rounded-xl bg-[#FF6B5F] px-3"
+                  className="mt-3 min-h-10 items-center justify-center rounded-xl bg-[#C24A3C] shadow-sm shadow-[#C24A3C]/15 active:bg-[#A63F32] px-3"
                 >
-                  <Text className="font-bold text-white">Open Studio</Text>
+                  <Text className="font-bold text-white text-[15px] leading-[24px]" variant="button">Open Studio</Text>
                 </Pressable>
               </View>
             ) : (
               <>
-                <Text className="mt-4 text-xs font-bold uppercase tracking-[1px] text-[#827970]">
+                <Text className="mt-4 text-[12px] font-bold uppercase tracking-[1px] text-[#716A64]" variant="eyebrow" tone="secondary">
                   Content
                 </Text>
                 <View className="mt-2 gap-2">
@@ -887,14 +879,14 @@ export function CalendarScreen() {
                         accessibilityState={{ selected }}
                         className={`rounded-xl border px-3 py-3 ${
                           selected
-                            ? "border-[#FF6B5F] bg-[#FFF1EE]"
-                            : "border-[#EAE4DC] bg-white"
+                            ? "border-[#C24A3C] bg-[#FFF1EE]"
+                            : "border-[#E9E2DA] bg-white active:bg-[#F1E9DF]"
                         }`}
                       >
-                        <Text className="font-semibold text-[#24221F]">
+                        <Text className="font-semibold text-[#292724] text-[15px] leading-[24px]" variant="button">
                           {post.title || post.body.slice(0, 60)}
                         </Text>
-                        <Text className="mt-1 text-xs text-[#827970]">
+                        <Text className="mt-1 text-[12px] text-[#716A64]" variant="caption">
                           {post.brand_name} · {post.platform}
                         </Text>
                       </Pressable>
@@ -902,7 +894,7 @@ export function CalendarScreen() {
                   })}
                 </View>
 
-                <Text className="mt-4 text-xs font-bold uppercase tracking-[1px] text-[#827970]">
+                <Text className="mt-4 text-[12px] font-bold uppercase tracking-[1px] text-[#716A64]" variant="eyebrow" tone="secondary">
                   Platforms
                 </Text>
                 <View className="mt-2 flex-row flex-wrap gap-2">
@@ -918,11 +910,11 @@ export function CalendarScreen() {
 
                 {schedulerPlatforms.includes("facebook") ? (
                   <>
-                    <Text className="mt-4 text-xs font-bold uppercase tracking-[1px] text-[#827970]">
+                    <Text className="mt-4 text-[12px] font-bold uppercase tracking-[1px] text-[#716A64]" variant="eyebrow" tone="secondary">
                       Facebook Page
                     </Text>
                     {facebookPages.length === 0 ? (
-                      <Text className="mt-2 rounded-xl bg-[#FDF3DC] p-3 text-sm leading-5 text-[#8A6412]">
+                      <Text className="mt-2 rounded-xl bg-[#FDF3DC] p-3 text-[15px] leading-[23px] text-[#8A6412]" variant="body">
                         No Facebook Page is connected. Connect one in
                         Integrations before scheduling to Facebook.
                       </Text>
@@ -948,11 +940,11 @@ export function CalendarScreen() {
 
                 {schedulerPlatforms.includes("instagram") ? (
                   <>
-                    <Text className="mt-4 text-xs font-bold uppercase tracking-[1px] text-[#827970]">
+                    <Text className="mt-4 text-[12px] font-bold uppercase tracking-[1px] text-[#716A64]" variant="eyebrow" tone="secondary">
                       Instagram account
                     </Text>
                     {instagramAccounts.length === 0 ? (
-                      <Text className="mt-2 rounded-xl bg-[#FDF3DC] p-3 text-sm leading-5 text-[#8A6412]">
+                      <Text className="mt-2 rounded-xl bg-[#FDF3DC] p-3 text-[15px] leading-[23px] text-[#8A6412]" variant="body">
                         No Instagram professional account is connected. Connect
                         one in Integrations before scheduling to Instagram.
                       </Text>
@@ -981,7 +973,7 @@ export function CalendarScreen() {
                   </>
                 ) : null}
 
-                <Text className="mt-4 text-xs font-bold uppercase tracking-[1px] text-[#827970]">
+                <Text className="mt-4 text-[12px] font-bold uppercase tracking-[1px] text-[#716A64]" variant="eyebrow" tone="secondary">
                   Date and time
                 </Text>
                 <TextInput
@@ -991,13 +983,13 @@ export function CalendarScreen() {
                   autoCorrect={false}
                   accessibilityLabel="Scheduled date and time"
                   placeholder="2030-01-15T09:30"
-                  className="mt-2 rounded-xl border border-[#EAE4DC] bg-white px-3 py-3 text-base text-[#24221F]"
+                  className="mt-2 rounded-[18px] border border-[#E9E2DA] bg-[#F7F4EF] px-3 py-4 text-base text-[#292724]"
                 />
-                <Text className="mt-1 text-xs text-[#827970]">
+                <Text className="mt-1 text-[12px] text-[#716A64]" variant="caption">
                   Format: YYYY-MM-DDTHH:mm in your local time.
                 </Text>
 
-                <Text className="mt-4 text-xs font-bold uppercase tracking-[1px] text-[#827970]">
+                <Text className="mt-4 text-[12px] font-bold uppercase tracking-[1px] text-[#716A64]" variant="eyebrow" tone="secondary">
                   Timezone
                 </Text>
                 <TextInput
@@ -1007,9 +999,9 @@ export function CalendarScreen() {
                   autoCorrect={false}
                   accessibilityLabel="Timezone"
                   placeholder="Asia/Karachi"
-                  className="mt-2 rounded-xl border border-[#EAE4DC] bg-white px-3 py-3 text-base text-[#24221F]"
+                  className="mt-2 rounded-[18px] border border-[#E9E2DA] bg-[#F7F4EF] px-3 py-4 text-base text-[#292724]"
                 />
-                <Text className="mt-1 text-xs text-[#827970]">
+                <Text className="mt-1 text-[12px] text-[#716A64]" variant="caption">
                   The time is stored in UTC and shown in this zone.
                 </Text>
 
@@ -1017,29 +1009,29 @@ export function CalendarScreen() {
                   onPress={() => void submitSchedule()}
                   disabled={savingSchedule}
                   accessibilityRole="button"
-                  className={`mt-4 min-h-12 items-center justify-center rounded-xl bg-[#FF6B5F] px-4 ${
+                  className={`mt-4 min-h-[54px] items-center justify-center rounded-[18px] bg-[#C24A3C] shadow-sm shadow-[#C24A3C]/15 active:bg-[#A63F32] px-4 ${
                     savingSchedule ? "opacity-60" : ""
                   }`}
                 >
-                  <Text className="font-bold text-white">
+                  <Text className="font-bold text-white text-[15px] leading-[24px]" variant="button">
                     {savingSchedule ? "Scheduling..." : "Schedule post"}
                   </Text>
                 </Pressable>
               </>
             )}
-          </View>
+          </StudioCard>
         ) : null}
 
         {actionError ? (
           <View className="mb-4 rounded-2xl border border-[#F0C5BE] bg-white p-4">
-            <Text accessibilityRole="alert" className="leading-5 text-[#A33D34]">
+            <Text accessibilityRole="alert" className="text-[#A33D34] text-[15px] leading-[24px]" variant="body">
               {actionError}
             </Text>
           </View>
         ) : null}
         {actionMessage ? (
           <View className="mb-4 rounded-2xl border border-[#B8DEC5] bg-white p-4">
-            <Text className="leading-5 text-[#286B40]">{actionMessage}</Text>
+            <Text className="text-[#286B40] text-[15px] leading-[24px]" variant="body">{actionMessage}</Text>
           </View>
         ) : null}
 
@@ -1114,38 +1106,38 @@ export function CalendarScreen() {
         </View>
 
         {loading ? (
-          <View className="items-center rounded-3xl border border-[#EAE4DC] bg-white py-8">
-            <ActivityIndicator size="small" color="#FF6B5F" />
-            <Text className="mt-2 text-[#827970]">Loading your calendar...</Text>
+          <View className="items-center rounded-3xl border border-[#E9E2DA] bg-white py-8">
+            <ActivityIndicator size="small" color="#C24A3C" />
+            <Text className="mt-2 text-[#716A64] text-[15px] leading-[24px]" variant="body">Loading your calendar...</Text>
           </View>
         ) : error ? (
-          <View className="rounded-3xl border border-[#EAE4DC] bg-white p-5">
-            <Text className="font-semibold text-[#24221F]">
+          <StudioCard className="rounded-3xl border border-[#E9E2DA] bg-white p-5">
+            <Text className="font-semibold text-[#292724] text-[15px] leading-[24px]" variant="label">
               Couldn’t load your schedule
             </Text>
-            <Text className="mt-2 leading-5 text-[#A33D34]">{error}</Text>
+            <Text className="mt-2 text-[#A33D34] text-[15px] leading-[24px]" variant="body">{error}</Text>
             <Pressable
               onPress={() => void load()}
               accessibilityRole="button"
-              className="mt-4 min-h-11 self-start justify-center rounded-xl bg-[#24221F] px-4 py-2"
+              className="mt-4 min-h-[54px] self-start justify-center rounded-[18px] bg-[#292724] px-4 py-2"
             >
-              <Text className="font-semibold text-white">Try again</Text>
+              <Text className="font-semibold text-white text-[15px] leading-[24px]" variant="button">Try again</Text>
             </Pressable>
-          </View>
+          </StudioCard>
         ) : (
           <>
             {viewMode === "month" ? (
-              <View className="rounded-3xl border border-[#EAE4DC] bg-white p-4">
-                <View className="mb-5 flex-row items-center justify-between">
+              <StudioCard className="rounded-3xl border border-[#E9E2DA] bg-white p-5">
+                <View className="mb-6 flex-row items-center justify-between">
                   <Pressable
                     onPress={() => changePeriod(-1)}
                     accessibilityRole="button"
                     accessibilityLabel="Previous month"
-                    className="h-11 w-11 items-center justify-center rounded-full bg-[#F3EEE8]"
+                    className="h-11 w-11 items-center justify-center rounded-full bg-[#F1E9DF]"
                   >
-                    <Text className="text-xl font-bold text-[#24221F]">‹</Text>
+                    <Text className="text-[21px] leading-[28px] tracking-[-0.3px] font-bold text-[#292724]" variant="section">‹</Text>
                   </Pressable>
-                  <Text className="text-lg font-bold text-[#24221F]">
+                  <Text className="text-[19px] leading-[26px] font-bold text-[#292724]" variant="cardTitle">
                     {month.toLocaleDateString(undefined, {
                       month: "long",
                       year: "numeric",
@@ -1155,16 +1147,16 @@ export function CalendarScreen() {
                     onPress={() => changePeriod(1)}
                     accessibilityRole="button"
                     accessibilityLabel="Next month"
-                    className="h-11 w-11 items-center justify-center rounded-full bg-[#F3EEE8]"
+                    className="h-11 w-11 items-center justify-center rounded-full bg-[#F1E9DF]"
                   >
-                    <Text className="text-xl font-bold text-[#24221F]">›</Text>
+                    <Text className="text-[21px] leading-[28px] tracking-[-0.3px] font-bold text-[#292724]" variant="section">›</Text>
                   </Pressable>
                 </View>
 
                 <View className="mb-2 flex-row">
                   {WEEKDAYS.map((weekday) => (
                     <View key={weekday} className="flex-1 items-center py-2">
-                      <Text className="text-xs font-semibold text-[#827970]">
+                      <Text className="text-[12px] font-semibold text-[#716A64]" variant="caption">
                         {weekday}
                       </Text>
                     </View>
@@ -1197,16 +1189,16 @@ export function CalendarScreen() {
                         <View
                           className={`h-10 w-10 items-center justify-center rounded-full ${
                             selected
-                              ? "bg-[#FF6B5F]"
+                              ? "bg-[#D69B48]"
                               : isToday
-                                ? "border border-[#FF6B5F] bg-[#FFF7F4]"
+                                ? "border border-[#D69B48] bg-[#F7EACF]"
                                 : ""
                           }`}
                         >
                           <Text
-                            className={`text-sm font-semibold ${
-                              selected ? "text-white" : "text-[#24221F]"
-                            }`}
+                            className={`text-[15px] leading-[24px] font-semibold ${
+                              selected ? "text-[#292724]" : "text-[#292724]"
+                            }`} variant="label"
                           >
                             {day.getDate()}
                           </Text>
@@ -1217,7 +1209,7 @@ export function CalendarScreen() {
                               key={post.id}
                               className={`h-1.5 w-1.5 rounded-full ${
                                 selected
-                                  ? "bg-[#FFB9AC]"
+                                  ? "bg-[#D69B48]"
                                   : STATUS_STYLES[post.status].dot
                               }`}
                             />
@@ -1227,21 +1219,21 @@ export function CalendarScreen() {
                     );
                   })}
                 </View>
-              </View>
+              </StudioCard>
             ) : null}
 
             {viewMode === "week" ? (
-              <View className="rounded-3xl border border-[#EAE4DC] bg-white p-4">
+              <StudioCard className="rounded-3xl border border-[#E9E2DA] bg-white p-5">
                 <View className="mb-4 flex-row items-center justify-between">
                   <Pressable
                     onPress={() => changePeriod(-1)}
                     accessibilityRole="button"
                     accessibilityLabel="Previous week"
-                    className="h-11 w-11 items-center justify-center rounded-full bg-[#F3EEE8]"
+                    className="h-11 w-11 items-center justify-center rounded-full bg-[#F1E9DF]"
                   >
-                    <Text className="text-xl font-bold text-[#24221F]">‹</Text>
+                    <Text className="text-[21px] leading-[28px] tracking-[-0.3px] font-bold text-[#292724]" variant="section">‹</Text>
                   </Pressable>
-                  <Text className="text-sm font-bold text-[#24221F]">
+                  <Text className="text-[15px] leading-[24px] font-bold text-[#292724]" variant="label">
                     {visibleWeekStart.toLocaleDateString(undefined, {
                       month: "short",
                       day: "numeric",
@@ -1257,9 +1249,9 @@ export function CalendarScreen() {
                     onPress={() => changePeriod(1)}
                     accessibilityRole="button"
                     accessibilityLabel="Next week"
-                    className="h-11 w-11 items-center justify-center rounded-full bg-[#F3EEE8]"
+                    className="h-11 w-11 items-center justify-center rounded-full bg-[#F1E9DF]"
                   >
-                    <Text className="text-xl font-bold text-[#24221F]">›</Text>
+                    <Text className="text-[21px] leading-[28px] tracking-[-0.3px] font-bold text-[#292724]" variant="section">›</Text>
                   </Pressable>
                 </View>
 
@@ -1276,15 +1268,15 @@ export function CalendarScreen() {
                         accessibilityState={{ selected }}
                         className={`flex-row items-center justify-between rounded-2xl border px-3 py-3 ${
                           selected
-                            ? "border-[#FF6B5F] bg-[#FFF1EE]"
-                            : "border-[#EAE4DC] bg-white"
+                            ? "border-[#C24A3C] bg-[#FFF1EE]"
+                            : "border-[#E9E2DA] bg-white active:bg-[#F1E9DF]"
                         }`}
                       >
                         <View>
-                          <Text className="text-xs font-bold uppercase tracking-[1px] text-[#827970]">
+                          <Text className="text-[12px] font-bold uppercase tracking-[1px] text-[#716A64]" variant="eyebrow" tone="secondary">
                             {day.toLocaleDateString(undefined, { weekday: "short" })}
                           </Text>
-                          <Text className="text-base font-bold text-[#24221F]">
+                          <Text className="text-base leading-[24px] font-bold text-[#292724]" variant="label">
                             {day.getDate()}
                           </Text>
                         </View>
@@ -1295,7 +1287,7 @@ export function CalendarScreen() {
                               className={`h-2 w-2 rounded-full ${STATUS_STYLES[post.status].dot}`}
                             />
                           ))}
-                          <Text className="ml-2 text-xs text-[#827970]">
+                          <Text className="ml-2 text-[12px] text-[#716A64]" variant="caption">
                             {dayPosts.length
                               ? `${dayPosts.length} post${dayPosts.length > 1 ? "s" : ""}`
                               : "—"}
@@ -1305,23 +1297,23 @@ export function CalendarScreen() {
                     );
                   })}
                 </View>
-              </View>
+              </StudioCard>
             ) : null}
 
             {viewMode !== "list" ? (
               <View className="mt-6">
-                <Text className="text-xl font-bold text-[#24221F]">
+                <Text className="text-[21px] leading-[28px] tracking-[-0.3px] font-bold text-[#292724]" variant="section">
                   {formatLongDate(selectedDate)}
                 </Text>
                 {selectedPosts.length === 0 ? (
-                  <View className="mt-3 rounded-3xl border border-[#EAE4DC] bg-white p-5">
-                    <Text className="font-semibold text-[#24221F]">
+                  <StudioCard className="mt-3 rounded-3xl border border-[#E9E2DA] bg-white p-5">
+                    <Text className="font-semibold text-[#292724] text-[15px] leading-[24px]" variant="label">
                       Nothing scheduled for this day
                     </Text>
-                    <Text className="mt-1 leading-5 text-[#827970]">
+                    <Text className="mt-1 text-[#716A64] text-[15px] leading-[24px]" variant="body">
                       Schedule approved content to fill this slot.
                     </Text>
-                  </View>
+                  </StudioCard>
                 ) : (
                   <View className="mt-3 gap-3">
                     {selectedPosts.map(renderCard)}
@@ -1330,65 +1322,65 @@ export function CalendarScreen() {
               </View>
             ) : (
               <View className="gap-3">
-                <Text className="text-xl font-bold text-[#24221F]">
+                <Text className="text-[21px] leading-[28px] tracking-[-0.3px] font-bold text-[#292724]" variant="section">
                   Scheduled queue
                 </Text>
                 {filteredPosts.length === 0 ? (
-                  <View className="rounded-3xl border border-[#EAE4DC] bg-white p-5">
-                    <Text className="font-semibold text-[#24221F]">
+                  <StudioCard className="rounded-3xl border border-[#E9E2DA] bg-white p-5">
+                    <Text className="font-semibold text-[#292724] text-[15px] leading-[24px]" variant="label">
                       No scheduled posts match these filters
                     </Text>
-                    <Text className="mt-1 leading-5 text-[#827970]">
+                    <Text className="mt-1 text-[#716A64] text-[15px] leading-[24px]" variant="body">
                       Adjust the filters or schedule approved content.
                     </Text>
-                  </View>
+                  </StudioCard>
                 ) : (
                   filteredPosts.map(renderCard)
                 )}
 
-                <Text className="mt-4 text-xl font-bold text-[#24221F]">
+                <Text className="mt-4 text-[21px] leading-[28px] tracking-[-0.3px] font-bold text-[#292724]" variant="section">
                   Drafts
                 </Text>
                 {drafts.length === 0 ? (
-                  <View className="rounded-3xl border border-[#EAE4DC] bg-white p-5">
-                    <Text className="leading-5 text-[#827970]">
+                  <StudioCard className="rounded-3xl border border-[#E9E2DA] bg-white p-5">
+                    <Text className="text-[#716A64] text-[15px] leading-[24px]" variant="body">
                       No drafts. Content created in Studio appears here until it
                       is approved and scheduled.
                     </Text>
-                  </View>
+                  </StudioCard>
                 ) : (
                   drafts.map((draft) => (
-                    <View
+                    <StudioCard
                       key={draft.id}
-                      className="rounded-3xl border border-dashed border-[#D8D0C7] bg-white p-4"
+                      className="rounded-3xl border border-dashed border-[#D8D0C7] bg-white p-5"
                     >
                       <View className="flex-row items-start justify-between gap-3">
-                        <Text className="flex-1 font-bold text-[#24221F]">
+                        <Text className="flex-1 font-bold text-[#292724] text-[15px] leading-[24px]" variant="label">
                           {draft.title || draft.body.slice(0, 60)}
                         </Text>
-                        <View className="rounded-full bg-[#F3EEE8] px-3 py-1">
-                          <Text className="text-xs font-bold text-[#827970]">
+                        <View className="rounded-full bg-[#F1E9DF] px-3 py-1">
+                          <Text className="text-[12px] font-bold text-[#716A64]" variant="caption">
                             Draft
                           </Text>
                         </View>
                       </View>
-                      <Text className="mt-1 text-sm text-[#827970]">
+                      <Text className="mt-1 text-[15px] leading-[24px] text-[#716A64]" variant="body">
                         {draft.brand_name} · {draft.platform}
                       </Text>
-                      <Text className="mt-2 text-xs leading-5 text-[#827970]">
+                      <Text className="mt-2 text-[12px] leading-[23px] text-[#716A64]" variant="caption">
                         Submit this draft for approval in Studio before it can be
                         scheduled.
                       </Text>
                       <Pressable
                         onPress={() => router.push("/content-studio")}
                         accessibilityRole="button"
-                        className="mt-3 min-h-10 items-center justify-center rounded-xl border border-[#EAE4DC] bg-white px-3"
+                        className="mt-3 min-h-10 items-center justify-center rounded-xl border border-[#E9E2DA] bg-white active:bg-[#F1E9DF] px-3"
                       >
-                        <Text className="text-sm font-semibold text-[#51483F]">
+                        <Text className="text-[15px] leading-[24px] font-semibold text-[#716A64]" variant="button">
                           Open in Studio
                         </Text>
                       </Pressable>
-                    </View>
+                    </StudioCard>
                   ))
                 )}
               </View>

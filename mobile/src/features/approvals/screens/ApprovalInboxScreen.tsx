@@ -1,12 +1,7 @@
+import { StudioText as Text } from "../../../components/ui/StudioText";
+import { StudioPressable as Pressable, StudioCard } from "../../../components/ui/StudioControls";
 import { useCallback, useState } from "react";
-import {
-  ActivityIndicator,
-  Pressable,
-  RefreshControl,
-  ScrollView,
-  Text,
-  View,
-} from "react-native";
+import { ActivityIndicator, RefreshControl, ScrollView, View } from "react-native";
 import { useFocusEffect, useRouter } from "expo-router";
 import { BottomNavigation } from "../../../components/navigation/BottomNavigation";
 import {
@@ -75,14 +70,14 @@ export function ApprovalInboxScreen() {
   );
 
   return (
-    <View className="flex-1 bg-[#FCF9F4]">
+    <View className="flex-1 bg-[#FAF8F4]">
       <ScrollView
-        contentContainerStyle={{ padding: 24, paddingTop: 40, paddingBottom: 32 }}
+        contentContainerStyle={{ padding: 24, paddingTop: 40, paddingBottom: 48, width: "100%", maxWidth: 960, alignSelf: "center" }}
         refreshControl={
           <RefreshControl
             refreshing={refreshing}
             onRefresh={() => void load(true)}
-            tintColor="#FF6B5F"
+            tintColor="#C24A3C"
           />
         }
       >
@@ -92,23 +87,23 @@ export function ApprovalInboxScreen() {
         }
         accessibilityRole="button"
         accessibilityLabel="Go back"
-        className="mb-8 h-11 w-11 items-center justify-center rounded-full border border-[#EAE4DC] bg-white"
+        className="mb-8 h-11 w-11 items-center justify-center rounded-full border border-[#E9E2DA] bg-white active:bg-[#F1E9DF]"
       >
-        <Text className="text-xl text-[#51483F]">‹</Text>
+        <Text className="text-xl text-[#716A64]">‹</Text>
       </Pressable>
-        <Text className="mb-2 text-xs font-bold uppercase tracking-[3px] text-[#FF6B5F]">
+        <Text className="mb-2 text-[12px] font-bold uppercase tracking-[2px] text-[#C24A3C]" variant="eyebrow" tone="secondary">
           CONTENT WORKSPACE
         </Text>
-        <Text className="text-4xl font-bold text-[#24221F]">
+        <Text className="text-[32px] leading-[39px] tracking-[-0.8px] font-bold text-[#292724]" variant="page" tone="charcoal">
           Approval Inbox
         </Text>
-        <Text className="mb-7 mt-3 text-base leading-6 text-[#827970]">
+        <Text className="mb-7 mt-3 text-base leading-6 text-[#716A64]" variant="body">
           Review content from your brands before it moves to the next step.
         </Text>
 
         <View
           accessibilityRole="tablist"
-          className="mb-6 flex-row rounded-2xl border border-[#EAE4DC] bg-white p-1"
+          className="mb-6 flex-row rounded-2xl border border-[#E9E2DA] bg-white p-1"
         >
           {FILTERS.map((item) => {
             const selected = filter === item.value;
@@ -118,14 +113,14 @@ export function ApprovalInboxScreen() {
                 onPress={() => setFilter(item.value)}
                 accessibilityRole="tab"
                 accessibilityState={{ selected }}
-                className={`min-h-11 flex-1 items-center justify-center rounded-xl px-2 ${
-                  selected ? "bg-[#24221F]" : ""
+                className={`min-h-[54px] flex-1 items-center justify-center rounded-[18px] px-2 ${
+                  selected ? "bg-[#292724]" : ""
                 }`}
               >
                 <Text
-                  className={`text-sm font-semibold ${
-                    selected ? "text-white" : "text-[#827970]"
-                  }`}
+                  className={`text-[15px] leading-[24px] font-semibold ${
+                    selected ? "text-white" : "text-[#716A64]"
+                  }`} variant="button"
                 >
                   {item.label}
                 </Text>
@@ -136,34 +131,34 @@ export function ApprovalInboxScreen() {
 
         {loading ? (
           <View className="items-center py-14">
-            <ActivityIndicator color="#FF6B5F" size="large" />
-            <Text className="mt-3 text-[#827970]">Loading approvals...</Text>
+            <ActivityIndicator color="#C24A3C" size="large" />
+            <Text className="mt-3 text-[#716A64] text-[15px] leading-[24px]" variant="body">Loading approvals...</Text>
           </View>
         ) : error ? (
-          <View className="rounded-3xl border border-[#EAE4DC] bg-white p-5">
-            <Text className="font-semibold text-[#24221F]">
+          <StudioCard className="rounded-3xl border border-[#E9E2DA] bg-white p-5">
+            <Text className="font-semibold text-[#292724] text-[15px] leading-[24px]" variant="label">
               Couldn&apos;t load approvals
             </Text>
-            <Text className="mt-2 leading-5 text-[#B04438]">{error}</Text>
+            <Text className="mt-2 text-[#B04438] text-[15px] leading-[24px]" variant="body">{error}</Text>
             <Pressable
               onPress={() => void load()}
               accessibilityRole="button"
-              className="mt-4 min-h-11 self-start justify-center rounded-xl bg-[#24221F] px-4 py-2"
+              className="mt-4 min-h-[54px] self-start justify-center rounded-[18px] bg-[#292724] px-4 py-2"
             >
-              <Text className="font-semibold text-white">Try again</Text>
+              <Text className="font-semibold text-white text-[15px] leading-[24px]" variant="button">Try again</Text>
             </Pressable>
-          </View>
+          </StudioCard>
         ) : approvals.length === 0 ? (
-          <View className="rounded-3xl border border-[#EAE4DC] bg-white p-6">
-            <Text className="text-xl font-bold text-[#24221F]">
+          <StudioCard className="rounded-3xl border border-[#E9E2DA] bg-white p-5">
+            <Text className="text-[21px] leading-[28px] tracking-[-0.3px] font-bold text-[#292724]" variant="section">
               {filter === "pending"
                 ? "You’re all caught up"
                 : `No ${filter} content yet`}
             </Text>
-            <Text className="mt-2 leading-6 text-[#827970]">
+            <Text className="mt-2 text-[#716A64] text-[15px] leading-[24px]" variant="body">
               {EMPTY_MESSAGES[filter]}
             </Text>
-          </View>
+          </StudioCard>
         ) : (
           <View className="gap-4">
             {approvals.map((approval) => (
@@ -177,33 +172,33 @@ export function ApprovalInboxScreen() {
                 }
                 accessibilityRole="button"
                 accessibilityLabel={`Review ${approval.post.title || "content"} for ${approval.post.brand_name}`}
-                className="rounded-3xl border border-[#EAE4DC] bg-white p-5"
+                className="rounded-3xl border border-[#E9E2DA] bg-white shadow-sm shadow-[#292724]/5 active:bg-[#F1E9DF] p-6"
               >
                 <View className="mb-3 flex-row items-start justify-between gap-3">
                   <View className="flex-1">
-                    <Text className="text-base font-bold text-[#24221F]">
+                    <Text className="text-base leading-[24px] font-bold text-[#292724]" variant="controlTitle">
                       {approval.post.title || approval.post.brand_name}
                     </Text>
-                    <Text className="mt-1 text-sm text-[#827970]">
+                    <Text className="mt-1 text-[15px] leading-[24px] text-[#716A64]" variant="body">
                       {approval.post.brand_name} ·{" "}
                       {approval.post.platform.replaceAll("_", " ")}
                     </Text>
                   </View>
-                  <Text className="rounded-full bg-[#F3EEE8] px-3 py-1 text-xs font-semibold capitalize text-[#705B52]">
+                  <Text className="rounded-full bg-[#F1E9DF] px-3 py-1 text-[12px] font-semibold capitalize text-[#716A64]" variant="caption">
                     {approval.status}
                   </Text>
                 </View>
                 <Text
                   numberOfLines={4}
-                  className="leading-6 text-[#51483F]"
+                  className="text-[#716A64] text-[15px] leading-[24px]" variant="button"
                 >
                   {approval.post.body}
                 </Text>
-                <View className="mt-4 flex-row items-center justify-between border-t border-[#EAE4DC] pt-4">
-                  <Text className="text-sm text-[#827970]">
+                <View className="mt-4 flex-row items-center justify-between border-t border-[#E9E2DA] pt-4">
+                  <Text className="text-[15px] leading-[24px] text-[#716A64]" variant="body">
                     {formatDate(approval.post.created_at)}
                   </Text>
-                  <Text className="font-semibold text-[#FF6B5F]">
+                  <Text className="font-semibold text-[#C24A3C] text-[15px] leading-[24px]" variant="label">
                     View details →
                   </Text>
                 </View>

@@ -1,19 +1,12 @@
+import { StudioText as Text } from "../../../components/ui/StudioText";
+import { StudioInputFrame, StudioPressable as Pressable, StudioInput as TextInput } from "../../../components/ui/StudioControls";
+import { IbdaLogo } from "../../../components/brand/IbdaLogo";
 import { signInWithGoogle } from "../services/google-auth.service";
 import { signIn } from "../services/auth.service";
 import { AUTHENTICATED_ROUTE } from "../utils/auth-redirect";
 import { router } from "expo-router";
 import { useState } from "react";
-import {
-  KeyboardAvoidingView,
-  Platform,
-  Pressable,
-  ScrollView,
-  StatusBar,
-  Text,
-  TextInput,
-  View,
-  Alert,
-} from "react-native";
+import { KeyboardAvoidingView, Platform, ScrollView, StatusBar, View, Alert } from "react-native";
 
 export function SignInScreen() {
   const [email, setEmail] = useState("");
@@ -87,28 +80,21 @@ export function SignInScreen() {
 
   return (
     <KeyboardAvoidingView
-      className="flex-1 bg-ibda-background"
+      className="flex-1 bg-[#FAF8F4]"
       behavior={Platform.OS === "ios" ? "padding" : undefined}
     >
       <StatusBar barStyle="dark-content" />
 
       <ScrollView
         className="flex-1"
-        contentContainerClassName="flex-grow px-[23px] pb-8 pt-5"
+        contentContainerClassName="flex-grow px-[23px] pb-12 pt-8"
         keyboardShouldPersistTaps="handled"
-        showsVerticalScrollIndicator={false}
+        showsVerticalScrollIndicator={false} contentContainerStyle={{ width: "100%", maxWidth: 520, alignSelf: "center" }}
       >
         {/* Header */}
-        <View className="mb-10 flex-row items-center justify-between">
+        <View className="mb-8 flex-row items-center justify-between">
           <View className="flex-row items-center">
-            <View className="mr-2.5 h-10 w-10 items-center justify-center bg-[#281D2C]">
-              <Text className="text-2xl text-white">✦</Text>
-            </View>
-
-            <Text className="text-[22px] font-extrabold tracking-tight text-ibda-charcoal">
-              Ibda
-              <Text className="text-ibda-coral">.</Text>
-            </Text>
+            <IbdaLogo size={44} />
           </View>
 
           <Pressable
@@ -116,18 +102,18 @@ export function SignInScreen() {
             onPress={() => router.push("/sign-up")}
             className="flex-row items-center py-2"
           >
-            <Text className="text-sm font-medium text-ibda-coral">
+            <Text className="text-[15px] leading-[24px] font-medium text-[#C24A3C]" variant="button">
               Sign up →
             </Text>
           </Pressable>
         </View>
 
         {/* Intro */}
-        <Text className="text-[27px] font-bold tracking-tight text-ibda-charcoal">
+        <Text className="text-[34px] leading-[41px] font-bold tracking-tight text-[#292724]" variant="display" tone="charcoal">
           Welcome back
         </Text>
 
-        <Text className="mt-1 text-[15px] leading-[22px] text-ibda-brown">
+        <Text className="mt-1 text-[15px] leading-[22px] text-[#716A64]" variant="body">
           Sign in to continue managing your social{"\n"}
           presence and brand voice.
         </Text>
@@ -138,53 +124,53 @@ export function SignInScreen() {
           accessibilityLabel="Continue with Google"
           onPress={handleGoogleSignIn}
           disabled={googleLoading || loading}
-          className={`mt-9 min-h-[63px] flex-row items-center justify-center border border-[#EEE9E3] bg-white active:opacity-80 ${googleLoading || loading ? "opacity-60" : ""
+          className={`mt-9 min-h-[54px] flex-row items-center justify-center border border-[#E9E2DA] bg-white active:bg-[#F1E9DF] rounded-[18px] active:opacity-80 ${googleLoading || loading ? "opacity-60" : ""
             }`}
         >
           <Text className="mr-3 text-[23px] font-bold text-[#4285F4]">
             G
           </Text>
 
-          <Text className="text-base font-semibold text-ibda-charcoal">
+          <Text className="text-base leading-[24px] font-semibold text-[#292724]" variant="button">
             {googleLoading ? "Connecting to Google..." : "Continue with Google"}
           </Text>
         </Pressable>
 
         {/* Divider */}
         <View className="my-6 flex-row items-center">
-          <View className="h-px flex-1 bg-ibda-border" />
-          <Text className="mx-3 text-xs font-bold tracking-wide text-ibda-muted">
+          <View className="h-px flex-1 bg-[#E9E2DA]" />
+          <Text className="mx-3 text-[12px] font-bold tracking-wide text-[#716A64]" variant="caption">
             OR CONTINUE WITH EMAIL
           </Text>
-          <View className="h-px flex-1 bg-ibda-border" />
+          <View className="h-px flex-1 bg-[#E9E2DA]" />
         </View>
 
         {/* Email */}
-        <Text className="mb-1.5 text-sm font-semibold text-ibda-charcoal">
+        <Text className="mb-1.5 text-[15px] leading-[24px] font-semibold text-[#292724]" variant="label">
           Email Address
         </Text>
 
-        <View className="min-h-[42px] flex-row items-center border border-[#F0EBE5] bg-white px-3 shadow-sm">
-          <Text className="mr-3 text-lg text-ibda-muted">✉</Text>
+        <StudioInputFrame className="min-h-[42px] rounded-2xl flex-row items-center border border-[#E9E2DA] bg-[#F7F4EF] px-3 shadow-sm">
+          <Text className="mr-3 text-lg text-[#716A64]">✉</Text>
 
           <TextInput
             value={email}
             onChangeText={setEmail}
             placeholder="alex@company.com"
-            placeholderTextColor="#947D76"
+            placeholderTextColor="#716A64"
             keyboardType="email-address"
             autoCapitalize="none"
             autoCorrect={false}
             autoComplete="email"
             accessibilityLabel="Email address"
-            className="flex-1 py-2 text-sm text-ibda-charcoal"
+            className="flex-1 py-4 text-base text-[#292724] rounded-[18px]"
             returnKeyType="next"
           />
-        </View>
+        </StudioInputFrame>
 
         {/* Password */}
         <View className="mb-1.5 mt-5 flex-row items-center justify-between">
-          <Text className="text-sm font-semibold text-ibda-charcoal">
+          <Text className="text-[15px] leading-[24px] font-semibold text-[#292724]" variant="label">
             Password
           </Text>
 
@@ -193,25 +179,25 @@ export function SignInScreen() {
             onPress={() => router.push("/forgot-password")}
             hitSlop={8}
           >
-            <Text className="text-sm font-medium text-ibda-coral">
+            <Text className="text-[15px] leading-[24px] font-medium text-[#C24A3C]" variant="button">
               Forgot password?
             </Text>
           </Pressable>
         </View>
 
-        <View className="min-h-[42px] flex-row items-center border border-[#F0EBE5] bg-white px-3 shadow-sm">
-          <Text className="mr-3 text-lg text-ibda-muted">♙</Text>
+        <StudioInputFrame className="min-h-[42px] rounded-2xl flex-row items-center border border-[#E9E2DA] bg-[#F7F4EF] px-3 shadow-sm">
+          <Text className="mr-3 text-lg text-[#716A64]">♙</Text>
 
           <TextInput
             value={password}
             onChangeText={setPassword}
             placeholder="Enter your password"
-            placeholderTextColor="#947D76"
+            placeholderTextColor="#716A64"
             secureTextEntry={!showPassword}
             autoCapitalize="none"
             autoComplete="current-password"
             accessibilityLabel="Password"
-            className="flex-1 py-2 text-sm text-ibda-charcoal"
+            className="flex-1 py-4 text-base text-[#292724] rounded-[18px]"
             returnKeyType="done"
             onSubmitEditing={handleSignIn}
           />
@@ -222,11 +208,11 @@ export function SignInScreen() {
             onPress={() => setShowPassword((current) => !current)}
             hitSlop={10}
           >
-            <Text className="text-base text-ibda-muted">
+            <Text className="text-base leading-[24px] text-[#716A64]" variant="button">
               {showPassword ? "◉" : "◎"}
             </Text>
           </Pressable>
-        </View>
+        </StudioInputFrame>
 
         {/* Remember me */}
         <Pressable
@@ -236,15 +222,15 @@ export function SignInScreen() {
           className="mt-5 flex-row items-center self-start py-1"
         >
           <View
-            className={`mr-3 h-6 w-6 items-center justify-center rounded-md ${rememberMe ? "bg-ibda-coral" : "bg-[#ECE8E3]"
+            className={`mr-3 h-6 w-6 items-center justify-center rounded-md ${rememberMe ? "bg-[#C24A3C]" : "bg-[#F1E9DF]"
               }`}
           >
             {rememberMe && (
-              <Text className="text-sm font-bold text-white">✓</Text>
+              <Text className="text-[15px] leading-[24px] font-bold text-white" variant="label">✓</Text>
             )}
           </View>
 
-          <Text className="text-sm text-ibda-brown">
+          <Text className="text-[15px] leading-[24px] text-[#716A64]" variant="button">
             Remember me on this device
           </Text>
         </Pressable>
@@ -253,7 +239,7 @@ export function SignInScreen() {
         {error ? (
           <Text
             accessibilityRole="alert"
-            className="mt-3 text-sm leading-5 text-ibda-coral"
+            className="mt-3 text-[15px] leading-[23px] text-[#C24A3C]" variant="body"
           >
             {error}
           </Text>
@@ -264,29 +250,29 @@ export function SignInScreen() {
           accessibilityRole="button"
           onPress={handleSignIn}
           disabled={loading || googleLoading}
-          className={`mt-6 min-h-[64px] flex-row items-center justify-center rounded-full bg-ibda-coral shadow-lg shadow-[#F76B5B]/25 active:opacity-80 ${loading || googleLoading ? "opacity-60" : ""
+          className={`mt-8 min-h-[54px] flex-row items-center justify-center rounded-[18px] bg-[#C24A3C] active:bg-[#A63F32] shadow-sm shadow-[#C24A3C]/10 active:opacity-80 ${loading || googleLoading ? "opacity-60" : ""
             }`}
         >
-          <Text className="text-base font-bold text-white">
+          <Text className="text-base leading-[24px] font-bold text-white" variant="button">
             {loading ? "Signing in..." : "Sign In"}
           </Text>
           <Text className="ml-2 text-xl text-white">→</Text>
         </Pressable>
 
         {/* AI co-pilot card */}
-        <View className="mt-9 flex-row items-center rounded-[32px] border border-[#F2EDE7] bg-white px-4 py-5">
-          <View className="mr-4 h-12 w-12 items-center justify-center rounded-full bg-ibda-lavender">
-            <Text className="text-xl text-ibda-brown">✧</Text>
+        <View className="mt-6 flex-row items-center rounded-[24px] border border-[#E9E2DA] bg-white px-4 py-5">
+          <View className="mr-4 h-12 w-12 items-center justify-center rounded-full bg-[#EEE7F1]">
+            <Text className="text-xl text-[#716A64]">✧</Text>
           </View>
 
           <View className="flex-1">
             <View className="flex-row flex-wrap items-center">
-              <Text className="text-sm font-semibold text-ibda-charcoal">
+              <Text className="text-[15px] leading-[24px] font-semibold text-[#292724]" variant="label">
                 AI Content Co-pilot
               </Text>
 
-              <View className="ml-2 rounded-full bg-ibda-lavender px-2 py-0.5">
-                <Text className="text-[10px] font-bold text-ibda-charcoal">
+              <View className="ml-2 rounded-full bg-[#EEE7F1] px-2 py-0.5">
+                <Text className="text-[11px] font-bold text-[#292724]" variant="caption">
                   V2.4
                 </Text>
               </View>
@@ -294,7 +280,7 @@ export function SignInScreen() {
 
             <Text
               numberOfLines={2}
-              className="mt-1 text-sm leading-5 text-ibda-brown"
+              className="mt-1 text-[15px] leading-[23px] text-[#716A64]" variant="body"
             >
               Ready to craft posts in your custom brand voice.
             </Text>
@@ -304,7 +290,7 @@ export function SignInScreen() {
         {/* Footer */}
         <View className="mt-auto items-center pt-9">
           <View className="flex-row flex-wrap items-center justify-center">
-            <Text className="text-sm text-ibda-brown">
+            <Text className="text-[15px] leading-[24px] text-[#716A64]" variant="body">
               Don&apos;t have an account?
             </Text>
 
@@ -313,7 +299,7 @@ export function SignInScreen() {
               accessibilityRole="button"
               className="ml-2 py-1"
             >
-              <Text className="text-sm font-semibold text-ibda-coral">
+              <Text className="text-[15px] leading-[24px] font-semibold text-[#C24A3C]" variant="button">
                 Sign up free
               </Text>
             </Pressable>

@@ -1,14 +1,7 @@
+import { StudioText as Text } from "../../../components/ui/StudioText";
+import { StudioPressable as Pressable, StudioCard } from "../../../components/ui/StudioControls";
 import { useCallback, useMemo, useState } from "react";
-import {
-  ActivityIndicator,
-  Alert,
-  Platform,
-  Pressable,
-  RefreshControl,
-  ScrollView,
-  Text,
-  View,
-} from "react-native";
+import { ActivityIndicator, Alert, Platform, RefreshControl, ScrollView, View } from "react-native";
 import * as Linking from "expo-linking";
 import * as WebBrowser from "expo-web-browser";
 import { router, useFocusEffect } from "expo-router";
@@ -404,18 +397,18 @@ export function ConnectedAccountsScreen() {
   };
 
   return (
-    <View className="flex-1 bg-[#FCF9F4]">
+    <View className="flex-1 bg-[#FAF8F4]">
       <ScrollView
         contentContainerStyle={{
           padding: 24,
           paddingTop: 40,
-          paddingBottom: 32,
+          paddingBottom: 48, width: "100%", maxWidth: 960, alignSelf: "center",
         }}
         refreshControl={
           <RefreshControl
             refreshing={refreshing}
             onRefresh={() => void load(true)}
-            tintColor="#FF6B5F"
+            tintColor="#C24A3C"
           />
         }
         showsVerticalScrollIndicator={false}
@@ -426,31 +419,31 @@ export function ConnectedAccountsScreen() {
                 }
                 accessibilityRole="button"
                 accessibilityLabel="Go back"
-                className="mb-8 h-11 w-11 items-center justify-center rounded-full border border-[#EAE4DC] bg-white"
+                className="mb-8 h-11 w-11 items-center justify-center rounded-full border border-[#E9E2DA] bg-white active:bg-[#F1E9DF]"
               >
-                <Text className="text-xl text-[#51483F]">‹</Text>
+                <Text className="text-xl text-[#716A64]">‹</Text>
               </Pressable>
-        <Text className="mb-2 text-xs font-bold uppercase tracking-[3px] text-[#FF6B5F]">
+        <Text className="mb-2 text-[12px] font-bold uppercase tracking-[2px] text-[#C24A3C]" variant="eyebrow" tone="secondary">
           PUBLISHING SETUP
         </Text>
-        <Text className="text-4xl font-bold text-[#24221F]">
+        <Text className="text-[32px] leading-[39px] tracking-[-0.8px] font-bold text-[#292724]" variant="page" tone="charcoal">
           Connected Accounts
         </Text>
-        <Text className="mb-6 mt-3 text-base leading-6 text-[#827970]">
+        <Text className="mb-6 mt-3 text-base leading-6 text-[#716A64]" variant="body">
           Manage the social accounts associated with your workspace. A platform
           is shown as connected only when the backend has a saved account.
         </Text>
 
         {error ? (
           <View className="mb-5 rounded-2xl border border-[#F0C5BE] bg-white p-4">
-            <Text className="leading-5 text-[#A33D34]">{error}</Text>
+            <Text className="text-[#A33D34] text-[15px] leading-[24px]" variant="body">{error}</Text>
             {data ? (
               <Pressable
                 onPress={() => void load(true)}
                 accessibilityRole="button"
-                className="mt-2 min-h-11 self-start justify-center px-2"
+                className="mt-2 min-h-[54px] self-start justify-center px-2 rounded-[18px]"
               >
-                <Text className="font-semibold text-[#FF6B5F]">Try again</Text>
+                <Text className="font-semibold text-[#C24A3C] text-[15px] leading-[24px]" variant="button">Try again</Text>
               </Pressable>
             ) : null}
           </View>
@@ -458,51 +451,51 @@ export function ConnectedAccountsScreen() {
 
         {notice ? (
           <View className="mb-5 rounded-2xl border border-[#BFDCCB] bg-white p-4">
-            <Text className="leading-5 text-[#287D54]">{notice}</Text>
+            <Text className="text-[#287D54] text-[15px] leading-[24px]" variant="body">{notice}</Text>
           </View>
         ) : null}
 
         {loading ? (
           <View className="items-center py-14">
-            <ActivityIndicator size="large" color="#FF6B5F" />
-            <Text className="mt-3 text-[#827970]">
+            <ActivityIndicator size="large" color="#C24A3C" />
+            <Text className="mt-3 text-[#716A64] text-[15px] leading-[24px]" variant="body">
               Checking account connections...
             </Text>
           </View>
         ) : error && !data ? (
-          <View className="rounded-3xl border border-[#EAE4DC] bg-white p-5">
-            <Text className="font-semibold text-[#24221F]">
+          <StudioCard className="rounded-3xl border border-[#E9E2DA] bg-white p-5">
+            <Text className="font-semibold text-[#292724] text-[15px] leading-[24px]" variant="label">
               Couldn’t load connected accounts
             </Text>
             <Pressable
               onPress={() => void load()}
               accessibilityRole="button"
-              className="mt-4 min-h-11 self-start justify-center rounded-xl bg-[#24221F] px-4"
+              className="mt-4 min-h-[54px] self-start justify-center rounded-[18px] bg-[#292724] px-4"
             >
-              <Text className="font-semibold text-white">Try again</Text>
+              <Text className="font-semibold text-white text-[15px] leading-[24px]" variant="button">Try again</Text>
             </Pressable>
-          </View>
+          </StudioCard>
         ) : data ? (
           <View className="gap-4">
             {data.providers.map((provider) => {
               const meta = PLATFORM_META[provider.platform];
               const accounts = accountGroups.get(provider.platform) ?? [];
               return (
-                <View
+                <StudioCard
                   key={provider.platform}
-                  className="rounded-3xl border border-[#EAE4DC] bg-white p-5"
+                  className="rounded-3xl border border-[#E9E2DA] bg-white p-5"
                 >
                   <View className="flex-row items-start gap-4">
-                    <View className="h-12 w-12 items-center justify-center rounded-2xl bg-[#F3EEE8]">
-                      <Text className="text-xl font-bold text-[#51483F]">
+                    <View className="h-12 w-12 items-center justify-center rounded-2xl bg-[#F1E9DF]">
+                      <Text className="text-[21px] leading-[28px] tracking-[-0.3px] font-bold text-[#716A64]" variant="section">
                         {meta.icon}
                       </Text>
                     </View>
                     <View className="flex-1">
-                      <Text className="text-lg font-bold text-[#24221F]">
+                      <Text className="text-[19px] leading-[26px] font-bold text-[#292724]" variant="cardTitle">
                         {provider.name}
                       </Text>
-                      <Text className="mt-1 text-sm leading-5 text-[#827970]">
+                      <Text className="mt-1 text-[15px] leading-[23px] text-[#716A64]" variant="body">
                         {meta.description}
                       </Text>
                     </View>
@@ -515,20 +508,20 @@ export function ConnectedAccountsScreen() {
                         return (
                           <View
                             key={account.id}
-                            className="rounded-2xl border border-[#EAE4DC] bg-[#FCF9F4] p-4"
+                            className="rounded-2xl border border-[#E9E2DA] bg-[#FAF8F4] p-4"
                           >
                             <View className="flex-row items-center justify-between gap-3">
                               <View className="flex-1">
-                                <Text className="font-semibold text-[#24221F]">
+                                <Text className="font-semibold text-[#292724] text-[15px] leading-[24px]" variant="label">
                                   {account.display_name ||
                                     account.platform_account_id}
                                 </Text>
                                 <Text
-                                  className={`mt-1 text-sm ${
+                                  className={`mt-1 text-[15px] leading-[24px] ${
                                     connected
                                       ? "text-[#477B64]"
                                       : "text-[#A35E36]"
-                                  }`}
+                                  }`} variant="body"
                                 >
                                   {connected
                                     ? "Connected"
@@ -545,15 +538,15 @@ export function ConnectedAccountsScreen() {
                                   account.display_name ||
                                   account.platform_account_id
                                 }`}
-                                className="min-h-11 justify-center rounded-xl border border-[#EAE4DC] px-3"
+                                className="min-h-[54px] justify-center rounded-[18px] border border-[#E9E2DA] px-3"
                               >
                                 {disconnectingId === account.id ? (
                                   <ActivityIndicator
                                     size="small"
-                                    color="#FF6B5F"
+                                    color="#C24A3C"
                                   />
                                 ) : (
-                                  <Text className="font-semibold text-[#A33D34]">
+                                  <Text className="font-semibold text-[#A33D34] text-[15px] leading-[24px]" variant="label">
                                     Disconnect
                                   </Text>
                                 )}
@@ -564,16 +557,16 @@ export function ConnectedAccountsScreen() {
                       })}
                     </View>
                   ) : (
-                    <View className="mt-4 flex-row items-center gap-2 rounded-xl bg-[#F3EEE8] px-3 py-3">
+                    <View className="mt-4 flex-row items-center gap-2 rounded-xl bg-[#F1E9DF] px-3 py-3">
                       <View className="h-2.5 w-2.5 rounded-full bg-[#A79D94]" />
-                      <Text className="text-sm font-semibold text-[#827970]">
+                      <Text className="text-[15px] leading-[24px] font-semibold text-[#716A64]" variant="label">
                         Not connected
                       </Text>
                     </View>
                   )}
 
                   {!provider.configured ? (
-                    <Text className="mt-3 text-sm leading-5 text-[#827970]">
+                    <Text className="mt-3 text-[15px] leading-[23px] text-[#716A64]" variant="body">
                       {provider.reason}
                     </Text>
                   ) : null}
@@ -587,10 +580,10 @@ export function ConnectedAccountsScreen() {
                     accessibilityState={{
                       disabled: !provider.configured,
                     }}
-                    className={`mt-4 min-h-11 flex-row items-center justify-center rounded-xl px-4 ${
+                    className={`mt-4 min-h-[54px] flex-row items-center justify-center rounded-[18px] px-4 ${
                       provider.configured
-                        ? "bg-[#FF6B5F]"
-                        : "bg-[#EAE4DC]"
+                        ? "bg-[#C24A3C] active:bg-[#A63F32]"
+                        : "bg-[#E9E2DA]"
                     }`}
                   >
                     {workingPlatform === provider.platform ? (
@@ -600,7 +593,7 @@ export function ConnectedAccountsScreen() {
                         className={`font-bold ${
                           provider.configured
                             ? "text-white"
-                            : "text-[#827970]"
+                            : "text-[#716A64]"
                         }`}
                       >
                         {provider.configured
@@ -613,7 +606,7 @@ export function ConnectedAccountsScreen() {
                       </Text>
                     )}
                   </Pressable>
-                </View>
+                </StudioCard>
               );
             })}
           </View>

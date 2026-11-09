@@ -47,16 +47,16 @@ export function AuthGate({ children }: { children: ReactNode }) {
 
   if (loading) {
     return (
-      <View className="flex-1 items-center justify-center bg-ibda-background">
-        <ActivityIndicator size="large" color="#FF6B5F" />
+      <View className="flex-1 items-center justify-center bg-[#FAF8F4]">
+        <ActivityIndicator size="large" color="#C24A3C" />
       </View>
     );
   }
 
   if ((!session && !isPublicRoute) || (session && isPublicRoute)) {
     return (
-      <View className="flex-1 items-center justify-center bg-ibda-background">
-        <ActivityIndicator size="large" color="#FF6B5F" />
+      <View className="flex-1 items-center justify-center bg-[#FAF8F4]">
+        <ActivityIndicator size="large" color="#C24A3C" />
       </View>
     );
   }
