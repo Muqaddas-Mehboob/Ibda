@@ -87,7 +87,7 @@ export function SignUpScreen() {
 
       <ScrollView
         className="flex-1"
-        contentContainerClassName="flex-grow px-6 pb-12 pt-8"
+        contentContainerClassName="flex-grow px-6 pb-12 pt-5"
         keyboardShouldPersistTaps="handled"
         showsVerticalScrollIndicator={false} contentContainerStyle={{ width: "100%", maxWidth: 520, alignSelf: "center" }}
       >
@@ -96,7 +96,7 @@ export function SignUpScreen() {
           className="mb-8 flex-row items-center self-start"
         >
           <Text className="text-xl text-[#C24A3C]">←</Text>
-          <Text className="ml-2 text-[15px] leading-[24px] font-medium text-[#716A64]" variant="button">
+          <Text className="ml-2 text-[14px] leading-[22px] font-medium text-[#25221F]" variant="button">
             Back to home
           </Text>
         </Pressable>
@@ -105,10 +105,10 @@ export function SignUpScreen() {
           <IbdaLogo size={44} />
         </View>
 
-        <Text className="text-[30px] leading-[37px] tracking-[-0.6px] font-bold tracking-tight text-[#292724]" variant="metric">
+        <Text className="text-[22px] leading-[30px] tracking-[-0.3px] font-bold tracking-tight text-[#25221F]" variant="metric">
           Create your account
         </Text>
-        <Text className="mt-2 text-base leading-6 text-[#716A64]" variant="body">
+        <Text className="mt-2 text-[14px] leading-6 text-[#25221F]" variant="body">
           Start building a consistent social presence with your AI-powered
           creative studio.
         </Text>
@@ -118,14 +118,14 @@ export function SignUpScreen() {
           accessibilityLabel="Sign up with Google"
           onPress={handleGoogleSignUp}
           disabled={googleLoading}
-          className={`mt-5 min-h-[54px] flex-row items-center justify-center border border-[#E9E2DA] bg-white active:bg-[#F1E9DF] rounded-[18px] ${googleLoading ? "opacity-60" : ""
+          className={`mt-5 min-h-[48px] flex-row items-center justify-center border border-[#E2D9CF] bg-[#FAF8F4] active:bg-[#F4F0EA] rounded-[18px] ${googleLoading ? "opacity-60" : ""
             }`}
         >
-          <Text className="mr-3 text-[23px] font-bold text-[#4285F4]">
+          <Text className="mr-3 text-[23px] font-bold text-[#C24A3C]">
             G
           </Text>
 
-          <Text className="text-base leading-[24px] font-semibold text-[#292724]" variant="button">
+          <Text className="text-[14px] leading-[22px] font-semibold text-[#25221F]" variant="button">
             {googleLoading ? "Connecting to Google..." : "Continue with Google"}
           </Text>
         </Pressable>
@@ -133,65 +133,65 @@ export function SignUpScreen() {
          
         {/* Divider */}
         <View className="my-6 flex-row items-center">
-          <View className="h-px flex-1 bg-[#E9E2DA]" />
-          <Text className="mx-3 text-[12px] font-bold tracking-wide text-[#716A64]" variant="caption">
+          <View className="h-px flex-1 bg-[#E2D9CF]" />
+          <Text className="mx-3 text-[12px] font-bold tracking-wide text-[#25221F]" variant="caption">
             OR CONTINUE WITH EMAIL
           </Text>
-          <View className="h-px flex-1 bg-[#E9E2DA]" />
+          <View className="h-px flex-1 bg-[#E2D9CF]" />
         </View>
 
         <View className="mt-6">
-          <Text className="mb-2 text-[15px] leading-[24px] font-semibold text-[#292724]" variant="label">
+          <Text className="mb-2 text-[14px] leading-[22px] font-semibold text-[#25221F]" variant="label">
             Full name
           </Text>
           <TextInput
             value={name}
             onChangeText={setName}
             placeholder="Your full name"
-            placeholderTextColor="#716A64"
+            placeholderTextColor="#25221F"
             autoCapitalize="words"
             autoComplete="name"
             accessibilityLabel="Full name"
-            className="min-h-14 border border-[#E9E2DA] bg-[#F7F4EF] px-4 text-base text-[#292724] rounded-[18px]"
+            className="min-h-14 border border-[#E2D9CF] bg-[#F4F0EA] px-4 text-[14px] text-[#25221F] rounded-[18px]"
           />
         </View>
 
         <View className="mt-5">
-          <Text className="mb-2 text-[15px] leading-[24px] font-semibold text-[#292724]" variant="label">
+          <Text className="mb-2 text-[14px] leading-[22px] font-semibold text-[#25221F]" variant="label">
             Email address
           </Text>
           <TextInput
             value={email}
             onChangeText={setEmail}
             placeholder="you@company.com"
-            placeholderTextColor="#716A64"
+            placeholderTextColor="#25221F"
             keyboardType="email-address"
             autoCapitalize="none"
             autoCorrect={false}
             autoComplete="email"
             accessibilityLabel="Email address"
-            className="min-h-14 border border-[#E9E2DA] bg-[#F7F4EF] px-4 text-base text-[#292724] rounded-[18px]"
+            className="min-h-14 border border-[#E2D9CF] bg-[#F4F0EA] px-4 text-[14px] text-[#25221F] rounded-[18px]"
           />
         </View>
 
         <View className="mt-5">
-          <Text className="mb-2 text-[15px] leading-[24px] font-semibold text-[#292724]" variant="label">
+          <Text className="mb-2 text-[14px] leading-[22px] font-semibold text-[#25221F]" variant="label">
             Password
           </Text>
-          <StudioInputFrame className="min-h-14 flex-row items-center border border-[#E9E2DA] bg-white px-4">
+          <StudioInputFrame className="min-h-14 flex-row items-center border border-[#E2D9CF] bg-[#FAF8F4] px-4">
             <TextInput
               value={password}
               onChangeText={setPassword}
               placeholder="At least 8 characters"
-              placeholderTextColor="#716A64"
+              placeholderTextColor="#25221F"
               secureTextEntry={!showPassword}
               autoCapitalize="none"
               autoComplete="new-password"
               accessibilityLabel="Password"
-              className="flex-1 py-4 text-base text-[#292724] rounded-[18px]"
+              className="flex-1 py-4 text-[14px] text-[#25221F] rounded-[18px]"
             />
             <Pressable onPress={() => setShowPassword(!showPassword)}>
-              <Text className="ml-2 text-[15px] leading-[24px] text-[#716A64]" variant="button">
+              <Text className="ml-2 text-[14px] leading-[22px] text-[#25221F]" variant="button">
                 {showPassword ? "Hide" : "Show"}
               </Text>
             </Pressable>
@@ -199,30 +199,30 @@ export function SignUpScreen() {
         </View>
 
         <View className="mt-5">
-          <Text className="mb-2 text-[15px] leading-[24px] font-semibold text-[#292724]" variant="label">
+          <Text className="mb-2 text-[14px] leading-[22px] font-semibold text-[#25221F]" variant="label">
             Confirm password
           </Text>
           <TextInput
             value={confirmPassword}
             onChangeText={setConfirmPassword}
             placeholder="Enter your password again"
-            placeholderTextColor="#716A64"
+            placeholderTextColor="#25221F"
             secureTextEntry={!showPassword}
             autoCapitalize="none"
             autoComplete="new-password"
             accessibilityLabel="Confirm password"
-            className="min-h-14 border border-[#E9E2DA] bg-[#F7F4EF] px-4 text-base text-[#292724] rounded-[18px]"
+            className="min-h-14 border border-[#E2D9CF] bg-[#F4F0EA] px-4 text-[14px] text-[#25221F] rounded-[18px]"
           />
         </View>
 
         {error ? (
-          <Text accessibilityRole="alert" className="mt-4 text-[15px] leading-[23px] text-[#C24A3C]" variant="body">
+          <Text accessibilityRole="alert" className="mt-4 text-[14px] leading-[23px] text-[#C24A3C]" variant="body">
             {error}
           </Text>
         ) : null}
 
         {successMessage ? (
-          <Text accessibilityRole="alert" className="mt-4 text-[15px] leading-[23px] text-ibda-green" variant="body">
+          <Text accessibilityRole="alert" className="mt-4 text-[14px] leading-[23px] text-ibda-green" variant="body">
             {successMessage}
           </Text>
         ) : null}
@@ -231,27 +231,27 @@ export function SignUpScreen() {
           onPress={handleSignUp}
           disabled={loading}
           accessibilityRole="button"
-          className={`mt-7 min-h-[54px] flex-row items-center justify-center rounded-[18px] bg-[#C24A3C] shadow-sm shadow-[#C24A3C]/15 active:bg-[#A63F32] ${loading ? "opacity-60" : "active:opacity-80"
+          className={`mt-7 min-h-[48px] flex-row items-center justify-center rounded-[18px] bg-[#C24A3C] shadow-sm shadow-[#C24A3C]/15 active:bg-[#A63F32] ${loading ? "opacity-60" : "active:opacity-80"
             }`}
         >
-          <Text className="text-base leading-[24px] font-bold text-white" variant="button">
+          <Text className="text-[14px] leading-[22px] font-bold text-[#FAF8F4]" variant="button">
             {loading ? "Creating account..." : "Create account"}
           </Text>
-          {!loading && <Text className="ml-2 text-lg text-white">→</Text>}
+          {!loading && <Text className="ml-2 text-lg text-[#FAF8F4]">→</Text>}
         </Pressable>
 
         <View className="mt-7 flex-row flex-wrap items-center justify-center">
-          <Text className="text-[15px] leading-[24px] text-[#716A64]" variant="body">
+          <Text className="text-[14px] leading-[22px] text-[#25221F]" variant="body">
             Already have an account?
           </Text>
           <Pressable onPress={() => router.replace("/sign-in")} className="ml-1 p-1">
-            <Text className="text-[15px] leading-[24px] font-semibold text-[#C24A3C]" variant="button">
+            <Text className="text-[14px] leading-[22px] font-semibold text-[#C24A3C]" variant="button">
               Sign in
             </Text>
           </Pressable>
         </View>
 
-        <Text className="mt-auto pt-8 text-center text-[12px] leading-[23px] text-[#716A64]" variant="caption">
+        <Text className="mt-auto pt-8 text-center text-[12px] leading-[23px] text-[#25221F]" variant="caption">
           By creating an account, you agree to our Terms of Service and Privacy
           Policy.
         </Text>

@@ -87,23 +87,23 @@ export function ApprovalInboxScreen() {
         }
         accessibilityRole="button"
         accessibilityLabel="Go back"
-        className="mb-8 h-11 w-11 items-center justify-center rounded-full border border-[#E9E2DA] bg-white active:bg-[#F1E9DF]"
+        className="mb-4 h-11 w-11 items-center justify-center rounded-full border border-[#E2D9CF] bg-[#FAF8F4] active:bg-[#F4F0EA]"
       >
-        <Text className="text-xl text-[#716A64]">‹</Text>
+        <Text className="text-xl text-[#25221F]">‹</Text>
       </Pressable>
         <Text className="mb-2 text-[12px] font-bold uppercase tracking-[2px] text-[#C24A3C]" variant="eyebrow" tone="secondary">
           CONTENT WORKSPACE
         </Text>
-        <Text className="text-[32px] leading-[39px] tracking-[-0.8px] font-bold text-[#292724]" variant="page" tone="charcoal">
+        <Text className="text-[22px] leading-[30px] tracking-[-0.4px] font-bold text-[#25221F]" variant="page" tone="olive">
           Approval Inbox
         </Text>
-        <Text className="mb-7 mt-3 text-base leading-6 text-[#716A64]" variant="body">
+        <Text className="mb-7 mt-3 text-[14px] leading-6 text-[#25221F]" variant="body">
           Review content from your brands before it moves to the next step.
         </Text>
 
         <View
           accessibilityRole="tablist"
-          className="mb-6 flex-row rounded-2xl border border-[#E9E2DA] bg-white p-1"
+          className="mb-6 flex-row rounded-2xl border border-[#E2D9CF] bg-[#FAF8F4] p-1"
         >
           {FILTERS.map((item) => {
             const selected = filter === item.value;
@@ -113,13 +113,13 @@ export function ApprovalInboxScreen() {
                 onPress={() => setFilter(item.value)}
                 accessibilityRole="tab"
                 accessibilityState={{ selected }}
-                className={`min-h-[54px] flex-1 items-center justify-center rounded-[18px] px-2 ${
-                  selected ? "bg-[#292724]" : ""
+                className={`min-h-[48px] flex-1 items-center justify-center rounded-[18px] px-2 ${
+                  selected ? "bg-[#C24A3C] active:bg-[#A63F32]" : ""
                 }`}
               >
                 <Text
-                  className={`text-[15px] leading-[24px] font-semibold ${
-                    selected ? "text-white" : "text-[#716A64]"
+                  className={`text-[14px] leading-[22px] font-semibold ${
+                    selected ? "text-[#FAF8F4]" : "text-[#25221F]"
                   }`} variant="button"
                 >
                   {item.label}
@@ -132,30 +132,30 @@ export function ApprovalInboxScreen() {
         {loading ? (
           <View className="items-center py-14">
             <ActivityIndicator color="#C24A3C" size="large" />
-            <Text className="mt-3 text-[#716A64] text-[15px] leading-[24px]" variant="body">Loading approvals...</Text>
+            <Text className="mt-3 text-[#25221F] text-[14px] leading-[22px]" variant="body">Loading approvals...</Text>
           </View>
         ) : error ? (
-          <StudioCard className="rounded-3xl border border-[#E9E2DA] bg-white p-5">
-            <Text className="font-semibold text-[#292724] text-[15px] leading-[24px]" variant="label">
+          <StudioCard className="rounded-3xl border border-[#25221F]/30 bg-[#F4F0EA] p-5">
+            <Text className="font-semibold text-[#25221F] text-[14px] leading-[22px]" variant="label">
               Couldn&apos;t load approvals
             </Text>
-            <Text className="mt-2 text-[#B04438] text-[15px] leading-[24px]" variant="body">{error}</Text>
+            <Text className="mt-2 text-[#25221F] text-[14px] leading-[22px]" variant="body">{error}</Text>
             <Pressable
               onPress={() => void load()}
               accessibilityRole="button"
-              className="mt-4 min-h-[54px] self-start justify-center rounded-[18px] bg-[#292724] px-4 py-2"
+              className="mt-4 min-h-[48px] self-start justify-center rounded-[18px] bg-[#C24A3C] active:bg-[#A63F32] px-4 py-2"
             >
-              <Text className="font-semibold text-white text-[15px] leading-[24px]" variant="button">Try again</Text>
+              <Text className="font-semibold text-[#FAF8F4] text-[14px] leading-[22px]" variant="button">Try again</Text>
             </Pressable>
           </StudioCard>
         ) : approvals.length === 0 ? (
-          <StudioCard className="rounded-3xl border border-[#E9E2DA] bg-white p-5">
-            <Text className="text-[21px] leading-[28px] tracking-[-0.3px] font-bold text-[#292724]" variant="section">
+          <StudioCard className="rounded-3xl border border-[#E2D9CF] bg-[#F4F0EA] p-5">
+            <Text className="text-[14px] leading-[23px] tracking-[-0.3px] font-bold text-[#25221F]" variant="section">
               {filter === "pending"
                 ? "You’re all caught up"
                 : `No ${filter} content yet`}
             </Text>
-            <Text className="mt-2 text-[#716A64] text-[15px] leading-[24px]" variant="body">
+            <Text className="mt-2 text-[#25221F] text-[14px] leading-[22px]" variant="body">
               {EMPTY_MESSAGES[filter]}
             </Text>
           </StudioCard>
@@ -172,33 +172,33 @@ export function ApprovalInboxScreen() {
                 }
                 accessibilityRole="button"
                 accessibilityLabel={`Review ${approval.post.title || "content"} for ${approval.post.brand_name}`}
-                className="rounded-3xl border border-[#E9E2DA] bg-white shadow-sm shadow-[#292724]/5 active:bg-[#F1E9DF] p-6"
+                className="rounded-3xl border border-[#E2D9CF] bg-[#F4F0EA] shadow-sm shadow-[#25221F]/5 active:bg-[#F4F0EA] p-6"
               >
                 <View className="mb-3 flex-row items-start justify-between gap-3">
                   <View className="flex-1">
-                    <Text className="text-base leading-[24px] font-bold text-[#292724]" variant="controlTitle">
+                    <Text className="text-[14px] leading-[22px] font-bold text-[#25221F]" variant="controlTitle">
                       {approval.post.title || approval.post.brand_name}
                     </Text>
-                    <Text className="mt-1 text-[15px] leading-[24px] text-[#716A64]" variant="body">
+                    <Text className="mt-1 text-[14px] leading-[22px] text-[#25221F]" variant="body">
                       {approval.post.brand_name} ·{" "}
                       {approval.post.platform.replaceAll("_", " ")}
                     </Text>
                   </View>
-                  <Text className="rounded-full bg-[#F1E9DF] px-3 py-1 text-[12px] font-semibold capitalize text-[#716A64]" variant="caption">
+                  <Text className="rounded-full bg-[#F4F0EA] px-3 py-1 text-[12px] font-semibold capitalize text-[#25221F]" variant="caption">
                     {approval.status}
                   </Text>
                 </View>
                 <Text
                   numberOfLines={4}
-                  className="text-[#716A64] text-[15px] leading-[24px]" variant="button"
+                  className="text-[#25221F] text-[14px] leading-[22px]" variant="button"
                 >
                   {approval.post.body}
                 </Text>
-                <View className="mt-4 flex-row items-center justify-between border-t border-[#E9E2DA] pt-4">
-                  <Text className="text-[15px] leading-[24px] text-[#716A64]" variant="body">
+                <View className="mt-4 flex-row items-center justify-between border-t border-[#E2D9CF] pt-4">
+                  <Text className="text-[14px] leading-[22px] text-[#25221F]" variant="body">
                     {formatDate(approval.post.created_at)}
                   </Text>
-                  <Text className="font-semibold text-[#C24A3C] text-[15px] leading-[24px]" variant="label">
+                  <Text className="font-semibold text-[#C24A3C] text-[14px] leading-[22px]" variant="label">
                     View details →
                   </Text>
                 </View>

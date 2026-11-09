@@ -104,14 +104,14 @@ export function BrandVoiceCreateScreen() {
   };
 
   const inputClass =
-    "mt-2 rounded-[18px] border border-[#E9E2DA] bg-[#F7F4EF] px-4 py-4 text-base text-[#292724]";
+    "mt-2 rounded-[18px] border border-[#E2D9CF] bg-[#F4F0EA] px-4 py-4 text-base text-[#25221F]";
 
   return (
     <View className="flex-1 bg-[#FAF8F4]">
       <ScrollView
         contentContainerStyle={{
           padding: 24,
-          paddingTop: 36,
+          paddingTop: 16,
           paddingBottom: 48, width: "100%", maxWidth: 960, alignSelf: "center",
         }}
         keyboardShouldPersistTaps="handled"
@@ -122,27 +122,27 @@ export function BrandVoiceCreateScreen() {
           onPress={() => router.back()}
           disabled={saving}
           accessibilityRole="button"
-          className="mb-7 min-h-[54px] self-start justify-center rounded-[18px]"
+          className="mb-7 min-h-[48px] self-start justify-center rounded-[18px]"
         >
-          <Text className="text-base leading-[24px] font-medium text-[#716A64]" variant="button">
+          <Text className="text-[14px] leading-[22px] font-medium text-[#25221F]" variant="button">
             ← Back to Brand Memory
           </Text>
         </Pressable>
 
-        <Text className="mb-2 text-[12px] font-bold uppercase tracking-[2px] text-[#4A523E]" variant="eyebrow" tone="olive">
+        <Text className="mb-2 text-[12px] font-bold uppercase tracking-[2px] text-[#25221F]" variant="eyebrow" tone="olive">
           BRAND MEMORY
         </Text>
-        <Text className="text-[32px] leading-[39px] tracking-[-0.8px] font-bold text-[#292724]" variant="page" tone="olive">
+        <Text className="text-[22px] leading-[30px] tracking-[-0.4px] font-bold text-[#25221F]" variant="page" tone="olive">
           Create a brand voice
         </Text>
-        <Text className="mb-8 mt-3 text-base leading-6 text-[#716A64]" variant="body">
+        <Text className="mb-8 mt-3 text-[14px] leading-6 text-[#25221F]" variant="body">
           Add your brand details and voice so Ibda can create content that
           sounds like you.
         </Text>
 
         {createdBrand && (
-          <View className="mb-5 rounded-2xl border border-[#E7C8A2] bg-[#FFF7EA] p-4">
-            <Text className="font-semibold text-[#75562F] text-[15px] leading-[24px]" variant="label">
+          <View className="mb-5 rounded-2xl border border-[#F4F0EA] bg-[#F4F0EA] p-4">
+            <Text className="font-semibold text-[#25221F] text-[14px] leading-[22px]" variant="label">
               {createdBrand.name} has been created. Its voice could not be
               saved yet. Retry below to save the voice without creating another
               brand.
@@ -150,19 +150,19 @@ export function BrandVoiceCreateScreen() {
           </View>
         )}
 
-        <Text className="mb-4 text-[21px] leading-[28px] tracking-[-0.3px] font-bold text-[#292724]" variant="section">
+        <Text className="mb-4 text-[14px] leading-[23px] tracking-[-0.3px] font-bold text-[#25221F]" variant="section">
           Brand information
         </Text>
 
         <View className="mb-5">
-          <Text className="font-semibold text-[#292724] text-[15px] leading-[24px]" variant="label">
+          <Text className="font-semibold text-[#25221F] text-[14px] leading-[22px]" variant="label">
             Brand name <Text className="text-[#C24A3C]">*</Text>
           </Text>
           <TextInput
             value={name}
             onChangeText={setName}
             placeholder="e.g. Studio Bloom"
-            placeholderTextColor="#716A64"
+            placeholderTextColor="#25221F"
             autoCapitalize="words"
             returnKeyType="next"
             editable={!saving && !createdBrand}
@@ -172,7 +172,7 @@ export function BrandVoiceCreateScreen() {
         </View>
 
         <View className="mb-5">
-          <Text className="font-semibold text-[#292724] text-[15px] leading-[24px]" variant="label">Industry</Text>
+          <Text className="font-semibold text-[#25221F] text-[14px] leading-[22px]" variant="label">Industry</Text>
           <View className="mt-3 flex-row flex-wrap gap-2">
             {INDUSTRIES.map((item) => {
               const selected = industry === item;
@@ -183,15 +183,15 @@ export function BrandVoiceCreateScreen() {
                   disabled={saving || !!createdBrand}
                   accessibilityRole="button"
                   accessibilityState={{ selected }}
-                  className={`min-h-[54px] justify-center rounded-[18px] border px-4 py-2 ${
+                  className={`min-h-[48px] justify-center rounded-[18px] border px-4 py-2 ${
                     selected
                       ? "border-[#C24A3C] bg-[#C24A3C] active:bg-[#A63F32]"
-                      : "border-[#E9E2DA] bg-white active:bg-[#F1E9DF]"
+                      : "border-[#E2D9CF] bg-[#FAF8F4] active:bg-[#F4F0EA]"
                   }`}
                 >
                   <Text
-                    className={`text-[15px] leading-[24px] font-medium ${
-                      selected ? "text-white" : "text-[#716A64]"
+                    className={`text-[14px] leading-[22px] font-medium ${
+                      selected ? "text-[#FAF8F4]" : "text-[#25221F]"
                     }`} variant="button"
                   >
                     {item}
@@ -203,12 +203,12 @@ export function BrandVoiceCreateScreen() {
         </View>
 
         <View className="mb-5">
-          <Text className="font-semibold text-[#292724] text-[15px] leading-[24px]" variant="label">Description</Text>
+          <Text className="font-semibold text-[#25221F] text-[14px] leading-[22px]" variant="label">Description</Text>
           <TextInput
             value={description}
             onChangeText={setDescription}
             placeholder="What does your brand do?"
-            placeholderTextColor="#716A64"
+            placeholderTextColor="#25221F"
             multiline
             textAlignVertical="top"
             editable={!saving && !createdBrand}
@@ -218,12 +218,12 @@ export function BrandVoiceCreateScreen() {
         </View>
 
         <View className="mb-8">
-          <Text className="font-semibold text-[#292724] text-[15px] leading-[24px]" variant="label">Website</Text>
+          <Text className="font-semibold text-[#25221F] text-[14px] leading-[22px]" variant="label">Website</Text>
           <TextInput
             value={website}
             onChangeText={setWebsite}
             placeholder="https://yourbrand.com"
-            placeholderTextColor="#716A64"
+            placeholderTextColor="#25221F"
             autoCapitalize="none"
             autoCorrect={false}
             keyboardType="url"
@@ -232,14 +232,14 @@ export function BrandVoiceCreateScreen() {
           />
         </View>
 
-        <Text className="mb-2 text-[21px] leading-[28px] tracking-[-0.3px] font-bold text-[#292724]" variant="section">
+        <Text className="mb-2 text-[14px] leading-[23px] tracking-[-0.3px] font-bold text-[#25221F]" variant="section">
           Brand voice
         </Text>
-        <Text className="mb-4 text-[#716A64] text-[15px] leading-[24px]" variant="body">
+        <Text className="mb-4 text-[#25221F] text-[14px] leading-[22px]" variant="body">
           Set the style and rules Ibda should follow.
         </Text>
 
-        <Text className="font-semibold text-[#292724] text-[15px] leading-[24px]" variant="label">Tone</Text>
+        <Text className="font-semibold text-[#25221F] text-[14px] leading-[22px]" variant="label">Tone</Text>
         <View className="mb-5 mt-3 flex-row flex-wrap gap-2">
           {TONES.map((tone) => {
             const selected = voice.tone === tone;
@@ -250,39 +250,39 @@ export function BrandVoiceCreateScreen() {
                 disabled={saving}
                 accessibilityRole="button"
                 accessibilityState={{ selected }}
-                className={`min-h-[54px] justify-center rounded-[18px] border px-4 py-2 ${
+                className={`min-h-[48px] justify-center rounded-[18px] border px-4 py-2 ${
                   selected
-                    ? "border-[#7F9C81] bg-[#E5EDE3]"
-                    : "border-[#E9E2DA] bg-white active:bg-[#F1E9DF]"
+                    ? "border-[#25221F] bg-[#F4F0EA]"
+                    : "border-[#E2D9CF] bg-[#FAF8F4] active:bg-[#F4F0EA]"
                 }`}
               >
-                <Text className="font-medium text-[#292724] text-[15px] leading-[24px]" variant="button">{tone}</Text>
+                <Text className="font-medium text-[#25221F] text-[14px] leading-[22px]" variant="button">{tone}</Text>
               </Pressable>
             );
           })}
         </View>
 
         <View className="mb-5">
-          <Text className="font-semibold text-[#292724] text-[15px] leading-[24px]" variant="label">
+          <Text className="font-semibold text-[#25221F] text-[14px] leading-[22px]" variant="label">
             Target audience
           </Text>
           <TextInput
             value={voice.target_audience}
             onChangeText={(value) => updateVoice("target_audience", value)}
             placeholder="Who are you speaking to?"
-            placeholderTextColor="#716A64"
+            placeholderTextColor="#25221F"
             editable={!saving}
             className={inputClass}
           />
         </View>
 
         <View className="mb-5">
-          <Text className="font-semibold text-[#292724] text-[15px] leading-[24px]" variant="label">Language</Text>
+          <Text className="font-semibold text-[#25221F] text-[14px] leading-[22px]" variant="label">Language</Text>
           <TextInput
             value={voice.language}
             onChangeText={(value) => updateVoice("language", value)}
             placeholder="e.g. English"
-            placeholderTextColor="#716A64"
+            placeholderTextColor="#25221F"
             autoCapitalize="words"
             editable={!saving}
             className={inputClass}
@@ -290,14 +290,14 @@ export function BrandVoiceCreateScreen() {
         </View>
 
         <View className="mb-5">
-          <Text className="font-semibold text-[#292724] text-[15px] leading-[24px]" variant="label">
+          <Text className="font-semibold text-[#25221F] text-[14px] leading-[22px]" variant="label">
             Writing guidelines
           </Text>
           <TextInput
             value={voice.writing_guidelines}
             onChangeText={(value) => updateVoice("writing_guidelines", value)}
             placeholder="Words to use or avoid, style rules, formatting..."
-            placeholderTextColor="#716A64"
+            placeholderTextColor="#25221F"
             multiline
             textAlignVertical="top"
             editable={!saving}
@@ -307,14 +307,14 @@ export function BrandVoiceCreateScreen() {
         </View>
 
         <View className="mb-6">
-          <Text className="font-semibold text-[#292724] text-[15px] leading-[24px]" variant="label">
+          <Text className="font-semibold text-[#25221F] text-[14px] leading-[22px]" variant="label">
             Example content
           </Text>
           <TextInput
             value={voice.example_content}
             onChangeText={(value) => updateVoice("example_content", value)}
             placeholder="Add an example that captures your brand voice"
-            placeholderTextColor="#716A64"
+            placeholderTextColor="#25221F"
             multiline
             textAlignVertical="top"
             editable={!saving}
@@ -324,7 +324,7 @@ export function BrandVoiceCreateScreen() {
         </View>
 
         {!!error && (
-          <Text accessibilityRole="alert" className="mb-4 text-[#B04438] text-[15px] leading-[24px]" variant="body">
+          <Text accessibilityRole="alert" className="mb-4 text-[#25221F] text-[14px] leading-[22px]" variant="body">
             {error}
           </Text>
         )}
@@ -333,14 +333,14 @@ export function BrandVoiceCreateScreen() {
           onPress={() => void handleSave()}
           disabled={saving}
           accessibilityRole="button"
-          className={`min-h-[54px] flex-row items-center justify-center rounded-[18px] bg-[#C24A3C] shadow-sm shadow-[#C24A3C]/15 active:bg-[#A63F32] px-5 py-4 ${
+          className={`min-h-[48px] flex-row items-center justify-center rounded-[18px] bg-[#C24A3C] shadow-sm shadow-[#C24A3C]/15 active:bg-[#A63F32] px-5 py-3 ${
             saving ? "opacity-70" : ""
           }`}
         >
           {saving ? (
-            <ActivityIndicator color="#FFFFFF" />
+            <ActivityIndicator color="#FAF8F4" />
           ) : (
-            <Text className="font-bold text-white text-[15px] leading-[24px]" variant="label">
+            <Text className="font-bold text-[#FAF8F4] text-[14px] leading-[22px]" variant="label">
               {createdBrand ? "Retry saving voice" : "Create New Brand Voice"}
             </Text>
           )}

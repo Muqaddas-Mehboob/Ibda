@@ -74,11 +74,11 @@ export function BrandVoiceBlueprintScreen() {
   };
 
   const item = (title: string, value?: string) => (
-    <View className="mb-5 border-b border-[#E9E2DA] pb-6" key={title}>
-      <Text className="mb-2 text-[12px] font-bold uppercase tracking-wider text-[#4A523E]" variant="eyebrow" tone="olive">
+    <View className="mb-5 border-b border-[#E2D9CF] pb-6" key={title}>
+      <Text className="mb-2 text-[12px] font-bold uppercase tracking-wider text-[#25221F]" variant="eyebrow" tone="olive">
         {title}
       </Text>
-      <Text className="text-base leading-6 text-[#292724]" variant="body">
+      <Text className="text-[14px] leading-6 text-[#25221F]" variant="body">
         {value?.trim() || "Not added yet"}
       </Text>
     </View>
@@ -86,22 +86,22 @@ export function BrandVoiceBlueprintScreen() {
 
   return (
     <View className="flex-1 bg-[#FAF8F4]">
-      <ScrollView contentContainerStyle={{ padding: 24, paddingTop: 36, width: "100%", maxWidth: 960, alignSelf: "center" }}>
+      <ScrollView contentContainerStyle={{ padding: 24, paddingTop: 16, width: "100%", maxWidth: 960, alignSelf: "center" }}>
         <Pressable onPress={() => router.back()}>
-          <Text className="mb-6 text-base leading-[24px] text-[#716A64]" variant="button">← Back to voice</Text>
+          <Text className="mb-6 text-[14px] leading-[22px] text-[#25221F]" variant="button">← Back to voice</Text>
         </Pressable>
-        <Text className="mb-2 text-[12px] font-bold uppercase tracking-[2px] text-[#4A523E]" variant="eyebrow" tone="olive">
+        <Text className="mb-2 text-[12px] font-bold uppercase tracking-[2px] text-[#25221F]" variant="eyebrow" tone="olive">
           BRAND MEMORY
         </Text>
-        <Text className="text-[32px] leading-[39px] tracking-[-0.8px] font-bold text-[#292724]" variant="page" tone="olive">Voice blueprint</Text>
-        <Text className="mb-7 mt-3 text-[#716A64] text-[15px] leading-[24px]" variant="body">
+        <Text className="text-[22px] leading-[30px] tracking-[-0.4px] font-bold text-[#25221F]" variant="page" tone="olive">Voice blueprint</Text>
+        <Text className="mb-7 mt-3 text-[#25221F] text-[14px] leading-[22px]" variant="body">
           A clear reference for creating consistent, on-brand content.
         </Text>
 
         {loading ? (
           <ActivityIndicator size="large" color="#C24A3C" />
         ) : error ? (
-          <Text className="text-red-600 text-[15px] leading-[24px]" variant="body">{error}</Text>
+          <Text className="text-[#25221F] text-[14px] leading-[22px]" variant="body">{error}</Text>
         ) : voice ? (
           <>
             {item("Brand tone", voice.tone)}
@@ -119,7 +119,7 @@ export function BrandVoiceBlueprintScreen() {
               }
               className="mb-3 items-center rounded-2xl bg-[#C24A3C] active:bg-[#A63F32] py-4"
             >
-              <Text className="font-bold text-white text-[15px] leading-[24px]" variant="button">Edit brand voice</Text>
+              <Text className="font-bold text-[#FAF8F4] text-[14px] leading-[22px]" variant="button">Edit brand voice</Text>
             </Pressable>
 
             <Pressable
@@ -127,11 +127,11 @@ export function BrandVoiceBlueprintScreen() {
               onPress={() => void deleteCurrentBrand()}
               accessibilityRole="button"
               accessibilityLabel="Delete current brand. Permanently delete this brand."
-              className={`mb-6 items-center rounded-2xl border border-[#E0B4AE] bg-white py-4 ${
+              className={`mb-6 items-center rounded-2xl border border-[#F4F0EA] bg-[#FAF8F4] py-4 ${
                 deleting ? "opacity-60" : ""
               }`}
             >
-              <Text className="font-bold text-[#B04438] text-[15px] leading-[24px]" variant="button">
+              <Text className="font-bold text-[#25221F] text-[14px] leading-[22px]" variant="button">
                 {deleting ? "Deleting brand..." : "Delete Current Brand"}
               </Text>
             </Pressable>

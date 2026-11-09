@@ -10,15 +10,15 @@ import { getUnreadNotificationCount } from "../../notifications/services/notific
 
 const COLORS = {
   background: "#FAF8F4",
-  surface: "#FFFFFF",
-  text: "#292724",
-  muted: "#716A64",
-  border: "#E9E2DA",
+  surface: "#FAF8F4",
+  text: "#25221F",
+  muted: "#25221F",
+  border: "#E2D9CF",
   coral: "#C24A3C",
-  green: "#009B72",
-  greenLight: "#E9F9F2",
-  peach: "#F1E9DF",
-  lavender: "#F1E9DF",
+  green: "#25221F",
+  greenLight: "#F4F0EA",
+  peach: "#F4F0EA",
+  lavender: "#F4F0EA",
 };
 
 function SectionTitle({
@@ -32,12 +32,12 @@ function SectionTitle({
 }) {
   return (
     <View className="mb-3 flex-row items-center justify-between">
-      <Text className="text-[20px] font-bold" style={{ color: COLORS.text }} variant="section">
+      <Text className="text-[14px] font-bold" style={{ color: COLORS.text }} variant="section">
         {title}
       </Text>
       {action ? (
         <Pressable onPress={onAction} hitSlop={8}>
-          <Text className="text-[15px] leading-[24px] font-semibold" style={{ color: COLORS.coral }} variant="button">
+          <Text className="text-[14px] leading-[22px] font-semibold" style={{ color: COLORS.coral }} variant="button">
             {action}
           </Text>
         </Pressable>
@@ -58,11 +58,11 @@ function MetricCard({
   change: string;
 }) {
   return (
- <View className="min-w-0 flex-1 px-2 py-1">
-  <View className="mb-3 h-8 w-8 items-center justify-center rounded-xl bg-[#E5EDE3]"><StudioIcon name={icon} size={18} color="#4A523E" /></View>
-  <Text variant="metric" numberOfLines={1} adjustsFontSizeToFit style={{ fontSize: 23, lineHeight: 30, color: COLORS.text }}>{value}</Text>
-  <Text variant="caption" className="mt-1" tone="secondary">{label}</Text>
-  <Text variant="caption" className="mt-2" tone="olive">{change}</Text>
+ <View className="min-w-0 flex-1 items-center px-2 py-1">
+  <View className="mb-3 h-8 w-8 items-center justify-center rounded-xl bg-[#9BAE9F]/20"><View style={{ opacity: 1 }}><StudioIcon name={icon} size={18} color="#4A523E" /></View></View>
+  <Text variant="metric" numberOfLines={1} adjustsFontSizeToFit style={{ fontSize: 20, lineHeight: 28, textAlign: "center", color: "#4A523E" }}>{value}</Text>
+  <Text variant="caption" className="mt-1 text-center" style={{ color: "#4A523E" }}>{label}</Text>
+  <Text variant="caption" className="mt-2 text-center" style={{ color: "#4A523E" }}>{change}</Text>
  </View>
 );
 }
@@ -154,48 +154,50 @@ export default function DashboardScreen() {
   return (
  <View className="flex-1" style={{ backgroundColor: COLORS.background }}>
   <ScrollView className="flex-1" contentContainerStyle={{ paddingBottom: 32 }} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
-   <View className="flex-row items-center justify-between px-6 pb-3 pt-6">
+   <View className="flex-row items-center justify-between px-6 pb-3 pt-3">
     <IbdaLogo size={40} />
     <View className="flex-row items-center gap-3">
-     <Pressable onPress={() => router.push("/notifications")} className="relative h-11 w-11 items-center justify-center rounded-2xl border border-[#E9E2DA] bg-white" accessibilityLabel="Notifications">
-      <StudioIcon name="bell" size={21} color="#51445F" />
+     <Pressable onPress={() => router.push("/notifications")} className="relative h-11 w-11 items-center justify-center rounded-2xl border border-[#E2D9CF]/30 bg-[#E2D9CF]/20" style={{ backgroundColor: "#F4F0EA" }} accessibilityLabel="Notifications">
+      <StudioIcon name="bell" size={21} color="#25221F" />
       {unreadNotificationCount > 0 ? (
        <View className="absolute -right-1 -top-1 min-h-5 min-w-5 items-center justify-center rounded-full bg-[#C24A3C] px-1"><Text variant="caption" tone="white" style={{ fontSize: 11, lineHeight: 16 }}>{unreadNotificationCount > 9 ? "9+" : unreadNotificationCount}</Text></View>
       ) : null}
      </Pressable>
-     <Pressable onPress={() => router.push("/settings")} className="h-11 w-11 items-center justify-center rounded-2xl bg-[#E5EDE3]" accessibilityLabel="Profile"><StudioIcon name="user" color="#4A523E" size={21} /></Pressable>
+     <Pressable onPress={() => router.push("/settings")} className="h-11 w-11 items-center justify-center rounded-2xl bg-[#F4F0EA]" accessibilityLabel="Profile"><StudioIcon name="user" color="#C24A3C" size={21} /></Pressable>
     </View>
    </View>
-   <View className="w-full max-w-[900px] self-center px-6 pt-5">
-    <Text variant="eyebrow" tone="secondary">{dateLabel}</Text>
-    <Text variant="display" tone="charcoal" className="mt-3">{greeting},{" "}there</Text>
-    <Text variant="body" tone="secondary" className="mt-3">Your content is on track. Two posts are ready for your review today.</Text>
-    <StudioCard className="mt-6 flex-row rounded-[24px] border border-[#E9E2DA] bg-white p-3">
+   <View className="w-full max-w-[900px] self-center px-6 pt-2">
+    <View className="flex-row flex-wrap items-center justify-between gap-x-3 gap-y-1">
+     <Text variant="page" tone="charcoal" style={{ fontSize: 22, lineHeight: 30 }}>{greeting},{" "}there</Text>
+     <Text variant="caption" tone="secondary" className="ml-auto text-right">{dateLabel}</Text>
+    </View>
+    <Text variant="body" tone="secondary" className="mt-2">Your content is on track. Two posts are ready for your review today.</Text>
+    <StudioCard className="mt-4 flex-row rounded-[24px] border border-[#E2D9CF]/30 bg-[#F4F0EA] p-3" style={{ backgroundColor: "#F4F0EA", borderColor: "#E2D9CF" }}>
      <MetricCard icon="reach" value="124.5k" label="Reach" change="+18.4%" />
      <MetricCard icon="chart" value="4.6%" label="Engagement" change="+1.2%" />
      <MetricCard icon="link" value="3,428" label="Link Clicks" change="+9.1%" />
     </StudioCard>
     <Text variant="caption" tone="secondary" className="mt-3">Sample metrics — connect analytics to show your live data.</Text>
-    <StudioCard className="mt-7 rounded-[24px] bg-[#F1E9DF] p-5">
+    <StudioCard className="mt-5 rounded-[24px] bg-[#F4F0EA] p-5" style={{ backgroundColor: "#F4F0EA" }}>
      <View className="mb-4 flex-row items-center gap-3">
-      <View className="h-11 w-11 items-center justify-center rounded-2xl bg-white"><StudioIcon name="spark" color="#C24A3C" size={23} /></View>
-      <View className="flex-1"><Text variant="eyebrow" tone="coral">CONTENT STUDIO</Text><Text variant="page" tone="charcoal" style={{ fontSize: 27, lineHeight: 35 }}>Create with AI</Text></View>
+      <View className="h-9 w-9 items-center justify-center rounded-2xl bg-[#9BAE9F]/20"><StudioIcon name="wand" color="#4A523E" size={19} /></View>
+      <View className="flex-1"><Text variant="eyebrow" tone="coral">CONTENT STUDIO</Text><Text variant="page" tone="charcoal" style={{ fontSize: 18, lineHeight: 26 }}>Create with AI</Text></View>
      </View>
      <Text variant="body" tone="secondary" className="mb-4">Create with your brand voice. Start with a simple idea.</Text>
-     <TextInput value={prompt} onChangeText={setPrompt} placeholder="Prompt idea (e.g. Design tips...)" placeholderTextColor="#716A64" className="rounded-[18px]" style={{ backgroundColor: "#FFFFFF" }} returnKeyType="done" accessibilityLabel="Content idea prompt" />
-     <Pressable onPress={handleGenerate} className="mt-3 min-h-[54px] flex-row items-center justify-center gap-2 rounded-[18px] bg-[#C24A3C] active:bg-[#A63F32] px-5"><StudioIcon name="spark" color="#FFFFFF" size={18} /><Text variant="button" tone="white">Generate</Text><StudioIcon name="arrow" color="#FFFFFF" size={18} /></Pressable>
+     <TextInput value={prompt} onChangeText={setPrompt} placeholder="Prompt idea (e.g. Design tips...)" placeholderTextColor="#25221F" className="rounded-[18px]" style={{ backgroundColor: "#FAF8F4" }} returnKeyType="done" accessibilityLabel="Content idea prompt" />
+     <Pressable onPress={handleGenerate} className="mt-3 min-h-[48px] flex-row items-center justify-center gap-2 rounded-[18px] bg-[#C24A3C] active:bg-[#A63F32] px-5"><StudioIcon name="spark" color="#FAF8F4" size={18} /><Text variant="button" tone="white">Generate</Text><StudioIcon name="arrow" color="#FAF8F4" size={18} /></Pressable>
     </StudioCard>
-    <View className="mb-2 mt-7">
+    <View className="mb-2 mt-5">
      <SectionTitle title="Content Rhythm" action="This Week  ›" onAction={() => router.push("/calendar")} />
-     <StudioCard className="flex-row justify-between rounded-[24px] border border-[#E9E2DA] bg-white p-3">
+     <StudioCard className="flex-row justify-between rounded-[24px] border border-[#F4F0EA] bg-[#F4F0EA] p-3" style={{ backgroundColor: "#F4F0EA", borderColor: "#F4F0EA" }}>
       {weekDays.map((day, index) => {
        const selected = activeDay === day.weekday;
        const hasContent = [1, 2, 3, 4].includes(index);
        return (
-        <Pressable key={`${day.date}-${index}`} onPress={() => setActiveDay(day.weekday)} className="min-w-0 flex-1 items-center rounded-[16px] py-3" style={{ backgroundColor: selected ? "#F7EACF" : "transparent", transform: [{ scale: selected ? 1.02 : 1 }] }}>
-         <Text variant="caption" style={{ color: selected ? "#292724" : COLORS.muted }}>{day.day}</Text>
-         <Text variant="cardTitle" className="mt-2" style={{ color: selected ? "#292724" : COLORS.text }}>{day.date}</Text>
-         <View className="mt-2 h-1.5 w-1.5 rounded-full" style={{ backgroundColor: hasContent ? selected ? "#D69B48" : "#D69B48" : selected ? "#D69B48" : "#E9E2DA" }} />
+        <Pressable key={`${day.date}-${index}`} onPress={() => setActiveDay(day.weekday)} className="min-w-0 flex-1 items-center rounded-[16px] py-3" style={{ backgroundColor: selected ? "#C24A3C" : "transparent", transform: [{ scale: selected ? 1.02 : 1 }] }}>
+         <Text variant="caption" style={{ color: selected ? "#FAF8F4" : COLORS.muted }}>{day.day}</Text>
+         <Text variant="cardTitle" className="mt-2" style={{ color: selected ? "#FAF8F4" : COLORS.text }}>{day.date}</Text>
+         <View className="mt-2 h-1.5 w-1.5 rounded-full" style={{ backgroundColor: hasContent ? selected ? "#F4F0EA" : "#25221F" : selected ? "#F4F0EA" : "#E2D9CF" }} />
         </Pressable>
        );
       })}

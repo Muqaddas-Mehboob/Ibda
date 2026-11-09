@@ -2,6 +2,7 @@ import { Platform, StyleSheet, Text, type TextProps } from 'react-native';
 
 import { Fonts, ThemeColor } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
+import { useStudioFont } from './ui/StudioFonts';
 
 export type ThemedTextProps = TextProps & {
   type?: 'default' | 'title' | 'small' | 'smallBold' | 'subtitle' | 'link' | 'linkPrimary' | 'code';
@@ -10,8 +11,9 @@ export type ThemedTextProps = TextProps & {
 
 export function ThemedText({ style, type = 'default', themeColor, ...rest }: ThemedTextProps) {
   const theme = useTheme();
+  const font = useStudioFont(StyleSheet.flatten([styles[type], style])?.fontWeight);
 
-  return <Text style={[{ color: theme[themeColor ?? 'text'] }, styles[type], style]} {...rest} />;
+  return <Text style={[{ color: theme[themeColor ?? 'text'] }, styles[type], style, type !== 'code' && font]} {...rest} />;
 }
 
 const styles = StyleSheet.create({
@@ -31,23 +33,25 @@ const styles = StyleSheet.create({
     fontWeight: 500,
   },
   title: {
-    fontSize: 48,
+    fontSize: 30,
     fontWeight: 600,
-    lineHeight: 52,
+    lineHeight: 38,
   },
   subtitle: {
-    fontSize: 32,
-    lineHeight: 44,
+    fontSize: 24,
+    lineHeight: 32,
     fontWeight: 600,
   },
   link: {
+    fontWeight: 400,
     lineHeight: 30,
     fontSize: 14,
   },
   linkPrimary: {
+    fontWeight: 400,
     lineHeight: 30,
     fontSize: 14,
-    color: '#3c87f7',
+    color: '#C24A3C',
   },
   code: {
     fontFamily: Fonts.mono,

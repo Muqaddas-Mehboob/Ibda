@@ -87,7 +87,7 @@ export function SignInScreen() {
 
       <ScrollView
         className="flex-1"
-        contentContainerClassName="flex-grow px-[23px] pb-12 pt-8"
+        contentContainerClassName="flex-grow px-[23px] pb-12 pt-5"
         keyboardShouldPersistTaps="handled"
         showsVerticalScrollIndicator={false} contentContainerStyle={{ width: "100%", maxWidth: 520, alignSelf: "center" }}
       >
@@ -102,18 +102,18 @@ export function SignInScreen() {
             onPress={() => router.push("/sign-up")}
             className="flex-row items-center py-2"
           >
-            <Text className="text-[15px] leading-[24px] font-medium text-[#C24A3C]" variant="button">
+            <Text className="text-[14px] leading-[22px] font-medium text-[#C24A3C]" variant="button">
               Sign up →
             </Text>
           </Pressable>
         </View>
 
         {/* Intro */}
-        <Text className="text-[34px] leading-[41px] font-bold tracking-tight text-[#292724]" variant="display" tone="charcoal">
+        <Text className="text-[26px] leading-[34px] font-bold tracking-tight text-[#25221F]" variant="display" tone="olive">
           Welcome back
         </Text>
 
-        <Text className="mt-1 text-[15px] leading-[22px] text-[#716A64]" variant="body">
+        <Text className="mt-1 text-[14px] leading-[22px] text-[#25221F]" variant="body">
           Sign in to continue managing your social{"\n"}
           presence and brand voice.
         </Text>
@@ -124,53 +124,53 @@ export function SignInScreen() {
           accessibilityLabel="Continue with Google"
           onPress={handleGoogleSignIn}
           disabled={googleLoading || loading}
-          className={`mt-9 min-h-[54px] flex-row items-center justify-center border border-[#E9E2DA] bg-white active:bg-[#F1E9DF] rounded-[18px] active:opacity-80 ${googleLoading || loading ? "opacity-60" : ""
+          className={`mt-9 min-h-[48px] flex-row items-center justify-center border border-[#E2D9CF] bg-[#FAF8F4] active:bg-[#F4F0EA] rounded-[18px] active:opacity-80 ${googleLoading || loading ? "opacity-60" : ""
             }`}
         >
-          <Text className="mr-3 text-[23px] font-bold text-[#4285F4]">
+          <Text className="mr-3 text-[23px] font-bold text-[#C24A3C]">
             G
           </Text>
 
-          <Text className="text-base leading-[24px] font-semibold text-[#292724]" variant="button">
+          <Text className="text-[14px] leading-[22px] font-semibold text-[#25221F]" variant="button">
             {googleLoading ? "Connecting to Google..." : "Continue with Google"}
           </Text>
         </Pressable>
 
         {/* Divider */}
         <View className="my-6 flex-row items-center">
-          <View className="h-px flex-1 bg-[#E9E2DA]" />
-          <Text className="mx-3 text-[12px] font-bold tracking-wide text-[#716A64]" variant="caption">
+          <View className="h-px flex-1 bg-[#E2D9CF]" />
+          <Text className="mx-3 text-[12px] font-bold tracking-wide text-[#25221F]" variant="caption">
             OR CONTINUE WITH EMAIL
           </Text>
-          <View className="h-px flex-1 bg-[#E9E2DA]" />
+          <View className="h-px flex-1 bg-[#E2D9CF]" />
         </View>
 
         {/* Email */}
-        <Text className="mb-1.5 text-[15px] leading-[24px] font-semibold text-[#292724]" variant="label">
+        <Text className="mb-1.5 text-[14px] leading-[22px] font-semibold text-[#25221F]" variant="label">
           Email Address
         </Text>
 
-        <StudioInputFrame className="min-h-[42px] rounded-2xl flex-row items-center border border-[#E9E2DA] bg-[#F7F4EF] px-3 shadow-sm">
-          <Text className="mr-3 text-lg text-[#716A64]">✉</Text>
+        <StudioInputFrame className="min-h-[42px] rounded-2xl flex-row items-center border border-[#E2D9CF] bg-[#F4F0EA] px-3 shadow-sm">
+          <Text className="mr-3 text-lg text-[#25221F]">✉</Text>
 
           <TextInput
             value={email}
             onChangeText={setEmail}
             placeholder="alex@company.com"
-            placeholderTextColor="#716A64"
+            placeholderTextColor="#25221F"
             keyboardType="email-address"
             autoCapitalize="none"
             autoCorrect={false}
             autoComplete="email"
             accessibilityLabel="Email address"
-            className="flex-1 py-4 text-base text-[#292724] rounded-[18px]"
+            className="flex-1 py-4 text-[14px] text-[#25221F] rounded-[18px]"
             returnKeyType="next"
           />
         </StudioInputFrame>
 
         {/* Password */}
         <View className="mb-1.5 mt-5 flex-row items-center justify-between">
-          <Text className="text-[15px] leading-[24px] font-semibold text-[#292724]" variant="label">
+          <Text className="text-[14px] leading-[22px] font-semibold text-[#25221F]" variant="label">
             Password
           </Text>
 
@@ -179,25 +179,25 @@ export function SignInScreen() {
             onPress={() => router.push("/forgot-password")}
             hitSlop={8}
           >
-            <Text className="text-[15px] leading-[24px] font-medium text-[#C24A3C]" variant="button">
+            <Text className="text-[14px] leading-[22px] font-medium text-[#C24A3C]" variant="button">
               Forgot password?
             </Text>
           </Pressable>
         </View>
 
-        <StudioInputFrame className="min-h-[42px] rounded-2xl flex-row items-center border border-[#E9E2DA] bg-[#F7F4EF] px-3 shadow-sm">
-          <Text className="mr-3 text-lg text-[#716A64]">♙</Text>
+        <StudioInputFrame className="min-h-[42px] rounded-2xl flex-row items-center border border-[#E2D9CF] bg-[#F4F0EA] px-3 shadow-sm">
+          <Text className="mr-3 text-lg text-[#25221F]">♙</Text>
 
           <TextInput
             value={password}
             onChangeText={setPassword}
             placeholder="Enter your password"
-            placeholderTextColor="#716A64"
+            placeholderTextColor="#25221F"
             secureTextEntry={!showPassword}
             autoCapitalize="none"
             autoComplete="current-password"
             accessibilityLabel="Password"
-            className="flex-1 py-4 text-base text-[#292724] rounded-[18px]"
+            className="flex-1 py-4 text-[14px] text-[#25221F] rounded-[18px]"
             returnKeyType="done"
             onSubmitEditing={handleSignIn}
           />
@@ -208,7 +208,7 @@ export function SignInScreen() {
             onPress={() => setShowPassword((current) => !current)}
             hitSlop={10}
           >
-            <Text className="text-base leading-[24px] text-[#716A64]" variant="button">
+            <Text className="text-[14px] leading-[22px] text-[#25221F]" variant="button">
               {showPassword ? "◉" : "◎"}
             </Text>
           </Pressable>
@@ -222,15 +222,15 @@ export function SignInScreen() {
           className="mt-5 flex-row items-center self-start py-1"
         >
           <View
-            className={`mr-3 h-6 w-6 items-center justify-center rounded-md ${rememberMe ? "bg-[#C24A3C]" : "bg-[#F1E9DF]"
+            className={`mr-3 h-6 w-6 items-center justify-center rounded-md ${rememberMe ? "bg-[#C24A3C]" : "bg-[#F4F0EA]"
               }`}
           >
             {rememberMe && (
-              <Text className="text-[15px] leading-[24px] font-bold text-white" variant="label">✓</Text>
+              <Text className="text-[14px] leading-[22px] font-bold text-[#FAF8F4]" variant="label">✓</Text>
             )}
           </View>
 
-          <Text className="text-[15px] leading-[24px] text-[#716A64]" variant="button">
+          <Text className="text-[14px] leading-[22px] text-[#25221F]" variant="button">
             Remember me on this device
           </Text>
         </Pressable>
@@ -239,7 +239,7 @@ export function SignInScreen() {
         {error ? (
           <Text
             accessibilityRole="alert"
-            className="mt-3 text-[15px] leading-[23px] text-[#C24A3C]" variant="body"
+            className="mt-3 text-[14px] leading-[23px] text-[#C24A3C]" variant="body"
           >
             {error}
           </Text>
@@ -250,29 +250,29 @@ export function SignInScreen() {
           accessibilityRole="button"
           onPress={handleSignIn}
           disabled={loading || googleLoading}
-          className={`mt-8 min-h-[54px] flex-row items-center justify-center rounded-[18px] bg-[#C24A3C] active:bg-[#A63F32] shadow-sm shadow-[#C24A3C]/10 active:opacity-80 ${loading || googleLoading ? "opacity-60" : ""
+          className={`mt-8 min-h-[48px] flex-row items-center justify-center rounded-[18px] bg-[#C24A3C] active:bg-[#A63F32] shadow-sm shadow-[#C24A3C]/10 active:opacity-80 ${loading || googleLoading ? "opacity-60" : ""
             }`}
         >
-          <Text className="text-base leading-[24px] font-bold text-white" variant="button">
+          <Text className="text-[14px] leading-[22px] font-bold text-[#FAF8F4]" variant="button">
             {loading ? "Signing in..." : "Sign In"}
           </Text>
-          <Text className="ml-2 text-xl text-white">→</Text>
+          <Text className="ml-2 text-xl text-[#FAF8F4]">→</Text>
         </Pressable>
 
         {/* AI co-pilot card */}
-        <View className="mt-6 flex-row items-center rounded-[24px] border border-[#E9E2DA] bg-white px-4 py-5">
-          <View className="mr-4 h-12 w-12 items-center justify-center rounded-full bg-[#EEE7F1]">
-            <Text className="text-xl text-[#716A64]">✧</Text>
+        <View className="mt-6 flex-row items-center rounded-[24px] border border-[#E2D9CF] bg-[#F4F0EA] px-4 py-5">
+          <View className="mr-4 h-12 w-12 items-center justify-center rounded-full bg-[#F4F0EA]">
+            <Text className="text-xl text-[#25221F]">✧</Text>
           </View>
 
           <View className="flex-1">
             <View className="flex-row flex-wrap items-center">
-              <Text className="text-[15px] leading-[24px] font-semibold text-[#292724]" variant="label">
+              <Text className="text-[14px] leading-[22px] font-semibold text-[#25221F]" variant="label">
                 AI Content Co-pilot
               </Text>
 
-              <View className="ml-2 rounded-full bg-[#EEE7F1] px-2 py-0.5">
-                <Text className="text-[11px] font-bold text-[#292724]" variant="caption">
+              <View className="ml-2 rounded-full bg-[#F4F0EA] px-2 py-0.5">
+                <Text className="text-[11px] font-bold text-[#25221F]" variant="caption">
                   V2.4
                 </Text>
               </View>
@@ -280,7 +280,7 @@ export function SignInScreen() {
 
             <Text
               numberOfLines={2}
-              className="mt-1 text-[15px] leading-[23px] text-[#716A64]" variant="body"
+              className="mt-1 text-[14px] leading-[23px] text-[#25221F]" variant="body"
             >
               Ready to craft posts in your custom brand voice.
             </Text>
@@ -290,7 +290,7 @@ export function SignInScreen() {
         {/* Footer */}
         <View className="mt-auto items-center pt-9">
           <View className="flex-row flex-wrap items-center justify-center">
-            <Text className="text-[15px] leading-[24px] text-[#716A64]" variant="body">
+            <Text className="text-[14px] leading-[22px] text-[#25221F]" variant="body">
               Don&apos;t have an account?
             </Text>
 
@@ -299,7 +299,7 @@ export function SignInScreen() {
               accessibilityRole="button"
               className="ml-2 py-1"
             >
-              <Text className="text-[15px] leading-[24px] font-semibold text-[#C24A3C]" variant="button">
+              <Text className="text-[14px] leading-[22px] font-semibold text-[#C24A3C]" variant="button">
                 Sign up free
               </Text>
             </Pressable>

@@ -9,13 +9,13 @@ module.exports = {
   theme: {
     extend: {
       colors: {
-        "ibda-background": "#FCF9F4",
-        "ibda-surface": "#F0EDE8",
-        "ibda-charcoal": "#201F1C",
-        "ibda-brown": "#705B52",
-        "ibda-coral": "#FF6B5F",
-        "ibda-lavender": "#EEDCF5",
-        "ibda-green": "#287D54",
+        "ibda-background": "#FAF8F4",
+        "ibda-surface": "#F4F0EA",
+        "ibda-charcoal": "#25221F",
+        "ibda-brown": "#25221F",
+        "ibda-coral": "#C24A3C",
+        "ibda-lavender": "#F4F0EA",
+        "ibda-green": "#25221F",
       },
     },
   },

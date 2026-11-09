@@ -36,12 +36,12 @@ function SettingRow({
     >
       <View
         className={`h-10 w-10 items-center justify-center rounded-2xl ${
-          destructive ? "bg-[#FFF0ED]" : "bg-[#E5EDE3]"
+          destructive ? "bg-[#FFF0EC]" : "bg-[#F4F0EA]"
         }`}
       >
         <Text
-          className={`text-base leading-[24px] font-bold ${
-            destructive ? "text-[#B04438]" : "text-[#4A523E]"
+          className={`text-[14px] leading-[22px] font-bold ${
+            destructive ? "text-[#25221F]" : "text-[#25221F]"
           }`} variant="label"
         >
           {icon}
@@ -50,16 +50,16 @@ function SettingRow({
       <View className="flex-1">
         <Text
           className={`font-semibold ${
-            destructive ? "text-[#B04438]" : "text-[#292724]"
+            destructive ? "text-[#25221F]" : "text-[#25221F]"
           }`} variant="controlTitle"
         >
           {title}
         </Text>
-        <Text className="mt-1 text-[15px] leading-[23px] text-[#716A64]" variant="body">
+        <Text className="mt-1 text-[14px] leading-[23px] text-[#25221F]" variant="body">
           {description}
         </Text>
       </View>
-      <Text className="text-lg text-[#A79D94]" variant="button">›</Text>
+      <Text className="text-lg text-[#25221F]" variant="button">›</Text>
     </Pressable>
   );
 }
@@ -294,21 +294,21 @@ export function SettingsScreen() {
         }
         accessibilityRole="button"
         accessibilityLabel="Go back"
-        className="mb-8 h-11 w-11 items-center justify-center rounded-full border border-[#E9E2DA] bg-white active:bg-[#F1E9DF]"
+        className="mb-4 h-11 w-11 items-center justify-center rounded-full border border-[#E2D9CF] bg-[#FAF8F4] active:bg-[#F4F0EA]"
       >
-        <Text className="text-xl text-[#716A64]">‹</Text>
+        <Text className="text-xl text-[#25221F]">‹</Text>
       </Pressable>
         <Text className="mb-2 text-[12px] font-bold uppercase tracking-[2px] text-[#C24A3C]" variant="eyebrow" tone="secondary">
           YOUR WORKSPACE
         </Text>
-        <Text className="text-[32px] leading-[39px] tracking-[-0.8px] font-bold text-[#292724]" variant="page" tone="charcoal">Settings</Text>
-        <Text className="mb-7 mt-3 text-base leading-6 text-[#716A64]" variant="body">
+        <Text className="text-[22px] leading-[30px] tracking-[-0.4px] font-bold text-[#25221F]" variant="page" tone="olive">Settings</Text>
+        <Text className="mb-7 mt-3 text-[14px] leading-6 text-[#25221F]" variant="body">
           Manage your account and how you use Ibda.
         </Text>
 
         {loadError ? (
-          <View className="mb-5 rounded-2xl border border-[#F0C5BE] bg-white p-4">
-            <Text className="text-[#A33D34] text-[15px] leading-[24px]" variant="body">{loadError}</Text>
+          <View className="mb-5 rounded-2xl border border-[#F4796B] bg-[#FAF8F4] p-4">
+            <Text className="text-[#25221F] text-[14px] leading-[22px]" variant="body">{loadError}</Text>
           </View>
         ) : null}
 
@@ -316,43 +316,43 @@ export function SettingsScreen() {
           {loadingAccount ? (
             <View className="flex-row items-center gap-3 px-4 py-4">
               <ActivityIndicator size="small" color="#C24A3C" />
-              <Text className="text-[#716A64] text-[15px] leading-[24px]" variant="body">Loading account details...</Text>
+              <Text className="text-[#25221F] text-[14px] leading-[22px]" variant="body">Loading account details...</Text>
             </View>
           ) : null}
           <View className="px-4 pb-4 pt-4">
-            <Text className="mb-2 text-[15px] leading-[24px] font-semibold text-[#716A64]" variant="label">
+            <Text className="mb-2 text-[14px] leading-[22px] font-semibold text-[#25221F]" variant="label">
               Display name
             </Text>
             <TextInput
               value={displayName}
               onChangeText={setDisplayName}
               placeholder="Your name"
-              placeholderTextColor="#716A64"
+              placeholderTextColor="#25221F"
               maxLength={100}
               autoCapitalize="words"
               accessibilityLabel="Display name"
-              className="min-h-12 rounded-[18px] border border-[#E9E2DA] bg-[#FAF8F4] px-4 text-[#292724]"
+              className="min-h-12 rounded-[18px] border border-[#E2D9CF] bg-[#FAF8F4] px-4 text-[#25221F]"
             />
             {displayName.trim() !== savedName ? (
               <Pressable
                 onPress={() => void saveProfile()}
                 disabled={savingProfile}
                 accessibilityRole="button"
-                className="mt-3 min-h-[54px] flex-row items-center justify-center rounded-[18px] bg-[#C24A3C] shadow-sm shadow-[#C24A3C]/15 active:bg-[#A63F32] px-4"
+                className="mt-3 min-h-[48px] flex-row items-center justify-center rounded-[18px] bg-[#C24A3C] shadow-sm shadow-[#C24A3C]/15 active:bg-[#A63F32] px-4"
               >
                 {savingProfile ? (
-                  <ActivityIndicator color="#FFFFFF" />
+                  <ActivityIndicator color="#FAF8F4" />
                 ) : (
-                  <Text className="font-bold text-white text-[15px] leading-[24px]" variant="label">Save profile</Text>
+                  <Text className="font-bold text-[#FAF8F4] text-[14px] leading-[22px]" variant="label">Save profile</Text>
                 )}
               </Pressable>
             ) : null}
           </View>
-          <View className="border-t border-[#E9E2DA] px-4 py-4">
-            <Text className="mb-1 text-[15px] leading-[24px] font-semibold text-[#716A64]" variant="label">
+          <View className="border-t border-[#E2D9CF] px-4 py-4">
+            <Text className="mb-1 text-[14px] leading-[22px] font-semibold text-[#25221F]" variant="label">
               Email address
             </Text>
-            <Text className="text-[#716A64] text-[15px] leading-[24px]" variant="body">
+            <Text className="text-[#25221F] text-[14px] leading-[22px]" variant="body">
               {email || "Email unavailable"}
             </Text>
           </View>
@@ -365,7 +365,7 @@ export function SettingsScreen() {
             description="View your plan, billing history, and available plans"
             onPress={() => router.push("/subscription")}
           />
-          <View className="border-t border-[#E9E2DA]">
+          <View className="border-t border-[#E2D9CF]">
           <SettingRow
             icon="◎"
             title="Connected accounts"
@@ -373,8 +373,8 @@ export function SettingsScreen() {
             onPress={() => router.push("/social-accounts")}
           />
           </View>
-          <View className="border-t border-[#E9E2DA] px-4 py-4">
-            <Text className="text-[#716A64] text-[15px] leading-[24px]" variant="body">
+          <View className="border-t border-[#E2D9CF] px-4 py-4">
+            <Text className="text-[#25221F] text-[14px] leading-[22px]" variant="body">
               Notification preferences and theme selection aren’t configurable
               yet. Notifications are currently delivered in-app.
             </Text>
@@ -390,7 +390,7 @@ export function SettingsScreen() {
             }
             onPress={() => router.push("/contact-support")}
           />
-          <View className="border-t border-[#E9E2DA]">
+          <View className="border-t border-[#E2D9CF]">
             <SettingRow
               icon="i"
               title="Privacy policy"
@@ -398,7 +398,7 @@ export function SettingsScreen() {
               onPress={() => router.push("/privacy-policy")}
             />
           </View>
-          <View className="border-t border-[#E9E2DA]">
+          <View className="border-t border-[#E2D9CF]">
             <SettingRow
               icon="§"
               title="Terms of service"
@@ -432,10 +432,10 @@ function Section({
 }) {
   return (
     <View className="mb-6">
-      <Text className="mb-3 text-[15px] leading-[24px] font-bold uppercase tracking-wide text-[#716A64]" variant="eyebrow" tone="secondary">
+      <Text className="mb-3 text-[14px] leading-[22px] font-bold uppercase tracking-wide text-[#25221F]" variant="eyebrow" tone="secondary">
         {title}
       </Text>
-      <View className="overflow-hidden rounded-3xl border border-[#E9E2DA] bg-white">
+      <View className="overflow-hidden rounded-3xl border border-[#25221F]/30 bg-[#F4F0EA]">
         {children}
       </View>
     </View>

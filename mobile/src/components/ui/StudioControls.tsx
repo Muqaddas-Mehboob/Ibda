@@ -22,6 +22,7 @@ import {
   type ViewProps,
 } from "react-native";
 import { cssInterop } from "nativewind";
+import { useStudioFont } from "./StudioFonts";
 
 // Motion preferences live here, independently of authentication and app data.
 const ReducedMotion = createContext(true);
@@ -128,8 +129,9 @@ export const StudioPressable = forwardRef<ComponentRef<typeof Pressable>, Studio
   },
 );
 
-export const StudioInput = forwardRef<ComponentRef<typeof TextInput>, TextInputProps & { className?: string }>(
-  function StudioInput({ onFocus, onBlur, style, editable, multiline, ...props }, ref) {
+export const StudioInput = forwardRef<ComponentRef<typeof TextInput>, TextInputProps & { className?: string; focusBorderColor?: string }>(
+  function StudioInput({ onFocus, onBlur, style, editable, multiline, focusBorderColor = "#C24A3C", ...props }, ref) {
+    const font = useStudioFont("400");
     const reduced = useContext(ReducedMotion);
     const frameFocus = useContext(InputFrameFocus);
     const focus = useAnimatedValue(0);
@@ -149,6 +151,10 @@ export const StudioInput = forwardRef<ComponentRef<typeof TextInput>, TextInputP
 
     return (
       <AnimatedInput
+        selectionColor="#C24A3C"
+        cursorColor="#C24A3C"
+        selectionHandleColor="#C24A3C"
+        underlineColorAndroid="transparent"
         {...props}
         ref={ref}
         multiline={multiline}
@@ -168,10 +174,11 @@ export const StudioInput = forwardRef<ComponentRef<typeof TextInput>, TextInputP
           !multiline && styles.singleLineInput,
           editable === false && styles.disabledInput,
           style,
+          font,
           frameFocus ? styles.insetInput : {
             borderColor: focus.interpolate({
               inputRange: [0, 1],
-              outputRange: ["#E9E2DA", "#C24A3C"],
+              outputRange: ["#E2D9CF", focusBorderColor],
             }),
           },
         ]}
@@ -198,7 +205,7 @@ export function StudioInputFrame({ style, children, ...props }: ViewProps & { cl
       <Animated.View
         {...props}
         style={[style, styles.inputFrame, {
-          borderColor: focus.interpolate({ inputRange: [0, 1], outputRange: ["#E9E2DA", "#C24A3C"] }),
+          borderColor: focus.interpolate({ inputRange: [0, 1], outputRange: ["#E2D9CF", "#C24A3C"] }),
         }]}
       >
         {children}
@@ -211,7 +218,7 @@ export function StudioCard({ style, ...props }: ViewProps & { className?: string
   return <View {...props} style={[styles.card, style]} />;
 }
 
-export function StudioHighlight({ selected, color = "#F1E9DF" }: { selected: boolean; color?: string }) {
+export function StudioHighlight({ selected, color = "#F4F0EA" }: { selected: boolean; color?: string }) {
   const reduced = useContext(ReducedMotion);
   const opacity = useAnimatedValue(selected ? 1 : 0);
   useEffect(() => {
@@ -236,7 +243,7 @@ export function StudioHighlight({ selected, color = "#F1E9DF" }: { selected: boo
 const styles = StyleSheet.create({
   card: {
     borderRadius: 24,
-    shadowColor: "#292724",
+    shadowColor: "#25221F",
     shadowOpacity: 0.045,
     shadowRadius: 18,
     shadowOffset: { width: 0, height: 6 },
@@ -245,16 +252,16 @@ const styles = StyleSheet.create({
   input: {
     borderRadius: 18,
     borderWidth: 1,
-    backgroundColor: "#F7F4EF",
-    color: "#292724",
-    fontSize: 16,
-    lineHeight: 24,
+    backgroundColor: "#F4F0EA",
+    color: "#25221F",
+    fontSize: Platform.OS === "web" ? 16 : 14,
+    lineHeight: 22,
     paddingHorizontal: 16,
-    paddingVertical: 14,
+    paddingVertical: 12,
   },
-  singleLineInput: { minHeight: 56 },
+  singleLineInput: { minHeight: 48 },
   disabledInput: { opacity: 0.58 },
-  inputFrame: { borderRadius: 18, borderWidth: 1, backgroundColor: "#F7F4EF", paddingHorizontal: 16 },
+  inputFrame: { borderRadius: 18, borderWidth: 1, backgroundColor: "#F4F0EA", paddingHorizontal: 16 },
   insetInput: { borderWidth: 0, backgroundColor: "transparent", paddingHorizontal: 0 },
-  tabHighlight: { borderRadius: 18, backgroundColor: "#F1E9DF" },
+  tabHighlight: { borderRadius: 18, backgroundColor: "#F4F0EA" },
 });

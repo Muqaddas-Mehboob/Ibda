@@ -1,5 +1,6 @@
 import { Image } from "expo-image";
-import { StyleSheet, Text, View } from "react-native";
+import { StyleSheet, View } from "react-native";
+import { StudioText as Text } from "../ui/StudioText";
 
 export function IbdaLogo({
   size = 44,
@@ -17,7 +18,7 @@ export function IbdaLogo({
         accessible={false}
       />
       {wordmark && (
-        <Text style={[styles.wordmark, { fontSize: size * 0.65 }]}>ibda<Text style={styles.dot}>.</Text></Text>
+        <Text style={[styles.wordmark, { fontSize: size * 0.5 }]}>ibda<Text style={styles.dot}>.</Text></Text>
       )}
     </View>
   );
@@ -25,6 +26,6 @@ export function IbdaLogo({
 
 const styles = StyleSheet.create({
   lockup: { flexDirection: "row", alignItems: "center", gap: 10, flexShrink: 0 },
-  wordmark: { color: "#292724", fontWeight: "700", letterSpacing: -1.1 },
+  wordmark: { color: "#25221F", fontWeight: "700", letterSpacing: -1.1 },
   dot: { color: "#C24A3C" },
 });

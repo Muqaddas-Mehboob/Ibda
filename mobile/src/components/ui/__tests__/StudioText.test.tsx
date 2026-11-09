@@ -6,14 +6,14 @@ describe("studio typography", () => {
   it("renders editorial page headings with readable olive text", async () => {
     const screen = await render(<StudioText variant="page" tone="olive">Brand Memory</StudioText>);
     expect(screen.getByText("Brand Memory")).toHaveStyle({
-      fontSize: 32, lineHeight: 40, fontWeight: "400", color: "#4A523E",
+      fontSize: 22, lineHeight: 30, fontWeight: "600", color: "#25221F",
     });
   });
 
   it("keeps body text distinct from controls and captions", async () => {
     const screen = await render(<StudioText variant="body" tone="secondary">Your content</StudioText>);
     expect(screen.getByText("Your content")).toHaveStyle({
-      fontSize: 15, lineHeight: 23, color: "#716A64",
+      fontSize: 14, lineHeight: 21, color: "#25221F",
     });
   });
 

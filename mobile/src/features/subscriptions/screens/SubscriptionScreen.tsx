@@ -66,8 +66,8 @@ function Section({
 }) {
   return (
     <View className="mb-5">
-      <Text className="mb-3 text-[19px] leading-[26px] font-bold text-[#292724]" variant="cardTitle">{title}</Text>
-      <View className="overflow-hidden rounded-[24px] border border-[#E9E2DA] bg-white">
+      <Text className="mb-3 text-[14px] leading-[22px] font-bold text-[#25221F]" variant="cardTitle">{title}</Text>
+      <View className="overflow-hidden rounded-[24px] border border-[#E2D9CF] bg-[#F4F0EA]">
         {children}
       </View>
     </View>
@@ -400,23 +400,23 @@ export function SubscriptionScreen() {
         }
         accessibilityRole="button"
         accessibilityLabel="Go back"
-        className="mb-8 h-11 w-11 items-center justify-center rounded-full border border-[#E9E2DA] bg-white active:bg-[#F1E9DF]"
+        className="mb-4 h-11 w-11 items-center justify-center rounded-full border border-[#E2D9CF] bg-[#FAF8F4] active:bg-[#F4F0EA]"
       >
-        <Text className="text-xl text-[#716A64]">‹</Text>
+        <Text className="text-xl text-[#25221F]">‹</Text>
       </Pressable>
         <Text className="mb-2 text-[12px] font-bold uppercase tracking-[2px] text-[#C24A3C]" variant="eyebrow" tone="secondary">
           YOUR ACCOUNT
         </Text>
-        <Text className="text-[32px] leading-[39px] tracking-[-0.8px] font-bold text-[#292724]" variant="page" tone="charcoal">
+        <Text className="text-[22px] leading-[30px] tracking-[-0.4px] font-bold text-[#25221F]" variant="page" tone="olive">
           Plans & billing
         </Text>
-        <Text className="mb-6 mt-3 text-base leading-6 text-[#716A64]" variant="body">
+        <Text className="mb-6 mt-3 text-[14px] leading-6 text-[#25221F]" variant="body">
           View your current plan, validated Stripe pricing, and billing history.
         </Text>
 
         {checkoutReturn === "success" ? (
-          <View className="mb-5 rounded-2xl border border-[#E9E2DA] bg-white p-4">
-            <Text className="text-[15px] leading-[23px] text-[#716A64]" variant="body">
+          <View className="mb-5 rounded-2xl border border-[#E2D9CF] bg-[#FAF8F4] p-4">
+            <Text className="text-[14px] leading-[23px] text-[#25221F]" variant="body">
               {checkoutSyncStatus === "confirmed"
                 ? "Payment confirmed. Your subscription and payment history have been refreshed."
                 : checkoutSyncStatus === "pending"
@@ -436,8 +436,8 @@ export function SubscriptionScreen() {
             ) : null}
           </View>
         ) : checkoutReturn === "cancelled" ? (
-          <View className="mb-5 rounded-2xl border border-[#E9E2DA] bg-white p-4">
-            <Text className="text-[15px] leading-[23px] text-[#716A64]" variant="body">
+          <View className="mb-5 rounded-2xl border border-[#E2D9CF] bg-[#FAF8F4] p-4">
+            <Text className="text-[14px] leading-[23px] text-[#25221F]" variant="body">
               Checkout was canceled. Your subscription status below is
               refreshed from the backend.
             </Text>
@@ -445,34 +445,34 @@ export function SubscriptionScreen() {
         ) : null}
 
         {loading ? (
-          <View className="flex-row items-center gap-3 rounded-2xl border border-[#E9E2DA] bg-white p-5">
+          <View className="flex-row items-center gap-3 rounded-2xl border border-[#E2D9CF] bg-[#FAF8F4] p-5">
             <ActivityIndicator color="#C24A3C" />
-            <Text className="text-[#716A64] text-[15px] leading-[24px]" variant="body">Loading billing details...</Text>
+            <Text className="text-[#25221F] text-[14px] leading-[22px]" variant="body">Loading billing details...</Text>
           </View>
         ) : null}
 
         {error ? (
-          <View className="mb-5 rounded-2xl border border-[#F0C5BE] bg-white p-4">
-            <Text className="text-[#A33D34] text-[15px] leading-[24px]" variant="body">{error}</Text>
+          <View className="mb-5 rounded-2xl border border-[#F4796B] bg-[#FAF8F4] p-4">
+            <Text className="text-[#25221F] text-[14px] leading-[22px]" variant="body">{error}</Text>
             <Pressable
               onPress={() => void load()}
               accessibilityRole="button"
-              className="mt-3 min-h-[54px] items-center justify-center rounded-[18px] bg-[#C24A3C] shadow-sm shadow-[#C24A3C]/15 active:bg-[#A63F32] px-4"
+              className="mt-3 min-h-[48px] items-center justify-center rounded-[18px] bg-[#C24A3C] shadow-sm shadow-[#C24A3C]/15 active:bg-[#A63F32] px-4"
             >
-              <Text className="font-bold text-white text-[15px] leading-[24px]" variant="button">Try again</Text>
+              <Text className="font-bold text-[#FAF8F4] text-[14px] leading-[22px]" variant="button">Try again</Text>
             </Pressable>
           </View>
         ) : null}
         {actionError ? (
-          <View className="mb-5 rounded-2xl border border-[#F0C5BE] bg-white p-4">
-            <Text accessibilityRole="alert" className="text-[#A33D34] text-[15px] leading-[24px]" variant="body">
+          <View className="mb-5 rounded-2xl border border-[#F4796B] bg-[#FAF8F4] p-4">
+            <Text accessibilityRole="alert" className="text-[#25221F] text-[14px] leading-[22px]" variant="body">
               {actionError}
             </Text>
           </View>
         ) : null}
         {actionMessage ? (
-          <View className="mb-5 rounded-2xl border border-[#B8DEC5] bg-white p-4">
-            <Text className="text-[#286B40] text-[15px] leading-[24px]" variant="body">{actionMessage}</Text>
+          <View className="mb-5 rounded-2xl border border-[#E2D9CF] bg-[#FAF8F4] p-4">
+            <Text className="text-[#25221F] text-[14px] leading-[22px]" variant="body">{actionMessage}</Text>
           </View>
         ) : null}
 
@@ -481,7 +481,7 @@ export function SubscriptionScreen() {
             <Section title="Current plan">
               <View className="p-4">
                 <View className="flex-row items-center justify-between">
-                  <Text className="text-[21px] leading-[28px] tracking-[-0.3px] font-bold text-[#292724]" variant="section">
+                  <Text className="text-[14px] leading-[23px] tracking-[-0.3px] font-bold text-[#25221F]" variant="section">
                     {!account.subscription && account.plan_id === "free"
                       ? "Free"
                       : plans.plans.find(
@@ -491,21 +491,21 @@ export function SubscriptionScreen() {
                           ? "Pro"
                           : account.subscription?.plan_id ?? "Free")}
                   </Text>
-                  <View className="rounded-full bg-[#F1E9DF] px-3 py-1">
-                    <Text className="text-[12px] font-bold uppercase text-[#716A64]" variant="caption">
+                  <View className="rounded-full bg-[#F4F0EA] px-3 py-1">
+                    <Text className="text-[12px] font-bold uppercase text-[#25221F]" variant="caption">
                       {account.subscription?.status ?? "free"}
                     </Text>
                   </View>
                 </View>
                 {account.subscription ? (
                   <>
-                    <Text className="mt-3 text-[15px] leading-[24px] text-[#716A64]" variant="body">
+                    <Text className="mt-3 text-[14px] leading-[22px] text-[#25221F]" variant="body">
                       Billing interval:{" "}
                       {account.subscription.billing_interval === "none"
                         ? "Not specified"
                         : account.subscription.billing_interval}
                     </Text>
-                    <Text className="mt-1 text-[15px] leading-[24px] text-[#716A64]" variant="body">
+                    <Text className="mt-1 text-[14px] leading-[22px] text-[#25221F]" variant="body">
                       {account.subscription.cancel_at_period_end
                         ? "Subscription ends: "
                         : account.subscription.status === "canceled"
@@ -521,7 +521,7 @@ export function SubscriptionScreen() {
                             : account.subscription.current_period_end
                       )}
                     </Text>
-                    <Text className="mt-1 text-[15px] leading-[24px] text-[#716A64]" variant="body">
+                    <Text className="mt-1 text-[14px] leading-[22px] text-[#25221F]" variant="body">
                       Current price:{" "}
                       {currentPayment
                         ? formatAmount(
@@ -549,27 +549,27 @@ export function SubscriptionScreen() {
                           })()}
                     </Text>
                     {account.subscription.cancel_at_period_end ? (
-                      <Text className="mt-2 text-[15px] leading-[24px] font-semibold text-[#B04438]" variant="label">
+                      <Text className="mt-2 text-[14px] leading-[22px] font-semibold text-[#25221F]" variant="label">
                         Active until{" "}
                         {formatDate(account.subscription.current_period_end)}.
                         Cancellation is scheduled for that date.
                       </Text>
                     ) : account.subscription.provider === "stripe" &&
                       account.subscription.status === "active" ? (
-                      <Text className="mt-2 text-[15px] leading-[24px] font-semibold text-[#27824A]" variant="label">
+                      <Text className="mt-2 text-[14px] leading-[22px] font-semibold text-[#25221F]" variant="label">
                         Subscription renews on{" "}
                         {formatDate(account.subscription.current_period_end)}.
                       </Text>
                     ) : null}
                     {account.subscription.status === "pending" ? (
-                      <Text className="mt-2 text-[15px] leading-[24px] font-semibold text-[#9A6A14]" variant="label">
+                      <Text className="mt-2 text-[14px] leading-[22px] font-semibold text-[#25221F]" variant="label">
                         Payment is pending Stripe confirmation. You can resume
                         the existing checkout below.
                       </Text>
                     ) : null}
                     {account.subscription.status === "past_due" ||
                     latestPayment?.status === "failed" ? (
-                      <Text className="mt-2 text-[15px] leading-[24px] font-semibold text-[#B04438]" variant="label">
+                      <Text className="mt-2 text-[14px] leading-[22px] font-semibold text-[#25221F]" variant="label">
                         Payment failed or is overdue. Update the payment method
                         below before making plan changes.
                       </Text>
@@ -580,11 +580,11 @@ export function SubscriptionScreen() {
                           onPress={() => void openBillingPortal()}
                           disabled={savingAction !== null}
                           accessibilityRole="button"
-                          className={`min-h-[54px] items-center justify-center rounded-[18px] px-4 ${
-                            savingAction ? "bg-[#C8BEB5]" : "bg-[#292724]"
+                          className={`min-h-[48px] items-center justify-center rounded-[18px] px-4 ${
+                            savingAction ? "bg-[#F4F0EA]" : "bg-[#C24A3C] active:bg-[#A63F32]"
                           }`}
                         >
-                          <Text className="font-bold text-white text-[15px] leading-[24px]" variant="button">
+                          <Text className="font-bold text-[#FAF8F4] text-[14px] leading-[22px]" variant="button">
                             {savingAction === "portal"
                               ? "Opening payment portal..."
                               : "Update payment method"}
@@ -592,7 +592,7 @@ export function SubscriptionScreen() {
                         </Pressable>
                         {awaitingPortalConfirmation &&
                         currentSubscription?.status === "past_due" ? (
-                          <Text className="mt-2 text-[15px] leading-[23px] text-[#8A6412]" variant="body">
+                          <Text className="mt-2 text-[14px] leading-[23px] text-[#25221F]" variant="body">
                             Waiting for Stripe to confirm your updated payment
                             details. This can take a moment — pull to refresh
                             Billing to check again.
@@ -601,17 +601,17 @@ export function SubscriptionScreen() {
                       </View>
                     ) : null}
                     {currentPayment ? (
-                      <View className="mt-4 rounded-xl bg-[#F7F4EF] p-3">
-                        <Text className="text-[12px] font-bold uppercase tracking-[1px] text-[#716A64]" variant="eyebrow" tone="secondary">
+                      <View className="mt-4 rounded-xl bg-[#F4F0EA] p-3">
+                        <Text className="text-[12px] font-bold uppercase tracking-[1px] text-[#25221F]" variant="eyebrow" tone="secondary">
                           Latest confirmed payment
                         </Text>
                         <View className="mt-2 flex-row items-center justify-between gap-3">
-                          <Text className="text-[15px] leading-[24px] capitalize text-[#716A64]" variant="body">
+                          <Text className="text-[14px] leading-[22px] capitalize text-[#25221F]" variant="body">
                             {currentPayment.status}
                           </Text>
                           {currentPayment.amount_minor !== null &&
                           currentPayment.currency ? (
-                            <Text className="font-semibold text-[#292724] text-[15px] leading-[24px]" variant="label">
+                            <Text className="font-semibold text-[#25221F] text-[14px] leading-[22px]" variant="label">
                               {formatAmount(
                                 currentPayment.amount_minor,
                                 currentPayment.currency
@@ -619,7 +619,7 @@ export function SubscriptionScreen() {
                             </Text>
                           ) : null}
                         </View>
-                        <Text className="mt-1 text-[15px] leading-[24px] text-[#716A64]" variant="body">
+                        <Text className="mt-1 text-[14px] leading-[22px] text-[#25221F]" variant="body">
                           {formatDate(
                             currentPayment.occurred_at ??
                               currentPayment.created_at
@@ -629,11 +629,11 @@ export function SubscriptionScreen() {
                     ) : null}
                     {latestPayment &&
                     latestPayment.status !== "succeeded" ? (
-                      <View className="mt-4 rounded-xl bg-[#FCE5E1] p-3">
-                        <Text className="text-[12px] font-bold uppercase tracking-[1px] text-[#A33D34]" variant="eyebrow" tone="secondary">
+                      <View className="mt-4 rounded-xl bg-[#FFF0EC] p-3">
+                        <Text className="text-[12px] font-bold uppercase tracking-[1px] text-[#25221F]" variant="eyebrow" tone="secondary">
                           Latest payment status
                         </Text>
-                        <Text className="mt-2 font-semibold capitalize text-[#A33D34] text-[15px] leading-[24px]" variant="label">
+                        <Text className="mt-2 font-semibold capitalize text-[#25221F] text-[14px] leading-[22px]" variant="label">
                           {latestPayment.status}
                         </Text>
                       </View>
@@ -644,11 +644,11 @@ export function SubscriptionScreen() {
                           onPress={() => void confirmCancellation(true)}
                           disabled={savingAction !== null}
                           accessibilityRole="button"
-                          className={`min-h-[54px] items-center justify-center rounded-[18px] px-4 ${
-                            savingAction ? "bg-[#C8BEB5]" : "bg-[#B04438]"
+                          className={`min-h-[48px] items-center justify-center rounded-[18px] px-4 ${
+                            savingAction ? "bg-[#F4F0EA]" : "bg-[#25221F]"
                           }`}
                         >
-                          <Text className="font-bold text-white text-[15px] leading-[24px]" variant="button">
+                          <Text className="font-bold text-[#FAF8F4] text-[14px] leading-[22px]" variant="button">
                             {savingAction === "cancel"
                               ? "Updating subscription..."
                               : "Cancel Subscription"}
@@ -658,9 +658,9 @@ export function SubscriptionScreen() {
                           onPress={() => void confirmCancellation(false)}
                           disabled={savingAction !== null}
                           accessibilityRole="button"
-                          className="min-h-[54px] items-center justify-center rounded-[18px] border border-[#E9E2DA] bg-white active:bg-[#F1E9DF] px-4"
+                          className="min-h-[48px] items-center justify-center rounded-[18px] border border-[#E2D9CF] bg-[#FAF8F4] active:bg-[#F4F0EA] px-4"
                         >
-                          <Text className="font-semibold text-[#B04438] text-[15px] leading-[24px]" variant="button">
+                          <Text className="font-semibold text-[#25221F] text-[14px] leading-[22px]" variant="button">
                             Cancel immediately instead
                           </Text>
                         </Pressable>
@@ -674,22 +674,22 @@ export function SubscriptionScreen() {
                         }}
                         disabled={savingAction !== null}
                         accessibilityRole="button"
-                        className="mt-3 min-h-[54px] items-center justify-center rounded-[18px] border border-[#C24A3C] bg-white px-4"
+                        className="mt-3 min-h-[48px] items-center justify-center rounded-[18px] border border-[#C24A3C] bg-[#FAF8F4] px-4"
                       >
-                        <Text className="font-bold text-[#B04438] text-[15px] leading-[24px]" variant="button">
+                        <Text className="font-bold text-[#25221F] text-[14px] leading-[22px]" variant="button">
                           {showPlanOptions ? "Hide plans" : "Switch Plan"}
                         </Text>
                       </Pressable>
                     ) : null}
                   </>
                 ) : (
-                  <Text className="mt-2 text-[#716A64] text-[15px] leading-[24px]" variant="body">
+                  <Text className="mt-2 text-[#25221F] text-[14px] leading-[22px]" variant="body">
                     No paid subscription is active on this account.
                   </Text>
                 )}
               </View>
-              <View className="border-t border-[#E9E2DA] px-4 py-3">
-                <Text className="text-[15px] leading-[23px] text-[#716A64]" variant="body">
+              <View className="border-t border-[#E2D9CF] px-4 py-3">
+                <Text className="text-[14px] leading-[23px] text-[#25221F]" variant="body">
                   {account.subscription?.cancel_at_period_end
                     ? `Your plan remains active until ${formatDate(
                         account.subscription.current_period_end
@@ -708,13 +708,13 @@ export function SubscriptionScreen() {
             {showPlanOptions && switchAvailable ? (
               <Section title="Switch plan">
                 <View className="p-4">
-                  <Text className="mb-3 text-[15px] leading-[23px] text-[#716A64]" variant="body">
+                  <Text className="mb-3 text-[14px] leading-[23px] text-[#25221F]" variant="body">
                     Choose a new plan and billing interval. Stripe applies
                     proration as a charge or credit on the upcoming invoice.
                   </Text>
                   {plans.plans.map((plan) => (
                     <View key={plan.id} className="mb-4 last:mb-0">
-                      <Text className="font-bold text-[#292724] text-[15px] leading-[24px]" variant="label">
+                      <Text className="font-bold text-[#25221F] text-[14px] leading-[22px]" variant="label">
                         {plan.name}
                       </Text>
                       {(["monthly", "annual"] as const).map((interval) => {
@@ -734,12 +734,12 @@ export function SubscriptionScreen() {
                             }
                             disabled={savingAction !== null}
                             accessibilityRole="button"
-                            className="mt-2 min-h-[54px] flex-row items-center justify-between rounded-[18px] border border-[#E9E2DA] px-3"
+                            className="mt-2 min-h-[48px] flex-row items-center justify-between rounded-[18px] border border-[#E2D9CF] px-3"
                           >
-                            <Text className="font-semibold text-[#716A64] text-[15px] leading-[24px]" variant="button">
+                            <Text className="font-semibold text-[#25221F] text-[14px] leading-[22px]" variant="button">
                               Switch to {interval}
                             </Text>
-                            <Text className="font-semibold text-[#292724] text-[15px] leading-[24px]" variant="button">
+                            <Text className="font-semibold text-[#25221F] text-[14px] leading-[22px]" variant="button">
                               {price.price_minor !== null && price.currency
                                 ? `${formatAmount(
                                     price.price_minor,
@@ -753,8 +753,8 @@ export function SubscriptionScreen() {
                     </View>
                   ))}
                   {selectedPlanChange ? (
-                    <View className="mt-2 rounded-xl bg-[#F1E9DF] p-4">
-                      <Text className="font-semibold text-[#716A64] text-[15px] leading-[24px]" variant="label">
+                    <View className="mt-2 rounded-xl bg-[#F4F0EA] p-4">
+                      <Text className="font-semibold text-[#25221F] text-[14px] leading-[22px]" variant="label">
                         Stripe will apply prorated charges or credits based on
                         the remaining billing period. The exact amount is
                         calculated by Stripe before the next invoice.
@@ -763,9 +763,9 @@ export function SubscriptionScreen() {
                         onPress={() => void confirmPlanSwitch()}
                         disabled={savingAction !== null}
                         accessibilityRole="button"
-                        className="mt-3 min-h-[54px] items-center justify-center rounded-[18px] bg-[#C24A3C] shadow-sm shadow-[#C24A3C]/15 active:bg-[#A63F32] px-4"
+                        className="mt-3 min-h-[48px] items-center justify-center rounded-[18px] bg-[#C24A3C] shadow-sm shadow-[#C24A3C]/15 active:bg-[#A63F32] px-4"
                       >
-                        <Text className="font-bold text-white text-[15px] leading-[24px]" variant="button">
+                        <Text className="font-bold text-[#FAF8F4] text-[14px] leading-[22px]" variant="button">
                           {savingAction === "switch"
                             ? "Updating plan..."
                             : "Confirm plan change"}
@@ -783,10 +783,10 @@ export function SubscriptionScreen() {
                 <View
                   key={plan.id}
                   className={`p-4 ${
-                    index ? "border-t border-[#E9E2DA]" : ""
+                    index ? "border-t border-[#E2D9CF]" : ""
                   }`}
                 >
-                  <Text className="text-[19px] leading-[26px] font-bold text-[#292724]" variant="cardTitle">
+                  <Text className="text-[14px] leading-[22px] font-bold text-[#25221F]" variant="cardTitle">
                     {plan.name}
                   </Text>
                   {(["monthly", "annual"] as const).map((interval) => {
@@ -794,7 +794,7 @@ export function SubscriptionScreen() {
                     return (
                       <Text
                         key={interval}
-                        className="mt-2 text-[15px] leading-[24px] text-[#716A64]" variant="body"
+                        className="mt-2 text-[14px] leading-[22px] text-[#25221F]" variant="body"
                       >
                         {interval === "monthly" ? "Monthly" : "Annual"}:{" "}
                         {price.price_minor !== null && price.currency
@@ -811,7 +811,7 @@ export function SubscriptionScreen() {
                       </Text>
                     );
                   })}
-                  <Text className="mt-2 text-[15px] leading-[23px] text-[#716A64]" variant="body">
+                  <Text className="mt-2 text-[14px] leading-[23px] text-[#25221F]" variant="body">
                     {plan.features_configured
                       ? plan.features.length
                         ? plan.features.join(" · ")
@@ -828,9 +828,9 @@ export function SubscriptionScreen() {
                       }
                       accessibilityRole="button"
                       accessibilityLabel={`View ${plan.name} monthly pricing`}
-                      className="min-h-[54px] flex-1 items-center justify-center rounded-[18px] bg-[#C24A3C] shadow-sm shadow-[#C24A3C]/15 active:bg-[#A63F32] px-3"
+                      className="min-h-[48px] flex-1 items-center justify-center rounded-[18px] bg-[#C24A3C] shadow-sm shadow-[#C24A3C]/15 active:bg-[#A63F32] px-3"
                     >
-                      <Text className="text-center text-[15px] leading-[24px] font-bold text-white" variant="button">
+                      <Text className="text-center text-[14px] leading-[22px] font-bold text-[#FAF8F4]" variant="button">
                         Monthly pricing
                       </Text>
                     </Pressable>
@@ -843,9 +843,9 @@ export function SubscriptionScreen() {
                       }
                       accessibilityRole="button"
                       accessibilityLabel={`View ${plan.name} annual pricing`}
-                      className="min-h-[54px] flex-1 items-center justify-center rounded-[18px] border border-[#C24A3C] bg-white px-3"
+                      className="min-h-[48px] flex-1 items-center justify-center rounded-[18px] border border-[#C24A3C] bg-[#FAF8F4] px-3"
                     >
-                      <Text className="text-center text-[15px] leading-[24px] font-bold text-[#B94E45]" variant="button">
+                      <Text className="text-center text-[14px] leading-[22px] font-bold text-[#25221F]" variant="button">
                         Annual pricing
                       </Text>
                     </Pressable>
@@ -856,7 +856,7 @@ export function SubscriptionScreen() {
             ) : currentSubscription?.status === "pending" ? (
               <Section title="Pending checkout">
                 <View className="p-4">
-                  <Text className="text-[#716A64] text-[15px] leading-[24px]" variant="body">
+                  <Text className="text-[#25221F] text-[14px] leading-[22px]" variant="body">
                     The previous checkout is still pending. Resume it to avoid
                     creating a duplicate subscription.
                   </Text>
@@ -871,9 +871,9 @@ export function SubscriptionScreen() {
                       })
                     }
                     accessibilityRole="button"
-                    className="mt-3 min-h-[54px] items-center justify-center rounded-[18px] bg-[#C24A3C] shadow-sm shadow-[#C24A3C]/15 active:bg-[#A63F32] px-4"
+                    className="mt-3 min-h-[48px] items-center justify-center rounded-[18px] bg-[#C24A3C] shadow-sm shadow-[#C24A3C]/15 active:bg-[#A63F32] px-4"
                   >
-                    <Text className="font-bold text-white text-[15px] leading-[24px]" variant="button">
+                    <Text className="font-bold text-[#FAF8F4] text-[14px] leading-[22px]" variant="button">
                       Resume pending checkout
                     </Text>
                   </Pressable>
@@ -887,10 +887,10 @@ export function SubscriptionScreen() {
                   <View
                     key={item.id}
                     className={`p-4 ${
-                      index ? "border-t border-[#E9E2DA]" : ""
+                      index ? "border-t border-[#E2D9CF]" : ""
                     }`}
                   >
-                    <Text className="font-semibold text-[#292724] text-[15px] leading-[24px]" variant="label">
+                    <Text className="font-semibold text-[#25221F] text-[14px] leading-[22px]" variant="label">
                       {item.plan_name ||
                         plans.plans.find((plan) => plan.id === item.plan_id)
                           ?.name ||
@@ -898,20 +898,20 @@ export function SubscriptionScreen() {
                       · {formatTransactionType(item.transaction_type)} · {item.billing_interval}
                     </Text>
                     <View className="mt-2 flex-row items-center justify-between gap-3">
-                      <Text className="text-[15px] leading-[24px] font-semibold capitalize text-[#716A64]" variant="label">
+                      <Text className="text-[14px] leading-[22px] font-semibold capitalize text-[#25221F]" variant="label">
                         {item.status}
                       </Text>
                       {item.amount_minor !== null && item.currency ? (
-                        <Text className="font-semibold text-[#292724] text-[15px] leading-[24px]" variant="label">
+                        <Text className="font-semibold text-[#25221F] text-[14px] leading-[22px]" variant="label">
                           {formatAmount(item.amount_minor, item.currency)}
                         </Text>
                       ) : null}
                     </View>
-                    <Text className="mt-1 text-[15px] leading-[24px] text-[#716A64]" variant="body">
+                    <Text className="mt-1 text-[14px] leading-[22px] text-[#25221F]" variant="body">
                       {formatDate(item.paid_at ?? item.occurred_at ?? item.created_at)}
                     </Text>
                     {item.payment_method_brand && item.payment_method_last4 ? (
-                      <Text className="mt-1 text-[15px] leading-[24px] text-[#716A64]" variant="body">
+                      <Text className="mt-1 text-[14px] leading-[22px] text-[#25221F]" variant="body">
                         {item.payment_method_brand} ending in {item.payment_method_last4}
                       </Text>
                     ) : null}
@@ -922,7 +922,7 @@ export function SubscriptionScreen() {
                         accessibilityLabel="Open invoice receipt"
                         className="mt-2 min-h-10 justify-center"
                       >
-                        <Text className="font-semibold text-[#B94E45] text-[15px] leading-[24px]" variant="button">
+                        <Text className="font-semibold text-[#25221F] text-[14px] leading-[22px]" variant="button">
                           View invoice
                         </Text>
                       </Pressable>
@@ -930,7 +930,7 @@ export function SubscriptionScreen() {
                   </View>
                 ))
               ) : (
-                <Text className="p-4 text-[#716A64] text-[15px] leading-[24px]" variant="body">
+                <Text className="p-4 text-[#25221F] text-[14px] leading-[22px]" variant="body">
                   No payment transactions yet.
                 </Text>
               )}

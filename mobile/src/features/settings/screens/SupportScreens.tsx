@@ -33,15 +33,15 @@ function PageHeader({
         }
         accessibilityRole="button"
         accessibilityLabel="Go back"
-        className="mb-8 h-11 w-11 items-center justify-center rounded-full border border-[#E9E2DA] bg-white active:bg-[#F1E9DF]"
+        className="mb-4 h-11 w-11 items-center justify-center rounded-full border border-[#E2D9CF] bg-[#FAF8F4] active:bg-[#F4F0EA]"
       >
-        <Text className="text-xl text-[#716A64]">‹</Text>
+        <Text className="text-xl text-[#25221F]">‹</Text>
       </Pressable>
-      <View className="mb-5 h-14 w-14 items-center justify-center rounded-2xl bg-[#F1E9DF]">
-        <Text className="text-[21px] leading-[28px] tracking-[-0.3px] font-bold text-[#716A64]" variant="section">{icon}</Text>
+      <View className="mb-5 h-14 w-14 items-center justify-center rounded-2xl bg-[#F4F0EA]">
+        <Text className="text-[14px] leading-[23px] tracking-[-0.3px] font-bold text-[#25221F]" variant="section">{icon}</Text>
       </View>
-      <Text className="text-[30px] leading-[37px] tracking-[-0.6px] font-bold text-[#292724]" variant="metric">{title}</Text>
-      <Text className="mb-6 mt-3 text-base leading-6 text-[#716A64]" variant="body">
+      <Text className="text-[22px] leading-[30px] tracking-[-0.3px] font-bold text-[#25221F]" variant="metric">{title}</Text>
+      <Text className="mb-6 mt-3 text-[14px] leading-6 text-[#25221F]" variant="body">
         {description}
       </Text>
     </>
@@ -50,11 +50,11 @@ function PageHeader({
 
 function LegalDraftNotice() {
   return (
-    <View className="mb-5 rounded-2xl border border-[#F0D8B8] bg-[#FFF9EF] p-4">
-      <Text className="font-semibold text-[#6B5231] text-[15px] leading-[24px]" variant="label">
+    <View className="mb-5 rounded-2xl border border-[#F4F0EA] bg-[#F4F0EA] p-4">
+      <Text className="font-semibold text-[#25221F] text-[14px] leading-[22px]" variant="label">
         General draft - review before release
       </Text>
-      <Text className="mt-1 text-[#716A64] text-[15px] leading-[24px]" variant="body">
+      <Text className="mt-1 text-[#25221F] text-[14px] leading-[22px]" variant="body">
         Ibda&apos;s legal publisher, contact details, and governing
         jurisdiction have not been provided. Have the responsible organization
         review and complete this document before relying on or publishing it.
@@ -85,29 +85,29 @@ function LegalPage({
         showsVerticalScrollIndicator={false}
       >
         <PageHeader icon={icon} title={title} description={description} />
-        <Text className="mb-4 text-[15px] leading-[24px] text-[#716A64]" variant="body">
+        <Text className="mb-4 text-[14px] leading-[22px] text-[#25221F]" variant="body">
           Last updated: {LAST_UPDATED}
         </Text>
         <LegalDraftNotice />
         {sections.map((section) => (
           <StudioCard
             key={section.title}
-            className="mb-4 rounded-3xl border border-[#E9E2DA] bg-white p-5"
+            className="mb-4 rounded-3xl border border-[#25221F]/30 bg-[#F4F0EA] p-5"
           >
-            <Text className="text-[19px] leading-[26px] font-bold text-[#292724]" variant="cardTitle">
+            <Text className="text-[14px] leading-[22px] font-bold text-[#25221F]" variant="cardTitle">
               {section.title}
             </Text>
             {section.paragraphs.map((paragraph, index) => (
               <Text
                 key={`${section.title}-${index}`}
-                className="mt-3 text-[#716A64] text-[15px] leading-[24px]" variant="body"
+                className="mt-3 text-[#25221F] text-[14px] leading-[22px]" variant="body"
               >
                 {paragraph}
               </Text>
             ))}
           </StudioCard>
         ))}
-        <Text className="mt-1 text-[15px] leading-[23px] text-[#716A64]" variant="body">
+        <Text className="mt-1 text-[14px] leading-[23px] text-[#25221F]" variant="body">
           This general information is not legal advice. Contact the Ibda team
           through the Contact support page with questions.
         </Text>
@@ -174,11 +174,11 @@ export function ContactSupportScreen() {
           description="Send a message to the Ibda support team. Your request will be saved so the team can follow up."
         />
         {receipt ? (
-          <View className="mb-5 rounded-2xl border border-[#B9DEC9] bg-[#F0FAF4] p-4">
-            <Text className="font-semibold text-[#276844] text-[15px] leading-[24px]" variant="label">
+          <View className="mb-5 rounded-2xl border border-[#E2D9CF] bg-[#F4F0EA] p-4">
+            <Text className="font-semibold text-[#25221F] text-[14px] leading-[22px]" variant="label">
               Support request sent
             </Text>
-            <Text className="mt-1 text-[#456B56] text-[15px] leading-[24px]" variant="body">
+            <Text className="mt-1 text-[#25221F] text-[14px] leading-[22px]" variant="body">
               Your request is saved. Reference: {receipt.id}
             </Text>
           </View>
@@ -186,73 +186,73 @@ export function ContactSupportScreen() {
         {submitError ? (
           <View
             accessibilityRole="alert"
-            className="mb-5 rounded-2xl border border-[#F0C5BE] bg-white p-4"
+            className="mb-5 rounded-2xl border border-[#F4796B] bg-[#FAF8F4] p-4"
           >
-            <Text className="text-[#A33D34] text-[15px] leading-[24px]" variant="body">{submitError}</Text>
+            <Text className="text-[#25221F] text-[14px] leading-[22px]" variant="body">{submitError}</Text>
           </View>
         ) : null}
         {!replyEmail.trim() ? (
-          <View className="mb-5 rounded-2xl border border-[#E9E2DA] bg-white p-4">
-            <Text className="text-[#716A64] text-[15px] leading-[24px]" variant="body">
+          <View className="mb-5 rounded-2xl border border-[#E2D9CF] bg-[#FAF8F4] p-4">
+            <Text className="text-[#25221F] text-[14px] leading-[22px]" variant="body">
               Leave your email blank to use the email address on your Ibda
               account.
             </Text>
           </View>
         ) : null}
-        <StudioCard className="rounded-3xl border border-[#E9E2DA] bg-white p-5">
-          <Text className="mb-2 text-[15px] leading-[24px] font-semibold text-[#716A64]" variant="label">
+        <StudioCard className="rounded-3xl border border-[#E2D9CF] bg-[#F4F0EA] p-5">
+          <Text className="mb-2 text-[14px] leading-[22px] font-semibold text-[#25221F]" variant="label">
             Contact email (optional)
           </Text>
           <TextInput
             value={replyEmail}
             onChangeText={setReplyEmail}
             placeholder="you@example.com"
-            placeholderTextColor="#716A64"
+            placeholderTextColor="#25221F"
             keyboardType="email-address"
             autoCapitalize="none"
             autoComplete="email"
             accessibilityLabel="Your email"
-            className="min-h-12 rounded-[18px] border border-[#E9E2DA] bg-[#FAF8F4] px-4 text-[#292724]"
+            className="min-h-12 rounded-[18px] border border-[#E2D9CF] bg-[#FAF8F4] px-4 text-[#25221F]"
           />
-          <Text className="mb-2 mt-4 text-[15px] leading-[24px] font-semibold text-[#716A64]" variant="label">
+          <Text className="mb-2 mt-4 text-[14px] leading-[22px] font-semibold text-[#25221F]" variant="label">
             Subject
           </Text>
           <TextInput
             value={subject}
             onChangeText={setSubject}
             placeholder="How can we help?"
-            placeholderTextColor="#716A64"
+            placeholderTextColor="#25221F"
             maxLength={120}
             accessibilityLabel="Support request subject"
-            className="min-h-12 rounded-[18px] border border-[#E9E2DA] bg-[#FAF8F4] px-4 text-[#292724]"
+            className="min-h-12 rounded-[18px] border border-[#E2D9CF] bg-[#FAF8F4] px-4 text-[#25221F]"
           />
-          <Text className="mb-2 mt-4 text-[15px] leading-[24px] font-semibold text-[#716A64]" variant="label">
+          <Text className="mb-2 mt-4 text-[14px] leading-[22px] font-semibold text-[#25221F]" variant="label">
             Message
           </Text>
           <TextInput
             value={message}
             onChangeText={setMessage}
             placeholder="Describe the issue or question..."
-            placeholderTextColor="#716A64"
+            placeholderTextColor="#25221F"
             multiline
             textAlignVertical="top"
             maxLength={4000}
             accessibilityLabel="Support request message"
-            className="min-h-36 rounded-[18px] border border-[#E9E2DA] bg-[#FAF8F4] px-4 py-4 text-[#292724]"
+            className="min-h-36 rounded-[18px] border border-[#E2D9CF] bg-[#FAF8F4] px-4 py-4 text-[#25221F]"
           />
           <Pressable
             onPress={() => void sendSupportRequest()}
             disabled={submitting}
             accessibilityRole="button"
-            className={`mt-5 min-h-[54px] items-center justify-center rounded-[18px] px-4 ${
-              submitting ? "bg-[#D7CEC5]" : "bg-[#C24A3C] active:bg-[#A63F32]"
+            className={`mt-5 min-h-[48px] items-center justify-center rounded-[18px] px-4 ${
+              submitting ? "bg-[#F4F0EA]" : "bg-[#C24A3C] active:bg-[#A63F32]"
             }`}
           >
-            <Text className="font-bold text-white text-[15px] leading-[24px]" variant="button">
+            <Text className="font-bold text-[#FAF8F4] text-[14px] leading-[22px]" variant="button">
               {submitting ? "Sending..." : "Send support request"}
             </Text>
           </Pressable>
-          <Text className="mt-3 text-[12px] leading-[23px] text-[#716A64]" variant="caption">
+          <Text className="mt-3 text-[12px] leading-[23px] text-[#25221F]" variant="caption">
             Your message and contact email are saved with your
             support request so the Ibda team can respond.
           </Text>

@@ -72,14 +72,14 @@ export function BrandSetupForm() {
   };
 
   const inputClass =
-    "mt-2 rounded-[18px] border border-[#E9E2DA] bg-[#F7F4EF] px-4 py-4 text-base text-[#292724]";
+    "mt-2 rounded-[18px] border border-[#E2D9CF] bg-[#F4F0EA] px-4 py-4 text-base text-[#25221F]";
 
   return (
     <ScrollView
       className="flex-1 bg-[#FAF8F4]"
       contentContainerStyle={{
         paddingHorizontal: 24,
-        paddingTop: 36,
+        paddingTop: 16,
         paddingBottom: 48, width: "100%", maxWidth: 960, alignSelf: "center",
       }}
       keyboardShouldPersistTaps="handled"
@@ -89,9 +89,9 @@ export function BrandSetupForm() {
         <Pressable
           onPress={() => router.back()}
           accessibilityRole="button"
-          className="h-11 w-11 items-center justify-center rounded-full border border-[#E9E2DA] bg-white active:bg-[#F1E9DF]"
+          className="h-11 w-11 items-center justify-center rounded-full border border-[#E2D9CF] bg-[#FAF8F4] active:bg-[#F4F0EA]"
         >
-          <Text className="text-2xl text-[#292724]">←</Text>
+          <Text className="text-2xl text-[#25221F]">←</Text>
         </Pressable>
 
         <Pressable
@@ -99,29 +99,29 @@ export function BrandSetupForm() {
           accessibilityRole="button"
           className="rounded-2xl px-4 py-3"
         >
-          <Text className="font-semibold text-[#716A64] text-[15px] leading-[24px]" variant="button">
+          <Text className="font-semibold text-[#25221F] text-[14px] leading-[22px]" variant="button">
             Skip for now
           </Text>
         </Pressable>
       </View>
 
-      <View className="mb-8">
-        <Text className="mb-3 text-[15px] leading-[24px] font-semibold uppercase tracking-[2px] text-[#4A523E]" variant="eyebrow" tone="olive">
+      <View className="mb-6 rounded-[24px] bg-[#F4F0EA] p-5">
+        <Text className="mb-3 text-[14px] leading-[22px] font-semibold uppercase tracking-[2px] text-[#25221F]" variant="eyebrow" tone="olive">
           LET&apos;S GET STARTED
         </Text>
 
-        <Text className="text-[32px] tracking-[-0.8px] font-bold leading-[44px] text-[#292724]" variant="page" tone="olive">
+        <Text className="text-[22px] tracking-[-0.3px] font-bold leading-[30px] text-[#25221F]" variant="page" tone="olive">
           Tell us about{"\n"}your brand.
         </Text>
 
-        <Text className="mt-4 text-base leading-6 text-[#716A64]" variant="body">
+        <Text className="mt-4 text-[14px] leading-6 text-[#25221F]" variant="body">
           Help Ibda understand your business so it can create content that
           feels like you.
         </Text>
       </View>
 
       <View className="mb-6">
-        <Text className="text-[15px] leading-[24px] font-semibold text-[#292724]" variant="label">
+        <Text className="text-[14px] leading-[22px] font-semibold text-[#25221F]" variant="label">
           Brand name *
         </Text>
 
@@ -129,7 +129,7 @@ export function BrandSetupForm() {
           value={name}
           onChangeText={setName}
           placeholder="e.g. Studio Bloom"
-          placeholderTextColor="#716A64"
+          placeholderTextColor="#25221F"
           className={inputClass}
           autoCapitalize="words"
           returnKeyType="next"
@@ -138,7 +138,7 @@ export function BrandSetupForm() {
       </View>
 
       <View className="mb-6">
-        <Text className="text-[15px] leading-[24px] font-semibold text-[#292724]" variant="label">
+        <Text className="text-[14px] leading-[22px] font-semibold text-[#25221F]" variant="label">
           What industry are you in? *
         </Text>
 
@@ -152,12 +152,12 @@ export function BrandSetupForm() {
                 onPress={() => setIndustry(item)}
                 disabled={loading}
                 className={`rounded-2xl border px-4 py-3 ${selected
-                    ? "border-[#C24A3C] bg-[#C24A3C] active:bg-[#A63F32]"
-                    : "border-[#E9E2DA] bg-white active:bg-[#F1E9DF]"
+                    ? "border-[#C24A3C] bg-[#C24A3C] active:bg-[#25221F]"
+                    : "border-[#E2D9CF] bg-[#FAF8F4] active:bg-[#F4F0EA]"
                   }`}
               >
                 <Text
-                  className={`text-[15px] leading-[24px] font-medium ${selected ? "text-white" : "text-[#716A64]"
+                  className={`text-[14px] leading-[22px] font-medium ${selected ? "text-[#FAF8F4]" : "text-[#25221F]"
                     }`} variant="button"
                 >
                   {item}
@@ -169,7 +169,7 @@ export function BrandSetupForm() {
       </View>
 
       <View className="mb-6">
-        <Text className="text-[15px] leading-[24px] font-semibold text-[#292724]" variant="label">
+        <Text className="text-[14px] leading-[22px] font-semibold text-[#25221F]" variant="label">
           About your brand *
         </Text>
 
@@ -177,7 +177,7 @@ export function BrandSetupForm() {
           value={description}
           onChangeText={setDescription}
           placeholder="What do you do? Who are your customers? What makes your brand special?"
-          placeholderTextColor="#716A64"
+          placeholderTextColor="#25221F"
           multiline
           textAlignVertical="top"
           className={inputClass}
@@ -185,22 +185,22 @@ export function BrandSetupForm() {
           editable={!loading}
         />
 
-        <Text className="mt-2 text-[12px] leading-[23px] text-[#716A64]" variant="caption">
+        <Text className="mt-2 text-[12px] leading-[23px] text-[#25221F]" variant="caption">
           A few sentences will help Ibda create more relevant content.
         </Text>
       </View>
 
-      <View className="mb-8">
-        <Text className="text-[15px] leading-[24px] font-semibold text-[#292724]" variant="label">
+      <View className="mb-6 rounded-[24px] bg-[#F4F0EA] p-5">
+        <Text className="text-[14px] leading-[22px] font-semibold text-[#25221F]" variant="label">
           Website
-          <Text className="font-normal text-[#716A64] text-[15px] leading-[24px]" variant="label"> (optional)</Text>
+          <Text className="font-normal text-[#25221F] text-[14px] leading-[22px]" variant="label"> (optional)</Text>
         </Text>
 
         <TextInput
           value={website}
           onChangeText={setWebsite}
           placeholder="https://yourbrand.com"
-          placeholderTextColor="#716A64"
+          placeholderTextColor="#25221F"
           className={inputClass}
           autoCapitalize="none"
           autoCorrect={false}
@@ -212,19 +212,19 @@ export function BrandSetupForm() {
       <Pressable
         onPress={handleSave}
         disabled={loading}
-        className={`min-h-[54px] flex-row items-center justify-center rounded-[18px] bg-[#C24A3C] shadow-sm shadow-[#C24A3C]/15 active:bg-[#A63F32] px-5 py-4 ${loading ? "opacity-70" : ""
+        className={`min-h-[48px] flex-row items-center justify-center rounded-[18px] bg-[#C24A3C] shadow-sm shadow-[#C24A3C]/15 active:bg-[#A63F32] px-5 py-3 ${loading ? "opacity-70" : ""
           }`}
       >
         {loading ? (
-          <ActivityIndicator color="#FFFFFF" />
+          <ActivityIndicator color="#FAF8F4" />
         ) : (
-          <Text className="text-base leading-[24px] font-bold text-white" variant="label">
+          <Text className="text-[14px] leading-[22px] font-bold text-[#FAF8F4]" variant="label">
             Create my brand →
           </Text>
         )}
       </Pressable>
 
-      <Text className="mt-4 text-center text-[12px] leading-[23px] text-[#716A64]" variant="caption">
+      <Text className="mt-4 text-center text-[12px] leading-[23px] text-[#25221F]" variant="caption">
         You can update your brand details anytime.
       </Text>
     </ScrollView>

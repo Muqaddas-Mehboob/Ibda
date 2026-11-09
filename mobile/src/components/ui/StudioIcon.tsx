@@ -3,6 +3,7 @@ import { Image } from "expo-image";
 const paths = {
   home: '<path d="m3 10 9-7 9 7v10H4V10m5 10v-7h6v7"/>',
   brand: '<path d="m12 3 8 9-8 9-8-9 8-9Z"/><path d="m8 12 4-4 4 4-4 4-4-4Z"/>',
+  wand: '<path d="m4 20 12-12 4 4L8 24Z M14 10l4 4M5 3v4M3 5h4m12-4v4m-2-2h4M3 13v4m-2-2h4" transform="translate(1 -2)"/>',
   spark: '<path d="m12 3 2.4 6.6L21 12l-6.6 2.4L12 21l-2.4-6.6L3 12l6.6-2.4L12 3Z"/>',
   check: '<path d="m7 12 3 3 7-7"/><rect x="3" y="3" width="18" height="18" rx="6"/>',
   calendar: '<rect x="3" y="5" width="18" height="16" rx="4"/><path d="M7 3v4m10-4v4M3 11h18m-13 4h2m4 0h2"/>',
@@ -29,7 +30,7 @@ function imageUri(svg: string) {
   return `data:image/svg+xml;base64,${encoded}`;
 }
 
-export function StudioIcon({ name, color = "#292724", size = 24 }: {
+export function StudioIcon({ name, color = "#25221F", size = 24 }: {
   name: StudioIconName; color?: string; size?: number;
 }) {
   const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="${color}" stroke-width="1.65" stroke-linecap="round" stroke-linejoin="round">${paths[name]}</svg>`;

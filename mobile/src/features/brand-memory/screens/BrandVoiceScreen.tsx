@@ -81,15 +81,15 @@ export function BrandVoiceScreen() {
         multiline = false,
     ) => (
         <View className="mb-5" key={key}>
-            <Text className="mb-2 text-[15px] leading-[24px] font-semibold text-[#292724]" variant="label">{label}</Text>
+            <Text className="mb-2 text-[14px] leading-[22px] font-semibold text-[#25221F]" variant="label">{label}</Text>
             <TextInput
                 value={voice[key]}
                 onChangeText={(value) => update(key, value)}
                 placeholder={placeholder}
-                placeholderTextColor="#716A64"
+                placeholderTextColor="#25221F"
                 multiline={multiline}
                 textAlignVertical={multiline ? "top" : "center"}
-                className={`rounded-[18px] border border-[#E9E2DA] bg-[#F7F4EF] px-4 py-4 text-[#292724] ${multiline ? "min-h-28 rounded-[18px]" : " rounded-[18px]"
+                className={`rounded-[18px] border border-[#E2D9CF] bg-[#F4F0EA] px-4 py-4 text-[#25221F] ${multiline ? "min-h-28 rounded-[18px]" : " rounded-[18px]"
                     }`}
             />
         </View>
@@ -97,16 +97,16 @@ export function BrandVoiceScreen() {
 
     return (
         <View className="flex-1 bg-[#FAF8F4]">
-            <ScrollView contentContainerStyle={{ padding: 24, paddingTop: 36, paddingBottom: 48, width: "100%", maxWidth: 960, alignSelf: "center" }}>
+            <ScrollView contentContainerStyle={{ padding: 24, paddingTop: 16, paddingBottom: 48, width: "100%", maxWidth: 960, alignSelf: "center" }}>
                 <Pressable onPress={() => router.back()}>
-                    <Text className="mb-6 text-base leading-[24px] text-[#716A64]" variant="button">← Back to profiles</Text>
+                    <Text className="mb-6 text-[14px] leading-[22px] text-[#25221F]" variant="button">← Back to profiles</Text>
                 </Pressable>
 
-                <Text className="mb-2 text-[12px] font-bold uppercase tracking-[2px] text-[#4A523E]" variant="eyebrow" tone="olive">
+                <Text className="mb-2 text-[12px] font-bold uppercase tracking-[2px] text-[#25221F]" variant="eyebrow" tone="olive">
                     VOICE & MEMORY
                 </Text>
-                <Text className="text-[32px] leading-[39px] tracking-[-0.8px] font-bold text-[#292724]" variant="page" tone="olive">Brand voice</Text>
-                <Text className="mb-7 mt-3 text-[#716A64] text-[15px] leading-[24px]" variant="body">
+                <Text className="text-[22px] leading-[30px] tracking-[-0.4px] font-bold text-[#25221F]" variant="page" tone="olive">Brand voice</Text>
+                <Text className="mb-7 mt-3 text-[#25221F] text-[14px] leading-[22px]" variant="body">
                     Teach Ibda how your brand sounds, who it speaks to and which rules
                     every piece of content should follow.
                 </Text>
@@ -116,10 +116,10 @@ export function BrandVoiceScreen() {
                 ) : (
                     <>
                         {error ? (
-                            <Text className="mb-4 text-[15px] leading-[24px] text-red-600" variant="body">{error}</Text>
+                            <Text className="mb-4 text-[14px] leading-[22px] text-[#25221F]" variant="body">{error}</Text>
                         ) : null}
 
-                        <Text className="mb-3 text-[19px] leading-[26px] font-bold text-[#292724]" variant="cardTitle">
+                        <Text className="mb-3 text-[14px] leading-[22px] font-bold text-[#25221F]" variant="cardTitle">
                             Choose a tone
                         </Text>
                         <View className="mb-6 flex-row flex-wrap gap-2">
@@ -128,11 +128,11 @@ export function BrandVoiceScreen() {
                                     key={tone}
                                     onPress={() => update("tone", tone)}
                                     className={`rounded-2xl border px-4 py-3 ${voice.tone === tone
-                                            ? "border-[#7F9C81] bg-[#E5EDE3]"
-                                            : "border-[#E9E2DA] bg-white active:bg-[#F1E9DF]"
+                                            ? "border-[#25221F] bg-[#F4F0EA]"
+                                            : "border-[#E2D9CF] bg-[#FAF8F4] active:bg-[#F4F0EA]"
                                         }`}
                                 >
-                                    <Text className="font-medium text-[#292724] text-[15px] leading-[24px]" variant="button">{tone}</Text>
+                                    <Text className="font-medium text-[#25221F] text-[14px] leading-[22px]" variant="button">{tone}</Text>
                                 </Pressable>
                             ))}
                         </View>
@@ -147,7 +147,7 @@ export function BrandVoiceScreen() {
                             onPress={() => void save()}
                             className="items-center rounded-2xl bg-[#C24A3C] active:bg-[#A63F32] py-4"
                         >
-                            <Text className="font-bold text-white text-[15px] leading-[24px]" variant="button">
+                            <Text className="font-bold text-[#FAF8F4] text-[14px] leading-[22px]" variant="button">
                                 {saving ? "Saving..." : "Save brand voice"}
                             </Text>
                         </Pressable>
@@ -159,9 +159,9 @@ export function BrandVoiceScreen() {
                                     params: { brandId },
                                 })
                             }
-                            className="mt-3 items-center rounded-2xl border border-[#E9E2DA] bg-white active:bg-[#F1E9DF] py-4"
+                            className="mt-3 items-center rounded-2xl border border-[#E2D9CF] bg-[#FAF8F4] active:bg-[#F4F0EA] py-4"
                         >
-                            <Text className="font-semibold text-[#292724] text-[15px] leading-[24px]" variant="button">
+                            <Text className="font-semibold text-[#25221F] text-[14px] leading-[22px]" variant="button">
                                 View voice blueprint →
                             </Text>
                         </Pressable>
