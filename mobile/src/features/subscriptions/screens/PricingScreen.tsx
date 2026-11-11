@@ -1,13 +1,7 @@
+import { StudioText as Text } from "../../../components/ui/StudioText";
+import { StudioPressable as Pressable, StudioCard } from "../../../components/ui/StudioControls";
 import { useEffect, useRef, useState } from "react";
-import {
-  ActivityIndicator,
-  Pressable,
-  ScrollView,
-  Text,
-  View,
-  useWindowDimensions,
-  Platform,
-} from "react-native";
+import { ActivityIndicator, ScrollView, View, useWindowDimensions, Platform } from "react-native";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import * as Linking from "expo-linking";
 import * as WebBrowser from "expo-web-browser";
@@ -320,12 +314,12 @@ export function PricingScreen({ interval }: { interval: BillingInterval }) {
   };
 
   return (
-    <View className="flex-1 bg-[#FCF9F4]">
+    <View className="flex-1 bg-[#FAF8F4]">
       <ScrollView
         contentContainerStyle={{
           paddingHorizontal: 20,
-          paddingTop: 24,
-          paddingBottom: 40,
+          paddingTop: 16,
+          paddingBottom: 48, width: "100%", maxWidth: 960, alignSelf: "center",
         }}
         showsVerticalScrollIndicator={false}
       >
@@ -336,32 +330,32 @@ export function PricingScreen({ interval }: { interval: BillingInterval }) {
             alignSelf: "center",
           }}
         >
-          <View className="flex-row items-center justify-between border-b border-[#EAE4DC] pb-4">
-            <Text className="text-2xl font-black tracking-[-1px] text-[#24221F]">
+          <View className="flex-row items-center justify-between border-b border-[#E2D9CF] pb-4">
+            <Text className="text-2xl font-black tracking-[-1px] text-[#25221F]">
               ibda
             </Text>
             <Pressable
               onPress={() => router.push("/subscription")}
               accessibilityRole="button"
               accessibilityLabel="Return to billing overview"
-              className="min-h-11 flex-row items-center rounded-full border border-[#EAE4DC] bg-white px-4"
+              className="min-h-[48px] flex-row items-center rounded-[18px] border border-[#E2D9CF] bg-[#FAF8F4] active:bg-[#F4F0EA] px-4"
             >
-              <Text className="text-sm font-semibold text-[#51483F]">
+              <Text className="text-[14px] leading-[22px] font-semibold text-[#25221F]" variant="button">
                 Billing overview
               </Text>
             </Pressable>
           </View>
 
           <View className="items-center pb-6 pt-8">
-            <View className="rounded-full border border-[#F4D3CE] bg-[#FCE5E1] px-4 py-2">
-              <Text className="text-xs font-bold uppercase tracking-[1.5px] text-[#B94E45]">
+            <View className="rounded-full border border-[#FFF0EC] bg-[#FFF0EC] px-4 py-2">
+              <Text className="text-[12px] font-bold uppercase tracking-[1.5px] text-[#25221F]" variant="eyebrow" tone="secondary">
                 Pricing & plans
               </Text>
             </View>
-            <Text className="mt-4 text-center text-3xl font-bold leading-10 text-[#24221F]">
+            <Text className="mt-4 text-center text-[22px] tracking-[-0.3px] font-bold leading-[30px] text-[#25221F]" variant="metric">
               Choose the right plan for you
             </Text>
-            <Text className="mt-3 max-w-[620px] text-center text-base leading-6 text-[#827970]">
+            <Text className="mt-3 max-w-[620px] text-center text-[14px] leading-6 text-[#25221F]" variant="body">
               Choose a plan and billing interval. Prices and checkout availability
               come from the verified Stripe test-mode catalog.
             </Text>
@@ -370,7 +364,7 @@ export function PricingScreen({ interval }: { interval: BillingInterval }) {
           <View
             accessibilityRole="tablist"
             accessibilityLabel="Billing interval"
-            className="mx-auto mb-6 w-full max-w-[400px] flex-row rounded-full border border-[#EAE4DC] bg-[#F3EEE8] p-1"
+            className="mx-auto mb-6 w-full max-w-[400px] flex-row rounded-full border border-[#E2D9CF] bg-[#F4F0EA] p-1"
           >
             {(["monthly", "annual"] as const).map((option) => {
               const active = option === interval;
@@ -381,14 +375,14 @@ export function PricingScreen({ interval }: { interval: BillingInterval }) {
                   accessibilityRole="tab"
                   accessibilityLabel={`${option === "monthly" ? "Monthly" : "Annual"} billing`}
                   accessibilityState={{ selected: active }}
-                  className={`min-h-12 flex-1 items-center justify-center rounded-full px-3 ${
-                    active ? "bg-white" : ""
+                  className={`min-h-[48px] flex-1 items-center justify-center rounded-[18px] px-3 ${
+                    active ? "bg-[#FAF8F4]" : ""
                   }`}
                 >
                   <Text
-                    className={`text-sm font-bold capitalize ${
-                      active ? "text-[#FF6B5F]" : "text-[#827970]"
-                    }`}
+                    className={`text-[14px] leading-[22px] font-bold capitalize ${
+                      active ? "text-[#C24A3C]" : "text-[#25221F]"
+                    }`} variant="button"
                   >
                     {option}
                   </Text>
@@ -398,9 +392,9 @@ export function PricingScreen({ interval }: { interval: BillingInterval }) {
           </View>
 
           {loadingCatalog ? (
-            <View className="mb-5 flex-row items-center justify-center gap-3 rounded-2xl border border-[#EAE4DC] bg-white p-5">
-              <ActivityIndicator color="#FF6B5F" />
-              <Text className="text-sm text-[#827970]">
+            <View className="mb-5 flex-row items-center justify-center gap-3 rounded-2xl border border-[#E2D9CF] bg-[#FAF8F4] p-5">
+              <ActivityIndicator color="#C24A3C" />
+              <Text className="text-[14px] leading-[22px] text-[#25221F]" variant="body">
                 Loading current prices...
               </Text>
             </View>
@@ -408,8 +402,8 @@ export function PricingScreen({ interval }: { interval: BillingInterval }) {
 
           {account?.subscription &&
           ["active", "past_due", "canceled"].includes(account.subscription.status) ? (
-            <View className="mb-5 rounded-2xl border border-[#EAE4DC] bg-[#F3EEE8] p-4">
-              <Text className="text-sm leading-5 text-[#51483F]">
+            <View className="mb-5 rounded-2xl border border-[#E2D9CF] bg-[#F4F0EA] p-4">
+              <Text className="text-[14px] leading-[23px] text-[#25221F]" variant="body">
                 You already have a {account.subscription.status.replace("_", " ")}{" "}
                 subscription. Review or change it in Billing; a new Checkout
                 Session will not be created.
@@ -417,25 +411,25 @@ export function PricingScreen({ interval }: { interval: BillingInterval }) {
               <Pressable
                 onPress={() => router.push("/subscription")}
                 accessibilityRole="button"
-                className="mt-3 min-h-11 items-center justify-center rounded-xl bg-[#FF6B5F] px-4"
+                className="mt-3 min-h-[48px] items-center justify-center rounded-[18px] bg-[#C24A3C] shadow-sm shadow-[#C24A3C]/15 active:bg-[#A63F32] px-4"
               >
-                <Text className="font-bold text-white">Manage subscription</Text>
+                <Text className="font-bold text-[#FAF8F4] text-[14px] leading-[22px]" variant="button">Manage subscription</Text>
               </Pressable>
             </View>
           ) : null}
 
           {catalogError ? (
-            <View className="mb-5 rounded-2xl border border-[#F0C5BE] bg-white p-4">
-              <Text accessibilityRole="alert" className="text-sm leading-5 text-[#A33D34]">
+            <View className="mb-5 rounded-2xl border border-[#F4796B] bg-[#FAF8F4] p-4">
+              <Text accessibilityRole="alert" className="text-[14px] leading-[23px] text-[#25221F]" variant="body">
                 {catalogError}
               </Text>
               <Pressable
                 onPress={retryLoadingCatalog}
                 accessibilityRole="button"
                 accessibilityLabel="Retry loading prices"
-                className="mt-3 min-h-11 items-center justify-center rounded-xl bg-[#FF6B5F] px-4"
+                className="mt-3 min-h-[48px] items-center justify-center rounded-[18px] bg-[#C24A3C] shadow-sm shadow-[#C24A3C]/15 active:bg-[#A63F32] px-4"
               >
-                <Text className="font-bold text-white">Try again</Text>
+                <Text className="font-bold text-[#FAF8F4] text-[14px] leading-[22px]" variant="button">Try again</Text>
               </Pressable>
             </View>
           ) : null}
@@ -452,53 +446,53 @@ export function PricingScreen({ interval }: { interval: BillingInterval }) {
               const selected = selectedPlanId === plan.id;
 
               return (
-                <View
+                <StudioCard
                   key={plan.id}
-                  className={`rounded-[24px] border bg-white p-5 ${
-                    selected ? "border-[#FF6B5F]" : "border-[#EAE4DC]"
+                  className={`rounded-[24px] border bg-[#F4F0EA] p-6 ${
+                    selected ? "border-[#C24A3C]" : "border-[#25221F]/30"
                   }`}
                   style={{ width: cardWidth }}
                 >
-                  <Text className="text-xl font-bold text-[#24221F]">
+                  <Text className="text-[14px] leading-[23px] tracking-[-0.3px] font-bold text-[#25221F]" variant="section">
                     {plan.name}
                   </Text>
-                  <Text className="mt-2 min-h-10 text-sm leading-5 text-[#827970]">
+                  <Text className="mt-2 min-h-10 text-[14px] leading-[23px] text-[#25221F]" variant="body">
                     {plan.description ?? "Plan details have not been provided yet."}
                   </Text>
 
-                  <View className="my-5 border-t border-[#EAE4DC]" />
+                  <View className="my-5 border-t border-[#E2D9CF]" />
 
                   {price.price_minor !== null && price.currency ? (
-                    <Text className="text-3xl font-bold text-[#24221F]">
+                    <Text className="text-[22px] leading-[30px] tracking-[-0.3px] font-bold text-[#25221F]" variant="metric">
                       {formatPrice(price.price_minor, price.currency)}
-                      <Text className="text-sm font-medium text-[#827970]">
+                      <Text className="text-[14px] leading-[22px] font-medium text-[#25221F]" variant="label">
                         {interval === "monthly" ? " / month" : " / year"}
                       </Text>
                     </Text>
                   ) : (
-                    <Text className="text-lg font-bold text-[#24221F]">
+                    <Text className="text-[14px] leading-[22px] font-bold text-[#25221F]" variant="cardTitle">
                       Price unavailable
                     </Text>
                   )}
-                  <Text className="mt-2 text-sm text-[#827970]">
+                  <Text className="mt-2 text-[14px] leading-[22px] text-[#25221F]" variant="body">
                     Billed {interval === "monthly" ? "monthly" : "annually"}
                   </Text>
                   {!price.checkout_available ? (
-                    <Text className="mt-2 text-sm text-[#A33D34]">
+                    <Text className="mt-2 text-[14px] leading-[22px] text-[#25221F]" variant="body">
                       {catalog
                         ? getUnavailableMessage(catalog, plan.id, interval)
                         : "Checkout availability could not be verified."}
                     </Text>
                   ) : null}
                   {interval === "annual" && savings !== null ? (
-                    <View className="mt-3 self-start rounded-full bg-[#FCE5E1] px-3 py-1">
-                      <Text className="text-xs font-bold text-[#B94E45]">
+                    <View className="mt-3 self-start rounded-full bg-[#F4F0EA] px-3 py-1">
+                      <Text className="text-[12px] font-bold text-[#25221F]" variant="caption">
                         Save {savings}%
                       </Text>
                     </View>
                   ) : null}
 
-                  <Text className="mb-2 mt-6 text-xs font-bold uppercase tracking-[1px] text-[#51483F]">
+                  <Text className="mb-2 mt-6 text-[12px] font-bold uppercase tracking-[1px] text-[#25221F]" variant="eyebrow" tone="secondary">
                     What’s included
                   </Text>
                   {plan.features.length ? (
@@ -507,14 +501,14 @@ export function PricingScreen({ interval }: { interval: BillingInterval }) {
                         key={feature}
                         className="mb-2 flex-row items-start gap-2"
                       >
-                        <Text className="text-[#FF6B5F]">•</Text>
-                        <Text className="flex-1 text-sm leading-5 text-[#51483F]">
+                        <Text className="text-[#C24A3C]">•</Text>
+                        <Text className="flex-1 text-[14px] leading-[23px] text-[#25221F]" variant="body">
                           {feature}
                         </Text>
                       </View>
                     ))
                   ) : (
-                    <Text className="min-h-10 text-sm leading-5 text-[#827970]">
+                    <Text className="min-h-10 text-[14px] leading-[23px] text-[#25221F]" variant="body">
                       {plan.features_configured
                         ? "No features are listed for this plan."
                         : "Plan features have not been configured yet."}
@@ -553,19 +547,19 @@ export function PricingScreen({ interval }: { interval: BillingInterval }) {
                             )
                         ),
                     }}
-                    className={`mt-5 min-h-12 items-center justify-center rounded-xl px-4 ${
-                      selected ? "bg-[#F3EEE8]" : "bg-[#FF6B5F]"
+                    className={`mt-5 min-h-[48px] items-center justify-center rounded-[18px] px-4 ${
+                      selected ? "bg-[#F4F0EA]" : "bg-[#C24A3C] active:bg-[#A63F32]"
                     }`}
                   >
                     <Text
                       className={`font-bold ${
-                        selected ? "text-[#51483F]" : "text-white"
-                      }`}
+                        selected ? "text-[#25221F]" : "text-[#FAF8F4]"
+                      }`} variant="button"
                     >
                       {selected ? "Selected" : `Select ${plan.name}`}
                     </Text>
                   </Pressable>
-                </View>
+                </StudioCard>
               );
             })}
           </View>
@@ -588,15 +582,15 @@ export function PricingScreen({ interval }: { interval: BillingInterval }) {
                     !selectedPrice?.checkout_available,
                   busy: checkingOut,
                 }}
-                className={`min-h-14 items-center justify-center rounded-full px-5 ${
+                className={`min-h-[48px] items-center justify-center rounded-[18px] px-5 ${
                   checkingOut ||
                   loadingCatalog ||
                   !selectedPrice?.checkout_available
-                    ? "bg-[#C8BEB5]"
-                    : "bg-[#FF6B5F]"
+                    ? "bg-[#F4F0EA]"
+                    : "bg-[#C24A3C] active:bg-[#A63F32]"
                 }`}
               >
-                <Text className="font-bold text-white">
+                <Text className="font-bold text-[#FAF8F4] text-[14px] leading-[22px]" variant="button">
                   {checkingOut
                     ? "Opening secure checkout..."
                     : selectedPrice?.checkout_available
@@ -611,7 +605,7 @@ export function PricingScreen({ interval }: { interval: BillingInterval }) {
             <View className="mb-5">
               <Text
                 accessibilityRole="alert"
-                className="mb-3 text-sm leading-5 text-[#A33D34]"
+                className="mb-3 text-[14px] leading-[23px] text-[#25221F]" variant="body"
               >
                 {checkoutError}
               </Text>
@@ -620,16 +614,16 @@ export function PricingScreen({ interval }: { interval: BillingInterval }) {
                   onPress={() => router.push("/sign-in")}
                   accessibilityRole="button"
                   accessibilityLabel="Sign in to continue to checkout"
-                  className="min-h-12 items-center justify-center rounded-full bg-[#FF6B5F] px-5"
+                  className="min-h-[48px] items-center justify-center rounded-[18px] bg-[#C24A3C] shadow-sm shadow-[#C24A3C]/15 active:bg-[#A63F32] px-5"
                 >
-                  <Text className="font-bold text-white">Sign in</Text>
+                  <Text className="font-bold text-[#FAF8F4] text-[14px] leading-[22px]" variant="button">Sign in</Text>
                 </Pressable>
               ) : null}
             </View>
           ) : null}
 
-          <View className="rounded-2xl border border-[#EAE4DC] bg-[#F3EEE8] p-4">
-            <Text className="text-sm leading-5 text-[#51483F]">
+          <View className="rounded-2xl border border-[#E2D9CF] bg-[#F4F0EA] p-4">
+            <Text className="text-[14px] leading-[23px] text-[#25221F]" variant="body">
               {selectedPlan
                 ? `${selectedPlan.name} is selected for ${interval} billing. `
                 : "Select a plan to continue. "}

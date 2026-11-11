@@ -1,12 +1,7 @@
+import { StudioText as Text } from "../../../components/ui/StudioText";
+import { StudioPressable as Pressable, StudioCard } from "../../../components/ui/StudioControls";
 import { useCallback, useMemo, useState } from "react";
-import {
-  ActivityIndicator,
-  Pressable,
-  RefreshControl,
-  ScrollView,
-  Text,
-  View,
-} from "react-native";
+import { ActivityIndicator, RefreshControl, ScrollView, View } from "react-native";
 import { useFocusEffect, useRouter } from "expo-router";
 import { BottomNavigation } from "../../../components/navigation/BottomNavigation";
 import {
@@ -177,18 +172,18 @@ export function NotificationsScreen() {
   };
 
   return (
-    <View className="flex-1 bg-[#FCF9F4]">
+    <View className="flex-1 bg-[#FAF8F4]">
       <ScrollView
         contentContainerStyle={{
           padding: 24,
           paddingTop: 40,
-          paddingBottom: 32,
+          paddingBottom: 48, width: "100%", maxWidth: 960, alignSelf: "center",
         }}
         refreshControl={
           <RefreshControl
             refreshing={refreshing}
             onRefresh={() => void load(true)}
-            tintColor="#FF6B5F"
+            tintColor="#C24A3C"
           />
         }
         showsVerticalScrollIndicator={false}
@@ -199,15 +194,15 @@ export function NotificationsScreen() {
         }
         accessibilityRole="button"
         accessibilityLabel="Go back"
-        className="mb-8 h-11 w-11 items-center justify-center rounded-full border border-[#EAE4DC] bg-white"
+        className="mb-4 h-11 w-11 items-center justify-center rounded-full border border-[#E2D9CF] bg-[#FAF8F4] active:bg-[#F4F0EA]"
       >
-        <Text className="text-xl text-[#51483F]">‹</Text>
+        <Text className="text-xl text-[#25221F]">‹</Text>
       </Pressable>
-        <Text className="mb-2 text-xs font-bold uppercase tracking-[3px] text-[#FF6B5F]">
+        <Text className="mb-2 text-[12px] font-bold uppercase tracking-[2px] text-[#C24A3C]" variant="eyebrow" tone="secondary">
           YOUR WORKSPACE
         </Text>
         <View className="mb-2 flex-row items-center justify-between">
-          <Text className="text-4xl font-bold text-[#24221F]">
+          <Text className="text-[22px] leading-[30px] tracking-[-0.4px] font-bold text-[#25221F]" variant="page" tone="olive">
             Notifications
           </Text>
           {unreadCount > 0 && (
@@ -215,72 +210,72 @@ export function NotificationsScreen() {
               onPress={() => void markAllRead()}
               disabled={processingAll}
               accessibilityRole="button"
-              className="min-h-11 justify-center px-2"
+              className="min-h-[48px] justify-center px-2 rounded-[18px]"
             >
-              <Text className="font-semibold text-[#FF6B5F]">
+              <Text className="font-semibold text-[#C24A3C] text-[14px] leading-[22px]" variant="button">
                 {processingAll ? "Updating..." : "Mark all read"}
               </Text>
             </Pressable>
           )}
         </View>
-        <Text className="mb-6 text-base leading-6 text-[#827970]">
+        <Text className="mb-6 text-[14px] leading-6 text-[#25221F]" variant="body">
           Stay up to date on decisions and activity across your content.
         </Text>
 
         {error && notifications.length > 0 ? (
-          <View className="mb-5 rounded-2xl border border-[#F0C5BE] bg-white p-4">
-            <Text className="leading-5 text-[#A33D34]">{error}</Text>
+          <View className="mb-5 rounded-2xl border border-[#F4796B] bg-[#FAF8F4] p-4">
+            <Text className="text-[#25221F] text-[14px] leading-[22px]" variant="body">{error}</Text>
             <Pressable
               onPress={() => void load(true)}
               accessibilityRole="button"
-              className="mt-3 min-h-11 self-start justify-center px-2"
+              className="mt-3 min-h-[48px] self-start justify-center px-2 rounded-[18px]"
             >
-              <Text className="font-semibold text-[#FF6B5F]">Try again</Text>
+              <Text className="font-semibold text-[#C24A3C] text-[14px] leading-[22px]" variant="button">Try again</Text>
             </Pressable>
           </View>
         ) : null}
 
         {loading ? (
           <View className="items-center py-16">
-            <ActivityIndicator size="large" color="#FF6B5F" />
-            <Text className="mt-3 text-[#827970]">
+            <ActivityIndicator size="large" color="#C24A3C" />
+            <Text className="mt-3 text-[#25221F] text-[14px] leading-[22px]" variant="body">
               Loading notifications...
             </Text>
           </View>
         ) : error && notifications.length === 0 ? (
-          <View className="rounded-3xl border border-[#EAE4DC] bg-white p-5">
-            <Text className="font-semibold text-[#24221F]">
+          <StudioCard className="rounded-3xl border border-[#25221F]/30 bg-[#F4F0EA] p-5">
+            <Text className="font-semibold text-[#25221F] text-[14px] leading-[22px]" variant="label">
               Couldn’t load notifications
             </Text>
-            <Text className="mt-2 leading-5 text-[#A33D34]">{error}</Text>
+            <Text className="mt-2 text-[#25221F] text-[14px] leading-[22px]" variant="body">{error}</Text>
             <Pressable
               onPress={() => void load()}
               accessibilityRole="button"
-              className="mt-4 min-h-11 self-start justify-center rounded-xl bg-[#24221F] px-4"
+              className="mt-4 min-h-[48px] self-start justify-center rounded-[18px] bg-[#C24A3C] active:bg-[#A63F32] px-4"
             >
-              <Text className="font-semibold text-white">Try again</Text>
+              <Text className="font-semibold text-[#FAF8F4] text-[14px] leading-[22px]" variant="button">Try again</Text>
             </Pressable>
-          </View>
+          </StudioCard>
         ) : notifications.length === 0 ? (
-          <View className="rounded-3xl border border-[#EAE4DC] bg-white p-6">
-            <View className="mb-4 h-12 w-12 items-center justify-center rounded-2xl bg-[#F3EEE8]">
+          <StudioCard className="rounded-3xl border border-[#E2D9CF] bg-[#F4F0EA] p-5">
+            <View className="mb-4 h-12 w-12 items-center justify-center rounded-2xl bg-[#F4F0EA]">
               <Text className="text-xl">♧</Text>
             </View>
-            <Text className="text-xl font-bold text-[#24221F]">
+            <Text className="text-[14px] leading-[23px] tracking-[-0.3px] font-bold text-[#25221F]" variant="section">
               You’re all caught up
             </Text>
-            <Text className="mt-2 leading-6 text-[#827970]">
+            <Text className="mt-2 text-[#25221F] text-[14px] leading-[22px]" variant="body">
               Updates about your approval decisions will appear here.
             </Text>
-          </View>
+          </StudioCard>
         ) : (
           <View className="gap-6">
             {groups.map(([groupName, items]) => (
               <View key={groupName}>
-                <Text className="mb-3 text-sm font-bold uppercase tracking-wide text-[#827970]">
+                <Text className="mb-3 text-[14px] leading-[22px] font-bold uppercase tracking-wide text-[#25221F]" variant="eyebrow" tone="secondary">
                   {groupName}
                 </Text>
-                <View className="overflow-hidden rounded-3xl border border-[#EAE4DC] bg-white">
+                <View className="overflow-hidden rounded-3xl border border-[#25221F]/30 bg-[#F4F0EA]">
                   {items.map((notification, index) => (
                     <Pressable
                       key={notification.id}
@@ -289,11 +284,11 @@ export function NotificationsScreen() {
                       accessibilityRole="button"
                       accessibilityLabel={`${notification.is_read ? "" : "Unread. "}${notification.title}. ${notification.message}. ${relativeTime(notification.created_at)}`}
                       className={`min-h-[88px] flex-row items-center gap-3 px-4 py-4 ${
-                        index > 0 ? "border-t border-[#EAE4DC]" : ""
-                      } ${notification.is_read ? "" : "bg-[#FFFCF8]"}`}
+                        index > 0 ? "border-t border-[#E2D9CF]" : ""
+                      } ${notification.is_read ? "" : "bg-[#F4F0EA]"}`}
                     >
-                      <View className="h-10 w-10 items-center justify-center rounded-2xl bg-[#F3EEE8]">
-                        <Text className="text-lg text-[#FF6B5F]">
+                      <View className="h-10 w-10 items-center justify-center rounded-2xl bg-[#F4F0EA]">
+                        <Text className="text-lg text-[#C24A3C]">
                           {notification.notification_type ===
                           "approval_approved"
                             ? "✓"
@@ -304,22 +299,22 @@ export function NotificationsScreen() {
                         </Text>
                       </View>
                       <View className="flex-1">
-                        <Text className="font-bold text-[#24221F]">
+                        <Text className="font-bold text-[#25221F] text-[14px] leading-[22px]" variant="controlTitle">
                           {notification.title}
                         </Text>
-                        <Text className="mt-1 leading-5 text-[#827970]">
+                        <Text className="mt-1 text-[#25221F] text-[14px] leading-[22px]" variant="body">
                           {notification.message}
                         </Text>
-                        <Text className="mt-2 text-xs text-[#9B9188]">
+                        <Text className="mt-2 text-[12px] text-[#25221F]" variant="caption">
                           {relativeTime(notification.created_at)}
                         </Text>
                       </View>
                       {processingId === notification.id ? (
-                        <ActivityIndicator size="small" color="#FF6B5F" />
+                        <ActivityIndicator size="small" color="#C24A3C" />
                       ) : !notification.is_read ? (
                         <View
                           accessibilityLabel="Unread"
-                          className="h-2.5 w-2.5 rounded-full bg-[#FF6B5F]"
+                          className="h-2.5 w-2.5 rounded-full bg-[#C24A3C]"
                         />
                       ) : null}
                     </Pressable>
