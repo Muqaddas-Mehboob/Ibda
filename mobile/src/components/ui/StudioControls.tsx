@@ -15,7 +15,6 @@ import {
   Pressable,
   StyleSheet,
   TextInput,
-  useAnimatedValue,
   View,
   type PressableProps,
   type TextInputProps,
@@ -23,6 +22,13 @@ import {
 } from "react-native";
 import { cssInterop } from "nativewind";
 import { useStudioFont } from "./StudioFonts";
+
+// React Native Web does not export useAnimatedValue, so create the value with
+// the cross-platform Animated API and keep it stable for the component lifetime.
+function useStableAnimatedValue(initialValue: number) {
+  const [value] = useState(() => new Animated.Value(initialValue));
+  return value;
+}
 
 // Motion preferences live here, independently of authentication and app data.
 const ReducedMotion = createContext(true);
@@ -70,7 +76,7 @@ export const StudioPressable = forwardRef<ComponentRef<typeof Pressable>, Studio
     ref,
   ) {
     const reduced = useContext(ReducedMotion);
-    const scale = useAnimatedValue(1);
+    const scale = useStableAnimatedValue(1);
     const [pressed, setPressed] = useState(false);
     const [hovered, setHovered] = useState(false);
     const resolvedStyle = typeof style === "function" ? style({ pressed, hovered }) : style;
@@ -134,7 +140,7 @@ export const StudioInput = forwardRef<ComponentRef<typeof TextInput>, TextInputP
     const font = useStudioFont("400");
     const reduced = useContext(ReducedMotion);
     const frameFocus = useContext(InputFrameFocus);
-    const focus = useAnimatedValue(0);
+    const focus = useStableAnimatedValue(0);
 
     useEffect(() => () => focus.stopAnimation(), [focus]);
 
@@ -189,7 +195,7 @@ export const StudioInput = forwardRef<ComponentRef<typeof TextInput>, TextInputP
 
 export function StudioInputFrame({ style, children, ...props }: ViewProps & { className?: string }) {
   const reduced = useContext(ReducedMotion);
-  const focus = useAnimatedValue(0);
+  const focus = useStableAnimatedValue(0);
   useEffect(() => () => focus.stopAnimation(), [focus]);
   const animate = (value: number) => {
     focus.stopAnimation();
@@ -220,7 +226,7 @@ export function StudioCard({ style, ...props }: ViewProps & { className?: string
 
 export function StudioHighlight({ selected, color = "#F4F0EA" }: { selected: boolean; color?: string }) {
   const reduced = useContext(ReducedMotion);
-  const opacity = useAnimatedValue(selected ? 1 : 0);
+  const opacity = useStableAnimatedValue(selected ? 1 : 0);
   useEffect(() => {
     Animated.timing(opacity, {
       toValue: selected ? 1 : 0,

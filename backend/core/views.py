@@ -138,9 +138,11 @@ from .services.instagram_oauth import (
     connect_instagram_account,
     consume_instagram_oauth_state,
     create_instagram_authorization_url,
+    format_instagram_diagnostic,
     get_instagram_oauth_response_mode,
     instagram_oauth_configuration_error,
     instagram_oauth_is_configured,
+    sanitize_instagram_diagnostic,
 )
 from .services.media_storage import (
     MAX_IMAGE_BYTES,
@@ -1069,13 +1071,18 @@ class SocialOAuthCallbackView(APIView):
         try:
             return SocialOAuthCallbackView._facebook_callback_response(request)
         except Exception as error:
+            diagnostics = {
+                "platform": SocialAccount.Platform.FACEBOOK_PAGES,
+                "failure_category": "unexpected",
+                "error_type": type(error).__name__,
+            }
             logger.warning(
-                "facebook_oauth.callback_failed",
+                format_instagram_diagnostic(
+                    "facebook_oauth.callback_failed", **diagnostics
+                ),
                 extra={
                     "event": "facebook_oauth.callback_failed",
-                    "platform": SocialAccount.Platform.FACEBOOK_PAGES,
-                    "failure_category": "unexpected",
-                    "error_type": type(error).__name__,
+                    **diagnostics,
                 },
             )
             # Never log the exception message, traceback, or chained
@@ -1118,18 +1125,26 @@ class SocialOAuthCallbackView(APIView):
                 code,
             )
         except (FacebookOAuthError, SocialTokenEncryptionError) as error:
+            diagnostics = {
+                "platform": SocialAccount.Platform.FACEBOOK_PAGES,
+                "failure_category": (
+                    "facebook_oauth_error"
+                    if isinstance(error, FacebookOAuthError)
+                    else "social_token_encryption_error"
+                ),
+                "error_type": type(error).__name__,
+                "detail": sanitize_instagram_diagnostic(
+                    error,
+                    sensitive_values=(code,),
+                ),
+            }
             logger.warning(
-                "facebook_oauth.callback_failed",
+                format_instagram_diagnostic(
+                    "facebook_oauth.callback_failed", **diagnostics
+                ),
                 extra={
                     "event": "facebook_oauth.callback_failed",
-                    "platform": SocialAccount.Platform.FACEBOOK_PAGES,
-                    "failure_category": (
-                        "facebook_oauth_error"
-                        if isinstance(error, FacebookOAuthError)
-                        else "social_token_encryption_error"
-                    ),
-                    "error_type": type(error).__name__,
-                    "detail": str(error),
+                    **diagnostics,
                 },
             )
             return _social_accounts_oauth_redirect("failed", response_mode)
@@ -1144,13 +1159,19 @@ class SocialOAuthCallbackView(APIView):
         try:
             return SocialOAuthCallbackView._instagram_callback_response(request)
         except Exception as error:
+            diagnostics = {
+                "platform": SocialAccount.Platform.INSTAGRAM,
+                "failure_category": "unexpected",
+                "error_type": type(error).__name__,
+                "detail": "Unexpected Instagram OAuth callback error.",
+            }
             logger.warning(
-                "instagram_oauth.callback_failed",
+                format_instagram_diagnostic(
+                    "instagram_oauth.callback_failed", **diagnostics
+                ),
                 extra={
                     "event": "instagram_oauth.callback_failed",
-                    "platform": SocialAccount.Platform.INSTAGRAM,
-                    "failure_category": "unexpected",
-                    "error_type": type(error).__name__,
+                    **diagnostics,
                 },
             )
             response_mode = get_instagram_oauth_response_mode(
@@ -1166,6 +1187,18 @@ class SocialOAuthCallbackView(APIView):
     def _instagram_callback_response(request):
         state = request.query_params.get("state", "")
         oauth_state = consume_instagram_oauth_state(state)
+        state_valid = oauth_state is not None
+        logger.log(
+            logging.INFO if state_valid else logging.WARNING,
+            format_instagram_diagnostic(
+                "instagram_oauth.state_validation",
+                state_valid=state_valid,
+            ),
+            extra={
+                "event": "instagram_oauth.state_validation",
+                "state_valid": state_valid,
+            },
+        )
         if oauth_state is None:
             response_mode = get_instagram_oauth_response_mode(state)
             return _social_accounts_oauth_redirect(
@@ -1194,18 +1227,28 @@ class SocialOAuthCallbackView(APIView):
         try:
             connect_instagram_account(oauth_state.owner_id, code)
         except (InstagramOAuthError, SocialTokenEncryptionError) as error:
+            diagnostics = {
+                "platform": SocialAccount.Platform.INSTAGRAM,
+                "failure_category": (
+                    "instagram_oauth_error"
+                    if isinstance(error, InstagramOAuthError)
+                    else "social_token_encryption_error"
+                ),
+                "error_type": type(error).__name__,
+                "detail": sanitize_instagram_diagnostic(
+                    error,
+                    sensitive_values=(
+                        request.query_params.get("code", ""),
+                    ),
+                ),
+            }
             logger.warning(
-                "instagram_oauth.callback_failed",
+                format_instagram_diagnostic(
+                    "instagram_oauth.callback_failed", **diagnostics
+                ),
                 extra={
                     "event": "instagram_oauth.callback_failed",
-                    "platform": SocialAccount.Platform.INSTAGRAM,
-                    "failure_category": (
-                        "instagram_oauth_error"
-                        if isinstance(error, InstagramOAuthError)
-                        else "social_token_encryption_error"
-                    ),
-                    "error_type": type(error).__name__,
-                    "detail": str(error),
+                    **diagnostics,
                 },
             )
             return _social_accounts_oauth_redirect(

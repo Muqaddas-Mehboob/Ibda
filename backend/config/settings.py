@@ -3,6 +3,7 @@ Django settings for config project.
 """
 
 import environ
+import sys
 from pathlib import Path
 from corsheaders.defaults import default_headers
 
@@ -27,6 +28,35 @@ ALLOWED_HOSTS = env.list(
     "DJANGO_ALLOWED_HOSTS",
     default=["127.0.0.1", "localhost"],
 )
+IS_DEVELOPMENT_SERVER = DEBUG or "runserver" in sys.argv
+if IS_DEVELOPMENT_SERVER:
+    # Expo Go reaches a host-machine backend via the computer's LAN address,
+    # which is not one of Django's loopback hosts. The local runserver may be
+    # used with DEBUG=False, so add only private interface addresses there too.
+    # Production WSGI/ASGI processes do not run this command and stay explicit.
+    import ipaddress
+    import socket
+
+    try:
+        local_addresses = {
+            result[4][0]
+            for result in socket.getaddrinfo(
+                socket.gethostname(), None, type=socket.SOCK_STREAM
+            )
+        }
+    except OSError:
+        local_addresses = set()
+    development_hosts = []
+    for address in local_addresses:
+        try:
+            parsed_address = ipaddress.ip_address(address.split("%", 1)[0])
+        except ValueError:
+            continue
+        if parsed_address.is_private and not (
+            parsed_address.is_loopback or parsed_address.is_link_local
+        ):
+            development_hosts.append(address)
+    ALLOWED_HOSTS = list(dict.fromkeys([*ALLOWED_HOSTS, *development_hosts]))
 
 # Supabase configuration
 SUPABASE_URL = env("SUPABASE_URL", default="").rstrip("/")

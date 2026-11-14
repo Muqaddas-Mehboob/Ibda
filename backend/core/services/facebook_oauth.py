@@ -343,6 +343,77 @@ def _log_pagination_stopped(reason, pages_collected):
         },
     )
 
+
+def _safe_graph_error(data):
+    """Return a tightly constrained Graph error summary suitable for logs."""
+    error = data.get("error") if isinstance(data, dict) else None
+    if not isinstance(error, dict):
+        return "none"
+    code = error.get("code")
+    code = str(code) if isinstance(code, (int, str)) and str(code).isdigit() else "unknown"
+    error_type = error.get("type")
+    error_type = (
+        error_type
+        if isinstance(error_type, str) and re.fullmatch(r"[A-Za-z][A-Za-z0-9_]{0,63}", error_type)
+        else "unknown"
+    )
+    # Provider text is untrusted and may echo request data. Keep only a short,
+    # credential-shaped-text-free version; omit it entirely if it looks unsafe.
+    message = error.get("message")
+    if not isinstance(message, str):
+        message = "unavailable"
+    elif (
+        len(message) > 200
+        or re.search(r"(?i)(access.?token|authorization.?code|app.?secret|bearer|password|[A-Za-z0-9_-]{8,})", message)
+    ):
+        message = "redacted"
+    else:
+        message = re.sub(r"[^A-Za-z0-9 .,;:_()/-]", "?", message)
+    return f"code={code} type={error_type} message={message}"
+
+
+def _response_graph_error(response):
+    try:
+        return _safe_graph_error(response.json())
+    except (ValueError, AttributeError):
+        return "unavailable"
+
+
+def _log_user_permissions(user_access_token):
+    endpoint = FACEBOOK_GRAPH_URL.format(
+        version=settings.SOCIAL_FACEBOOK_GRAPH_API_VERSION
+    ) + "/me/permissions"
+    try:
+        response = requests.get(
+            endpoint,
+            headers={"Accept": "application/json", "Authorization": f"Bearer {user_access_token}"},
+            timeout=REQUEST_TIMEOUT,
+            allow_redirects=False,
+        )
+        status = response.status_code
+        data = _response_graph_error(response) if status != 200 else _response_json(response)
+        graph_error = data if status != 200 else "none"
+        if status != 200:
+            data = {}
+        entries = data.get("data") if isinstance(data, dict) else None
+        permitted = []
+        if isinstance(entries, list):
+            for entry in entries:
+                if isinstance(entry, dict) and entry.get("permission") in {
+                    "pages_show_list", "pages_read_engagement"
+                }:
+                    state = entry.get("status")
+                    if state not in {"granted", "declined", "expired"}:
+                        state = "unknown"
+                    permitted.append(f"{entry['permission']}:{state}")
+        logger.info(
+            "Facebook OAuth permissions: status=%s success=%s permissions=%s graph_error=%s",
+            status, status == 200, ",".join(permitted) or "none",
+            graph_error,
+        )
+    except (requests.RequestException, FacebookOAuthError):
+        logger.warning("Facebook OAuth permissions: status=unavailable success=false permissions=unavailable")
+
 def _get_authorized_pages(user_access_token):
     endpoint = (
         FACEBOOK_GRAPH_URL.format(
@@ -351,6 +422,7 @@ def _get_authorized_pages(user_access_token):
         + "/me/accounts"
     )
     pages = []
+    skipped = 0
     after = None
     seen_cursors = set()
 
@@ -373,34 +445,62 @@ def _get_authorized_pages(user_access_token):
                 allow_redirects=False,
             )
         except requests.RequestException as error:
+            logger.warning(
+                "Facebook OAuth Pages: status=unavailable success=false entries=unavailable usable_pages=%s skipped=%s graph_error=unavailable",
+                len(pages), skipped,
+            )
             raise FacebookOAuthError("Unable to retrieve authorized Facebook Pages.") from error
 
         if response.status_code != 200:
+            logger.warning(
+                "Facebook OAuth Pages: status=%s success=false entries=0 usable_pages=%s skipped=%s graph_error=%s",
+                response.status_code, len(pages), skipped,
+                _response_graph_error(response),
+            )
             raise FacebookOAuthError("Unable to retrieve authorized Facebook Pages.")
         data = _response_json(response)
         page_data = data.get("data")
         if not isinstance(page_data, list):
+            logger.warning(
+                "Facebook OAuth Pages: status=%s success=false entries=invalid usable_pages=%s skipped=%s skip_reasons=invalid_structure:1 graph_error=none",
+                response.status_code, len(pages), skipped + 1,
+            )
             raise FacebookOAuthError("Meta returned an invalid Pages response.")
+        reasons = {}
         for page_index, page in enumerate(page_data):
             if not isinstance(page, dict):
                 _log_skipped_page(page_index, "invalid_entry")
+                skipped += 1
+                reasons["invalid_structure"] = reasons.get("invalid_structure", 0) + 1
                 continue
             if not isinstance(page.get("id"), str) or not page["id"]:
                 _log_skipped_page(page_index, "missing_id")
+                skipped += 1
+                reasons["missing_id"] = reasons.get("missing_id", 0) + 1
                 continue
             if (
                 not isinstance(page.get("name"), str)
                 or not page["name"].strip()
             ):
                 _log_skipped_page(page_index, "missing_name")
+                skipped += 1
+                reasons["missing_name"] = reasons.get("missing_name", 0) + 1
                 continue
             if (
                 not isinstance(page.get("access_token"), str)
                 or not page["access_token"]
             ):
                 _log_skipped_page(page_index, "missing_access_token")
+                skipped += 1
+                reasons["missing_access_token"] = reasons.get("missing_access_token", 0) + 1
                 continue
             pages.append(page)
+
+        logger.info(
+            "Facebook OAuth Pages: status=%s success=true entries=%s usable_pages=%s skipped=%s skip_reasons=%s graph_error=none",
+            response.status_code, len(page_data), len(pages), skipped,
+            ",".join(f"{reason}:{count}" for reason, count in sorted(reasons.items())) or "none",
+        )
 
         paging = data.get("paging")
         if not isinstance(paging, dict) or not paging.get("next"):
@@ -432,6 +532,8 @@ def connect_authorized_facebook_pages(owner_id, code):
     short_lived_token = _exchange_code(code)
     user_access_token = _exchange_long_lived_token(short_lived_token)
     pages = _get_authorized_pages(user_access_token)
+    if not pages:
+        _log_user_permissions(user_access_token)
 
     # Verify every Page token before writing anything so a failure cannot leave
     # a partially connected account behind.

@@ -1,10 +1,9 @@
 import { supabase } from "../../../lib/supabase";
+import { getApiBaseUrl } from "@/lib/apiBaseUrl";
 import { Platform } from "react-native";
 import type { ImagePickerAsset } from "expo-image-picker";
 
-const API_URL = (
-  process.env.EXPO_PUBLIC_API_URL || "http://127.0.0.1:8000/api"
-).replace(/\/+$/, "");
+const API_URL = getApiBaseUrl();
 
 export type SocialPlatform =
   | "instagram"

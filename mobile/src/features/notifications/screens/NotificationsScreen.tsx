@@ -12,6 +12,13 @@ import {
   type NotificationListResponse,
 } from "../services/notification.service";
 
+const RelativeTimeFormat =
+  typeof Intl !== "undefined" ? Intl.RelativeTimeFormat : undefined;
+const relativeTimeFormatter =
+  typeof RelativeTimeFormat === "function"
+    ? new RelativeTimeFormat(undefined, { numeric: "auto" })
+    : null;
+
 function dateGroup(value: string): string {
   const createdAt = new Date(value);
   if (Number.isNaN(createdAt.getTime())) return "Earlier";
@@ -48,15 +55,28 @@ function relativeTime(value: string): string {
   if (!Number.isFinite(timestamp)) return "Time unavailable";
 
   const seconds = Math.round((timestamp - Date.now()) / 1000);
-  const formatter = new Intl.RelativeTimeFormat(undefined, {
-    numeric: "auto",
-  });
-  if (Math.abs(seconds) < 60) return formatter.format(seconds, "second");
+  if (Math.abs(seconds) < 60) return formatRelative(seconds, "second");
   const minutes = Math.round(seconds / 60);
-  if (Math.abs(minutes) < 60) return formatter.format(minutes, "minute");
+  if (Math.abs(minutes) < 60) return formatRelative(minutes, "minute");
   const hours = Math.round(minutes / 60);
-  if (Math.abs(hours) < 24) return formatter.format(hours, "hour");
-  return formatter.format(Math.round(hours / 24), "day");
+  if (Math.abs(hours) < 24) return formatRelative(hours, "hour");
+  return formatRelative(Math.round(hours / 24), "day");
+}
+
+function formatRelative(
+  amount: number,
+  unit: Intl.RelativeTimeFormatUnit
+): string {
+  if (relativeTimeFormatter) return relativeTimeFormatter.format(amount, unit);
+
+  const absoluteAmount = Math.abs(amount);
+  if (absoluteAmount === 0) return unit === "second" ? "now" : `this ${unit}`;
+  if (unit === "day" && absoluteAmount === 1) {
+    return amount < 0 ? "yesterday" : "tomorrow";
+  }
+
+  const label = `${absoluteAmount} ${unit}${absoluteAmount === 1 ? "" : "s"}`;
+  return amount < 0 ? `${label} ago` : `in ${label}`;
 }
 
 function groupedNotifications(notifications: AppNotification[]) {

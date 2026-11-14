@@ -1581,6 +1581,81 @@ class SocialAccountApiTests(APITestCase):
             payload["expires_in"] = expires_in
         return SimpleNamespace(status_code=200, json=lambda: payload)
 
+    @override_settings(SOCIAL_FACEBOOK_GRAPH_API_VERSION="v27.0")
+    @patch("core.services.facebook_oauth.requests.get")
+    def test_facebook_page_discovery_logs_sanitized_counts_and_reasons(self, mock_get):
+        cases = (
+            ({"data": []}, "entries=0 usable_pages=0 skipped=0 skip_reasons=none", 0),
+            (
+                {"data": [{"id": "p", "name": "Page", "access_token": "secret-page-token"}]},
+                "entries=1 usable_pages=1 skipped=0 skip_reasons=none",
+                1,
+            ),
+            (
+                {
+                    "data": [
+                        {"name": "Missing id", "access_token": "opaque"},
+                        {"id": "p2", "access_token": "opaque"},
+                        {"id": "p3", "name": "Missing token"},
+                        "bad",
+                    ]
+                },
+                "entries=4 usable_pages=0 skipped=4 skip_reasons=invalid_structure:1,missing_access_token:1,missing_id:1,missing_name:1",
+                0,
+            ),
+        )
+        for payload, expected, usable_count in cases:
+            mock_get.return_value = SimpleNamespace(status_code=200, json=lambda payload=payload: payload)
+            with self.subTest(payload=payload), self.assertLogs("core.services.facebook_oauth", level="INFO") as captured:
+                pages = facebook_oauth._get_authorized_pages("secret-user-token")
+            self.assertIn(expected, "\n".join(captured.output))
+            self.assertIn("status=200 success=true", "\n".join(captured.output))
+            self.assertNotIn("secret-page-token", "\n".join(captured.output))
+            self.assertNotIn("secret-user-token", "\n".join(captured.output))
+            self.assertEqual(len(pages), usable_count)
+
+    @override_settings(SOCIAL_FACEBOOK_GRAPH_API_VERSION="v27.0")
+    @patch("core.services.facebook_oauth.requests.get")
+    def test_facebook_graph_error_diagnostic_is_sanitized(self, mock_get):
+        response = SimpleNamespace(
+            status_code=400,
+            json=lambda: {
+                "error": {
+                    "code": 190,
+                    "type": "OAuthException",
+                    "message": "Invalid access token secret-user-token",
+                }
+            },
+        )
+        response.headers = {"Content-Type": "application/json"}
+        mock_get.return_value = response
+        with self.assertLogs("core.services.facebook_oauth", level="WARNING") as captured:
+            with self.assertRaises(facebook_oauth.FacebookOAuthError):
+                facebook_oauth._get_authorized_pages("secret-user-token")
+        output = "\n".join(captured.output)
+        self.assertIn("status=400 success=false", output)
+        self.assertIn("code=190 type=OAuthException message=redacted", output)
+        self.assertNotIn("secret-user-token", output)
+
+    @override_settings(SOCIAL_FACEBOOK_GRAPH_API_VERSION="v27.0")
+    @patch("core.services.facebook_oauth.requests.get")
+    def test_facebook_permissions_log_names_and_statuses_only(self, mock_get):
+        mock_get.return_value = SimpleNamespace(
+            status_code=200,
+            json=lambda: {
+                "data": [
+                    {"permission": "pages_show_list", "status": "granted"},
+                    {"permission": "pages_read_engagement", "status": "declined"},
+                ]
+            },
+        )
+        with self.assertLogs("core.services.facebook_oauth", level="INFO") as captured:
+            facebook_oauth._log_user_permissions("secret-user-token")
+        output = "\n".join(captured.output)
+        self.assertIn("pages_show_list:granted", output)
+        self.assertIn("pages_read_engagement:declined", output)
+        self.assertNotIn("secret-user-token", output)
+
     def facebook_debug_response(
         self,
         *,
@@ -1812,6 +1887,13 @@ class SocialAccountApiTests(APITestCase):
                 status_code=200,
                 json=lambda: {"data": []},
             ),
+            SimpleNamespace(
+                status_code=200,
+                json=lambda: {"data": [
+                    {"permission": "pages_show_list", "status": "granted"},
+                    {"permission": "pages_read_engagement", "status": "declined"},
+                ]},
+            ),
         ]
 
         response = self.client.get(
@@ -1824,7 +1906,7 @@ class SocialAccountApiTests(APITestCase):
             "ibda://social-accounts?status=no_pages",
         )
         self.assertFalse(SocialAccount.objects.exists())
-        self.assertEqual(mock_get.call_count, 3)
+        self.assertEqual(mock_get.call_count, 4)
         self.assertEqual(mock_post.call_count, 1)
         self.assertEqual(
             mock_get.call_args_list[2].kwargs["params"]["after"],
@@ -2452,6 +2534,13 @@ class SocialAccountApiTests(APITestCase):
                     ]
                 },
             ),
+            SimpleNamespace(
+                status_code=200,
+                json=lambda: {"data": [
+                    {"permission": "pages_show_list", "status": "granted"},
+                    {"permission": "pages_read_engagement", "status": "declined"},
+                ]},
+            ),
         ]
 
         response = self.client.get(
@@ -2463,7 +2552,7 @@ class SocialAccountApiTests(APITestCase):
             response["Location"],
             "ibda://social-accounts?status=no_pages",
         )
-        self.assertEqual(mock_get.call_count, 2)
+        self.assertEqual(mock_get.call_count, 3)
         self.assertEqual(mock_post.call_count, 1)
         self.assertFalse(SocialAccount.objects.exists())
         self.assertTrue(

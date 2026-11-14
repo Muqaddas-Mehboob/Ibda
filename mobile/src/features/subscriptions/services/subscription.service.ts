@@ -1,6 +1,6 @@
 import "react-native-get-random-values";
 
-import Constants from "expo-constants";
+import { getApiBaseUrl } from "@/lib/apiBaseUrl";
 import { Platform } from "react-native";
 import { supabase } from "../../../lib/supabase";
 import type {
@@ -9,55 +9,7 @@ import type {
   PricingPlan,
 } from "../data/planCatalog";
 
-const API_URL = (
-  process.env.EXPO_PUBLIC_API_URL || "http://127.0.0.1:8000/api"
-).replace(/\/+$/, "");
-
-const LOOPBACK_HOSTS = new Set(["127.0.0.1", "localhost", "::1"]);
-let loggedLocalApiResolution = false;
-
-function getApiUrl(): string {
-  const url = new URL(API_URL);
-  if (Platform.OS === "web" || !LOOPBACK_HOSTS.has(url.hostname)) {
-    return url.toString().replace(/\/+$/, "");
-  }
-
-  if (!__DEV__) {
-    throw new Error(
-      "The billing API is configured to use this device as its own server. Set EXPO_PUBLIC_API_URL to a reachable backend URL."
-    );
-  }
-
-  const hostUri = Constants.expoConfig?.hostUri;
-  if (!hostUri) {
-    throw new Error(
-      "Unable to find the Expo development host for the billing API. Set EXPO_PUBLIC_API_URL to a reachable backend URL."
-    );
-  }
-
-  let developmentHost: string;
-  try {
-    developmentHost = new URL(`http://${hostUri}`).hostname;
-  } catch {
-    throw new Error(
-      "Unable to resolve the Expo development host for the billing API. Set EXPO_PUBLIC_API_URL to a reachable backend URL."
-    );
-  }
-  if (!developmentHost || LOOPBACK_HOSTS.has(developmentHost)) {
-    throw new Error(
-      "The Expo development host is not reachable by this device. Set EXPO_PUBLIC_API_URL to a reachable backend URL."
-    );
-  }
-
-  url.hostname = developmentHost;
-  if (!loggedLocalApiResolution) {
-    console.info(
-      "[subscription] Using the Expo development host for the local billing API."
-    );
-    loggedLocalApiResolution = true;
-  }
-  return url.toString().replace(/\/+$/, "");
-}
+const API_URL = getApiBaseUrl();
 
 export type SubscriptionPlan = PricingPlan;
 
@@ -214,7 +166,7 @@ async function request<T>(
     );
   }
 
-  const apiUrl = getApiUrl();
+  const apiUrl = API_URL;
   const method = (options.method ?? "GET").toUpperCase();
   const send = (accessToken: string) => {
     const headers = new Headers(options.headers);

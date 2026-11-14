@@ -1,8 +1,7 @@
 import { supabase } from "../../../lib/supabase";
+import { getApiBaseUrl } from "@/lib/apiBaseUrl";
 
-const API_URL = (
-  process.env.EXPO_PUBLIC_API_URL || "http://127.0.0.1:8000/api"
-).replace(/\/+$/, "");
+const API_URL = getApiBaseUrl();
 
 export type SupportRequestInput = {
   contact_email: string;
